@@ -726,7 +726,8 @@ fn button_cell(ui: &mut egui::Ui, rect: Rect, ctl: Ctl, info: &Info, down: bool,
     let mut title_size = if small { 11.0 } else { (rect.height() * 0.21).clamp(11.0, 14.0) };
     // 1語の長い名前(BLACKOUTなど)は、途中で折り返さないよう文字を小さくして収める
     let one_line = clip.layout_no_wrap(info.title.clone(), theme::bold(title_size), fg).size().x;
-    if !info.title.contains(' ') && info.title.is_ascii() && one_line > inner_w {
+    // 背の低いボタン(トラックボタンなど)は、名前が長くても1行に収める
+    if ((!info.title.contains(' ') && info.title.is_ascii()) || small) && one_line > inner_w {
         title_size = (title_size * inner_w / one_line).max(6.5);
     }
     let title = clip.layout(info.title.clone(), theme::bold(title_size), fg, inner_w);
