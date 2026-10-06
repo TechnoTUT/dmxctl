@@ -69,6 +69,26 @@ impl PixelKind {
     }
 }
 
+/// 複数のバーを平行に並べた「面」で、模様をどちら向きに流すか
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub enum PixelAxis {
+    /// バーの長さ方向(今までの動き)
+    #[default]
+    Along,
+    /// バーをまたぐ方向(パッチの順に1本目→2本目…。1本のバーは全体で同じ色)
+    Across,
+}
+
+impl PixelAxis {
+    pub const ALL: [PixelAxis; 2] = [PixelAxis::Along, PixelAxis::Across];
+    pub fn label(self) -> &'static str {
+        match self {
+            PixelAxis::Along => "バーに沿って",
+            PixelAxis::Across => "バーをまたいで",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub enum PixelColor {
     Main,
@@ -113,6 +133,10 @@ pub struct PixelFx {
     pub span: bool,
     /// 中央から左右対称(模様が中央から外へ広がる)
     pub mirror: bool,
+    /// 流す向き(バーに沿って / バーをまたいで)
+    pub axis: PixelAxis,
+    /// もう一方の向きに付ける周期のずれ(端から端までで何周ずらすか)。0以外で斜めに流れる
+    pub skew: f32,
 }
 
 impl Default for PixelFx {
@@ -129,6 +153,8 @@ impl Default for PixelFx {
             reverse: false,
             span: true,
             mirror: false,
+            axis: PixelAxis::Along,
+            skew: 0.0,
         }
     }
 }
@@ -324,12 +350,18 @@ impl Core {
                 })
                 .collect();
             let total: usize = targets.iter().map(|t| t.2.pixels.len()).sum();
+            let bars = targets.len();
             let mut offset = 0;
-            for (i, _, info) in &targets {
+            for (bar, (i, _, info)) in targets.iter().enumerate() {
                 let px = &info.pixels;
-                let n = if fx.span { total } else { px.len() };
                 for (k, p) in px.iter().enumerate() {
-                    let g = if fx.span { offset + k } else { k };
+                    // g=模様の中での位置 / n=模様の長さ / across=もう一方の向きでの位置(0〜1、斜めのずれ用)
+                    let (g, n, across) = match fx.axis {
+                        PixelAxis::Along if fx.span => (offset + k, total, bar as f64 / bars as f64),
+                        PixelAxis::Along => (k, px.len(), bar as f64 / bars as f64),
+                        PixelAxis::Across => (bar, bars, k as f64 / px.len() as f64),
+                    };
+                    let phase = phase + fx.skew as f64 * across;
                     let g = if fx.reverse { n - 1 - g } else { g };
                     // 中央から左右対称: 中央=0、端=半分の長さ-1 として、半分の長さで模様を作る
                     let (g, n2) = if fx.mirror {

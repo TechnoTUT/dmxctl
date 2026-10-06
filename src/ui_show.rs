@@ -245,7 +245,7 @@ impl App {
 
     /// LEDバー(ピクセルのある機材)用のエフェクト
     fn pixel_fx_section(ui: &mut egui::Ui, core: &mut crate::engine::Core, meta: &SelMeta) -> bool {
-        use crate::pixel::{PixelColor, PixelFx, PixelKind};
+        use crate::pixel::{PixelAxis, PixelColor, PixelFx, PixelKind};
         let has_bar = core.project.fixtures.iter().any(|f| core.lib.mode(&f.profile, f.mode).is_some_and(|m| !m.pixels().is_empty()));
         if !has_bar && core.project.pixel_fx.is_empty() {
             return false;
@@ -360,16 +360,35 @@ impl App {
 
                     if let Some(w) = fx.kind.width_label() {
                         ui.label(w);
-                        changed |= ui.add(egui::DragValue::new(&mut fx.width).range(0.0..=64.0).speed(0.1)).changed();
+                        changed |= ui.add(egui::DragValue::new(&mut fx.width).range(0.0..=512.0).speed(0.1)).changed();
                         ui.end_row();
                     }
+
+                    ui.label("流す向き");
+                    ui.horizontal(|ui| {
+                        for a in PixelAxis::ALL {
+                            changed |= ui.selectable_value(&mut fx.axis, a, a.label()).changed();
+                        }
+                    })
+                    .response
+                    .on_hover_text("複数のバーを平行に並べたとき、「バーをまたいで」はパッチの順(1本目→2本目…)に流れます");
+                    ui.end_row();
 
                     ui.label("向き・つなぎ方");
                     ui.horizontal(|ui| {
                         changed |= ui.checkbox(&mut fx.reverse, "逆向き").changed();
-                        changed |= ui.checkbox(&mut fx.span, "複数台を1本につなげる").on_hover_text("OFFなら、各台で同じ動きをします").changed();
+                        if fx.axis == PixelAxis::Along {
+                            changed |= ui.checkbox(&mut fx.span, "複数台を1本につなげる").on_hover_text("OFFなら、各台で同じ動きをします").changed();
+                        }
                         changed |= ui.checkbox(&mut fx.mirror, "中央から左右対称").on_hover_text("模様が中央から外へ広がります").changed();
                     });
+                    ui.end_row();
+
+                    ui.label("斜めのずれ");
+                    changed |= ui
+                        .add(egui::DragValue::new(&mut fx.skew).range(-4.0..=4.0).speed(0.01).suffix(" 周"))
+                        .on_hover_text("もう一方の向きの端から端までで、模様を何周ずらすか。0でまっすぐ、0.5や1で斜めに流れます")
+                        .changed();
                     ui.end_row();
                 });
             });

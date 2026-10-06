@@ -538,7 +538,7 @@ impl Library {
         (lib, errors)
     }
 
-    fn add(&mut self, p: Profile) {
+    pub(crate) fn add(&mut self, p: Profile) {
         self.profiles.retain(|x| x.id != p.id);
         let p = Arc::new(p);
         self.infos.insert(p.id.clone(), (p.clone(), p.modes.iter().map(|m| Arc::new(ModeInfo::new(m))).collect()));

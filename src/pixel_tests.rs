@@ -3,7 +3,7 @@
 use crate::color::{ColorRole, ColorTarget, NamedColor};
 use crate::engine::*;
 use crate::fixture::{self, split_pixel, Library};
-use crate::pixel::{pixel_color, PixelColor, PixelFx, PixelKind};
+use crate::pixel::{pixel_color, PixelAxis, PixelColor, PixelFx, PixelKind};
 use crate::project::*;
 use std::path::Path;
 use std::sync::Arc;
@@ -337,4 +337,111 @@ fn pad_template_uses_the_next_free_pad() {
     d.project.bindings.push(Binding { name: "y".into(), trigger: Some(MidiTrigger { kind: TriggerKind::Note, channel: None, number: 0x38 }), action: Action::Blackout { mode: PadMode::Toggle }, page: Some(0), osc: None });
     assert_eq!(crate::pixel::add_pad_template(&mut d.project, Some(1)), (8, 0));
     assert!(d.project.bindings.iter().any(|b| b.page == Some(1) && b.trigger.is_some_and(|t| t.number == 0x38)));
+}
+// ---------------------------------------------------------------- 90ピクセルRGBWのバー8本(面)
+
+const BAR90: &str = "test/bar90-rgbw";
+
+/// 90ピクセルRGBW(360ch)のバー8本を、ユニバース2〜9のアドレス1に置く。戻り値=機材id(パッチ順)
+fn core_with_8_bars() -> (Core, Vec<u32>) {
+    let (mut lib, _) = Library::load(Path::new("none"));
+    lib.add(fixture::Profile {
+        id: BAR90.into(),
+        name: "LEDバー 90px RGBW".into(),
+        manufacturer: String::new(),
+        needs_arm: false,
+        modes: vec![fixture::Mode { name: "360ch".into(), channels: fixture::pixel_channels(1, 90, "RGBW") }],
+    });
+    let lib = Arc::new(lib);
+    let mut c = Core::new(Project::starter(&lib), lib.clone());
+    let ids = (0..8)
+        .map(|u| {
+            let id = c.project.add_fixture(&lib, BAR90).unwrap();
+            let i = c.project.fixture_index(id).unwrap();
+            c.project.fixtures[i].universe = u + 1;
+            c.project.fixtures[i].address = 1;
+            id
+        })
+        .collect();
+    (c, ids)
+}
+
+/// 出力(DMX)のRGBW。[バー][ピクセル]
+fn out_rgbw(c: &Core, ids: &[u32]) -> Vec<Vec<[u8; 4]>> {
+    ids.iter()
+        .map(|&id| {
+            let f = &c.project.fixtures[c.project.fixture_index(id).unwrap()];
+            let fr = &c.rt.frames[f.universe];
+            (0..90).map(|k| [fr[k * 4], fr[k * 4 + 1], fr[k * 4 + 2], fr[k * 4 + 3]]).collect()
+        })
+        .collect()
+}
+
+/// 赤が点いているピクセルの番号
+fn lit(bar: &[[u8; 4]]) -> Vec<usize> {
+    bar.iter().enumerate().filter(|(_, p)| p[0] > 0).map(|(k, _)| k).collect()
+}
+
+fn red_chase(c: &mut Core) -> &mut PixelFx {
+    c.project.pixel_fx.push(PixelFx { enabled: true, kind: PixelKind::Chase, a: PixelColor::Custom(R), b: PixelColor::Off, width: 1.0, beats: 8.0, span: false, ..PixelFx::default() });
+    c.project.pixel_fx.last_mut().unwrap()
+}
+
+#[test]
+fn eight_rgbw_bars_fill_their_own_universes() {
+    let (mut c, ids) = core_with_8_bars();
+    c.apply_named_color(NamedColor::White, ColorTarget::All);
+    c.render();
+    for (b, bar) in out_rgbw(&c, &ids).iter().enumerate() {
+        assert!(bar.iter().all(|p| *p == [0, 0, 0, 255]), "バー{} 白はWチャンネルへ: {:?}", b + 1, &bar[..2]);
+    }
+    for u in 1..=8 {
+        assert_eq!(c.rt.used_len[u], 360, "ユニバース{}", u + 1);
+        assert!(c.rt.frames[u][360..].iter().all(|&v| v == 0), "361ch以降は空");
+    }
+}
+
+#[test]
+fn across_axis_steps_bar_by_bar() {
+    let (mut c, ids) = core_with_8_bars();
+    red_chase(&mut c).axis = PixelAxis::Across;
+    // 8本・8拍で1周 = 1拍で1本進む。そのバーは全ピクセルが点く
+    for beat in [0.0, 3.0, 7.5] {
+        c.rt.beat = beat;
+        c.render();
+        let on: Vec<usize> = out_rgbw(&c, &ids).iter().enumerate().filter(|(_, bar)| !lit(bar).is_empty()).map(|(b, _)| b).collect();
+        assert_eq!(on, vec![beat as usize], "拍 {beat}");
+        assert_eq!(lit(&out_rgbw(&c, &ids)[beat as usize]).len(), 90);
+    }
+}
+
+#[test]
+fn skew_shifts_each_bar_for_a_diagonal() {
+    let (mut c, ids) = core_with_8_bars();
+    red_chase(&mut c).skew = 1.0;
+    c.rt.beat = 0.0;
+    c.render();
+    // 端から端(8本)で1周ずれる = 1本ごとに90/8ピクセルずつ先へ
+    let heads: Vec<usize> = out_rgbw(&c, &ids).iter().map(|bar| lit(bar)[0]).collect();
+    assert_eq!(heads, vec![0, 11, 22, 33, 45, 56, 67, 78]);
+    // ずれ0なら全部そろう
+    c.project.pixel_fx[0].skew = 0.0;
+    c.render();
+    assert!(out_rgbw(&c, &ids).iter().all(|bar| lit(bar) == vec![0]));
+}
+
+/// 性能の目安(普段は実行しない)。実行: cargo test --release perf_eight_bars -- --ignored --nocapture
+#[test]
+#[ignore]
+fn perf_eight_bars() {
+    let (mut c, _) = core_with_8_bars();
+    c.project.pixel_fx.push(PixelFx { enabled: true, kind: PixelKind::Wave, skew: 1.0, ..PixelFx::default() });
+    let t = std::time::Instant::now();
+    let n = 2000;
+    for i in 0..n {
+        c.rt.beat = i as f64 * 0.01;
+        c.render();
+    }
+    let per = t.elapsed().as_secs_f64() * 1e6 / n as f64;
+    println!("8本×90ピクセルRGBW: 1フレーム {per:.1} µs (40fpsで CPU {:.2}%)", per * 40.0 / 1e4);
 }
