@@ -206,7 +206,9 @@ impl D2xxApi {
         };
         // Macのアプリ(.app)に同梱したもの(Contents/Frameworks)を最初に探す
         let bundled = std::env::current_exe().ok().and_then(|exe| Some(exe.parent()?.parent()?.join("Frameworks").join("libftd2xx.dylib"))).filter(|p| cfg!(target_os = "macos") && p.exists());
-        let candidates: Vec<std::ffi::OsString> = bundled.into_iter().map(|p| p.into_os_string()).chain(names.iter().map(|n| n.into())).collect();
+        // 確認用: DMXCTL_D2XX_LIB=ライブラリのパス で直接指定
+        let custom = std::env::var_os("DMXCTL_D2XX_LIB").filter(|v| !v.is_empty());
+        let candidates: Vec<std::ffi::OsString> = custom.into_iter().chain(bundled.map(|p| p.into_os_string())).chain(names.iter().map(|n| n.into())).collect();
         for name in candidates {
             // SAFETY: FTDI公式のDLL。シンボルはD2XXの公開APIと同じシグネチャで宣言している
             match unsafe { libloading::Library::new(&name) } {
@@ -330,5 +332,48 @@ impl Drop for D2xxLink {
         unsafe {
             (self.api.close)(self.handle);
         }
+    }
+}
+
+/// 実機での確認用(普段は実行しない)。USB-DMXをつないで、全チャンネル0のフレームを3秒間送る。
+/// 実行: DMXCTL_TEST_PORT=/dev/cu.usbserial-XXXX cargo test --release hw_ -- --ignored --nocapture --test-threads=1
+#[cfg(test)]
+mod hw_tests {
+    use super::*;
+
+    fn send_for(link: &mut dyn Link, secs: f64) -> (u32, Duration) {
+        let data = vec![0u8; 513];
+        let start = Instant::now();
+        let mut n = 0;
+        while start.elapsed().as_secs_f64() < secs {
+            let t0 = Instant::now();
+            link.send(&data).unwrap();
+            n += 1;
+            if let Some(rest) = FRAME_PERIOD.checked_sub(t0.elapsed()) {
+                std::thread::sleep(rest);
+            }
+        }
+        (n, start.elapsed())
+    }
+
+    #[test]
+    #[ignore]
+    fn hw_serial() {
+        let port = std::env::var("DMXCTL_TEST_PORT").expect("DMXCTL_TEST_PORT");
+        let mut link = SerialLink::open(&port).unwrap();
+        let (n, t) = send_for(&mut link, 3.0);
+        // 送り終わるまで待って、実際に送れた速さを見る
+        let t1 = Instant::now();
+        link.0.flush().unwrap();
+        println!("COMポート: {n}フレーム / {:.2}秒 = {:.1}fps(送り切りまで +{:.1}ms)", t.as_secs_f64(), n as f64 / t.as_secs_f64(), t1.elapsed().as_secs_f64() * 1000.0);
+    }
+
+    #[test]
+    #[ignore]
+    fn hw_d2xx() {
+        println!("D2XX: {:?}", list_d2xx());
+        let mut link = D2xxLink::open(0).unwrap();
+        let (n, t) = send_for(&mut link, 3.0);
+        println!("D2XX: {n}フレーム / {:.2}秒 = {:.1}fps", t.as_secs_f64(), n as f64 / t.as_secs_f64());
     }
 }
