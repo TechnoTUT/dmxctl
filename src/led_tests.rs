@@ -118,7 +118,8 @@ fn state_based_colors_for_each_action_kind() {
 
     let col = |c: &Core, n: u8| match led(c, n) { Led::Rgb { color, .. } => color, _ => 255 };
     let lvl = |c: &Core, n: u8| match led(c, n) { Led::Rgb { level, .. } => level, _ => 255 };
-    assert_eq!([0x20, 0x21, 0x22, 0x23, 0x24, 0x25].map(|n| col(&c, n)), [C_GREEN, C_GREEN, C_VIOLET, C_YELLOW, C_PINK, C_RED]);
+    // ムービングなどのエフェクトはオレンジ(LEDバーの模様は雰囲気ごとの色。下のテスト)
+    assert_eq!([0x20, 0x21, 0x22, 0x23, 0x24, 0x25].map(|n| col(&c, n)), [C_GREEN, C_GREEN, C_ORANGE, C_YELLOW, C_PINK, C_RED]);
     assert!([0x20, 0x21, 0x22, 0x23, 0x24, 0x25].iter().all(|n| lvl(&c, *n) == 1), "最初は全部待機の明るさ");
 
     // シーン: 最後に呼んだものだけが光る(ラジオボタンのように)
@@ -189,4 +190,16 @@ fn led_settings_persist_with_sensible_defaults() {
     assert_eq!(p.led_idle, 1);
     let old: Project = serde_json::from_str(r#"{"fixtures":[]}"#).unwrap();
     assert!(old.led_enabled, "古い保存ファイルでも、LEDは既定でON");
+}
+
+#[test]
+fn face_pattern_pads_are_colored_by_their_set() {
+    let mut c = core();
+    crate::pixel::add_face_presets(&mut c.project);
+    let names: Vec<&str> = crate::pixel::FACE_SETS.iter().map(|s| s.presets[0].name).collect();
+    for (k, name) in names.iter().enumerate() {
+        bind(&mut c, TriggerKind::Note, 0x30 + k as u8, Action::Effect { name: name.to_string(), mode: PadMode::Toggle });
+    }
+    let col = |c: &Core, n: u8| match led(c, n) { Led::Rgb { color, .. } => color, _ => 255 };
+    assert_eq!([0x30, 0x31, 0x32, 0x33].map(|n| col(&c, n)), [C_LIGHT_BLUE, C_VIOLET, C_MAGENTA, C_WHITE], "チル/グルーヴ/ピーク/モノクロ");
 }

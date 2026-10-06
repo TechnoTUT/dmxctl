@@ -253,6 +253,221 @@ pub fn pixel_color(kind: PixelKind, i: usize, n: usize, phase: f64, width: f32, 
     }
 }
 
+// ---------------------------------------------------------------- 面(バーを平行に並べた配置)向けの模様
+
+/// 面向けの模様1つ分(色はメイン色/サブ色/白/消灯の組み合わせ)
+#[derive(Debug, Clone, Copy)]
+pub struct FacePreset {
+    pub name: &'static str,
+    pub kind: PixelKind,
+    pub beats: f32,
+    pub width: f32,
+    pub axis: PixelAxis,
+    pub skew: f32,
+    pub mirror: bool,
+    pub a: PixelColor,
+    pub b: PixelColor,
+}
+
+const fn fp(name: &'static str, kind: PixelKind, beats: f32, width: f32, axis: PixelAxis, skew: f32) -> FacePreset {
+    FacePreset { name, kind, beats, width, axis, skew, mirror: false, a: PixelColor::Main, b: PixelColor::Sub }
+}
+
+impl FacePreset {
+    const fn mirrored(self) -> Self {
+        FacePreset { mirror: true, ..self }
+    }
+    const fn colors(self, a: PixelColor, b: PixelColor) -> Self {
+        FacePreset { a, b, ..self }
+    }
+    /// プロジェクトに入れるピクセルエフェクト(OFFの状態で、ピクセルを持つ全機材に掛かる)
+    pub fn to_fx(self) -> PixelFx {
+        PixelFx {
+            name: self.name.into(),
+            enabled: false,
+            sel: Selector::All,
+            kind: self.kind,
+            a: self.a,
+            b: self.b,
+            beats: self.beats,
+            width: self.width,
+            reverse: false,
+            span: false,
+            mirror: self.mirror,
+            axis: self.axis,
+            skew: self.skew,
+        }
+    }
+}
+
+/// 面向けの模様のセット(雰囲気ごとに8つ)。おすすめ配置では、1セットをパッドの1段に並べる
+pub struct FaceSet {
+    pub name: &'static str,
+    pub desc: &'static str,
+    pub presets: [FacePreset; 8],
+}
+
+pub const FACE_SETS: [FaceSet; 4] = {
+    use PixelAxis::{Across, Along};
+    use PixelColor::{Main, Off, Sub, White};
+    use PixelKind::{AltFade, Alternate, Chase, Gradient, Rainbow, Sparkle, Stripes, Wave, Wipe};
+        [
+        FaceSet {
+            name: "チル",
+            desc: "ゆっくり、なめらか。イントロや落ち着いた曲に",
+            presets: [
+                fp("ブリーズ", Wave, 16.0, 1.0, Along, 0.0).mirrored(),
+                fp("斜めグラデ", Gradient, 16.0, 1.0, Along, 0.5),
+                fp("縦ウェーブ", Wave, 8.0, 1.0, Across, 0.0),
+                fp("オーロラ", Wave, 32.0, 2.0, Along, 1.0),
+                fp("星空", Sparkle, 16.0, 5.0, Along, 0.0).colors(White, Sub),
+                fp("交互フェード", AltFade, 8.0, 1.0, Across, 0.0),
+                fp("さざなみ", Wave, 16.0, 3.0, Along, 0.0),
+                fp("レインボー", Rainbow, 32.0, 1.0, Along, 0.5),
+            ],
+        },
+        FaceSet {
+            name: "グルーヴ",
+            desc: "拍に合わせて動く。Aメロ・Bメロなどに",
+            presets: [
+                fp("縞スクロール", Stripes, 4.0, 6.0, Along, 0.0),
+                fp("斜め縞", Stripes, 4.0, 8.0, Along, 0.5),
+                fp("縦スキャン", Chase, 4.0, 1.0, Across, 0.0),
+                fp("V字ウェーブ", Wave, 4.0, 1.0, Along, 0.5).mirrored(),
+                fp("バー交互", Alternate, 1.0, 1.0, Across, 0.0),
+                fp("縦ワイプ", Wipe, 8.0, 0.0, Across, 0.0),
+                fp("中央スキャン", Chase, 2.0, 1.0, Across, 0.0).mirrored(),
+                fp("斜めウェーブ", Wave, 2.0, 2.0, Along, 1.0),
+            ],
+        },
+        FaceSet {
+            name: "ピーク",
+            desc: "速く、激しく。サビやドロップに",
+            presets: [
+                fp("高速縞", Stripes, 1.0, 4.0, Along, 0.25),
+                fp("上下チェンジ", Alternate, 0.5, 4.0, Across, 0.0),
+                fp("きらめき", Sparkle, 1.0, 15.0, Along, 0.0).colors(White, Main),
+                fp("高速スキャン", Chase, 1.0, 1.0, Across, 0.0).colors(Main, Off),
+                fp("中央バースト", Chase, 1.0, 12.0, Along, 0.0).mirrored(),
+                fp("ジグザグ", Chase, 2.0, 10.0, Along, 1.0),
+                fp("ランダムバー", Sparkle, 2.0, 3.0, Across, 0.0).colors(Main, Off),
+                fp("高速ワイプ", Wipe, 1.0, 0.0, Along, 0.0).mirrored(),
+            ],
+        },
+        FaceSet {
+            name: "モノクロ",
+            desc: "白と黒(RGBWの白)。決めの場面や、色を休ませたいときに",
+            presets: [
+                fp("白ブレス", Wave, 8.0, 1.0, Along, 0.0).mirrored().colors(White, Off),
+                fp("白スキャン縦", Chase, 2.0, 1.0, Across, 0.0).colors(White, Off),
+                fp("白スキャン横", Chase, 2.0, 6.0, Along, 0.0).colors(White, Off),
+                fp("白斜め縞", Stripes, 2.0, 6.0, Along, 0.5).colors(White, Off),
+                fp("白きらめき", Sparkle, 2.0, 8.0, Along, 0.0).colors(White, Off),
+                fp("白ランダムバー", Sparkle, 1.0, 2.0, Across, 0.0).colors(White, Off),
+                fp("白1本おき", Alternate, 0.5, 1.0, Across, 0.0).colors(White, Off),
+                fp("白×メイン縞", Stripes, 4.0, 4.0, Along, 0.25).colors(White, Main),
+            ],
+        },
+        ]
+};
+
+/// 面向けの模様を、まだ無ければプロジェクトに足す(同じ名前があれば飛ばす)。戻り値=追加した数
+pub fn add_face_presets(p: &mut crate::project::Project) -> usize {
+    let mut added = 0;
+    for fx in FACE_SETS.iter().flat_map(|s| s.presets.iter()) {
+        if !p.pixel_fx.iter().any(|x| x.name == fx.name) {
+            p.pixel_fx.push(fx.to_fx());
+            added += 1;
+        }
+    }
+    added
+}
+
+/// 模様の雰囲気(パッドの色分け用)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Energy {
+    /// ゆっくり(1周8拍以上、または止まったまま)
+    Calm,
+    /// 拍に合わせて動く(1周2〜8拍)
+    Groove,
+    /// 速い(1周2拍未満)
+    Peak,
+    /// 白と消灯だけ
+    Mono,
+}
+
+impl PixelFx {
+    /// 雰囲気。面向けのセットにある模様はそのセットの雰囲気、それ以外は色と速さから決める
+    pub fn energy(&self) -> Energy {
+        const SETS: [Energy; 4] = [Energy::Calm, Energy::Groove, Energy::Peak, Energy::Mono];
+        if let Some(k) = FACE_SETS.iter().position(|s| s.presets.iter().any(|p| p.name == self.name)) {
+            return SETS[k];
+        }
+        let mono = |c: PixelColor| matches!(c, PixelColor::White | PixelColor::Off);
+        if self.kind.uses_colors() && mono(self.a) && mono(self.b) {
+            Energy::Mono
+        } else if self.beats <= 0.0 || self.beats >= 8.0 {
+            Energy::Calm
+        } else if self.beats >= 2.0 {
+            Energy::Groove
+        } else {
+            Energy::Peak
+        }
+    }
+}
+
+/// 名前のピクセルエフェクトの雰囲気(ピクセルエフェクトでなければNone)
+pub fn energy_of(p: &crate::project::Project, name: &str) -> Option<Energy> {
+    p.pixel_fx.iter().find(|f| f.name == name).map(|f| f.energy())
+}
+
+impl Energy {
+    pub fn label(self) -> &'static str {
+        match self {
+            Energy::Calm => "チル",
+            Energy::Groove => "グルーヴ",
+            Energy::Peak => "ピーク",
+            Energy::Mono => "モノクロ",
+        }
+    }
+}
+
+// ---------------------------------------------------------------- フェーダーで変える速さ・斜め
+
+/// フェーダーで変える、ピクセルエフェクト全体の調整
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum PixelParam {
+    /// 速さの倍率(1/4・1/2・1・2・4倍の5段階。真ん中が等倍)
+    Speed,
+    /// 斜めのずれを足す(下端=0 〜 上端=SKEW_FADER_MAX周)
+    Skew,
+}
+
+impl PixelParam {
+    pub const ALL: [PixelParam; 2] = [PixelParam::Speed, PixelParam::Skew];
+    pub fn label(self) -> &'static str {
+        match self {
+            PixelParam::Speed => "速さ(1/4〜4倍)",
+            PixelParam::Skew => "斜めのずれを足す",
+        }
+    }
+}
+
+/// 速さのフェーダーの段階(拍に合うよう2倍ずつ)
+pub const SPEED_STEPS: [f32; 5] = [0.25, 0.5, 1.0, 2.0, 4.0];
+/// 斜めのフェーダーを上端まで上げたときに足すずれ(周)
+pub const SKEW_FADER_MAX: f32 = 2.0;
+
+/// フェーダーの位置(0〜1)から速さの倍率
+pub fn speed_step(v: f32) -> f32 {
+    SPEED_STEPS[((v.clamp(0.0, 1.0) * (SPEED_STEPS.len() - 1) as f32).round() as usize).min(SPEED_STEPS.len() - 1)]
+}
+
+/// 速さの倍率の表示(「×1/2」「×2」など)
+pub fn speed_label(s: f32) -> String {
+    if s < 1.0 { format!("×1/{}", (1.0 / s).round() as i32) } else { format!("×{}", s.round() as i32) }
+}
+
 /// プリセット(先頭から`count`個)を、まだ無ければプロジェクトに足す。戻り値=追加した数
 pub fn add_presets(p: &mut crate::project::Project, count: usize) -> usize {
     let mut added = 0;
@@ -322,6 +537,21 @@ impl Core {
         self.dirty = true;
     }
 
+    /// ピクセルエフェクトの拍の位置(速さの倍率を掛けたもの)
+    pub fn pixel_beat(&self) -> f64 {
+        self.rt.beat * self.rt.px_speed as f64 + self.rt.px_offset
+    }
+
+    /// ピクセルエフェクト全体の速さの倍率を変える。変えた瞬間に模様が飛ばないよう、今の位置を保つ
+    pub fn set_pixel_speed(&mut self, s: f32) {
+        let (old, new) = (self.rt.px_speed as f64, s as f64);
+        if (old - new).abs() < 1e-9 {
+            return;
+        }
+        self.rt.px_offset += self.rt.beat * (old - new);
+        self.rt.px_speed = s;
+    }
+
     fn pixel_rgb_of(&self, c: PixelColor) -> [f32; 3] {
         match c {
             PixelColor::Main => self.role_rgb(ColorRole::Main).unwrap_or([1.0; 3]),
@@ -337,7 +567,9 @@ impl Core {
         for fx in self.project.pixel_fx.iter().filter(|f| f.enabled) {
             let a = self.pixel_rgb_of(fx.a);
             let b = self.pixel_rgb_of(fx.b);
-            let phase = if fx.beats > 0.0 { self.rt.beat / fx.beats as f64 } else { 0.0 };
+            let phase = if fx.beats > 0.0 { self.pixel_beat() / fx.beats as f64 } else { 0.0 };
+            // フェーダーの「斜め」は、どの模様にも足す
+            let skew = fx.skew + self.rt.px_skew;
             // 対象のうち、ピクセルを持つ機材(パッチの順)
             let targets: Vec<(usize, &crate::fixture::Mode, std::sync::Arc<crate::fixture::ModeInfo>)> = self
                 .resolve(&fx.sel)
@@ -361,7 +593,7 @@ impl Core {
                         PixelAxis::Along => (k, px.len(), bar as f64 / bars as f64),
                         PixelAxis::Across => (bar, bars, k as f64 / px.len() as f64),
                     };
-                    let phase = phase + fx.skew as f64 * across;
+                    let phase = phase + skew as f64 * across;
                     let g = if fx.reverse { n - 1 - g } else { g };
                     // 中央から左右対称: 中央=0、端=半分の長さ-1 として、半分の長さで模様を作る
                     let (g, n2) = if fx.mirror {
@@ -370,6 +602,8 @@ impl Core {
                     } else {
                         (g, n)
                     };
+                    // きらめきは、バーごとに別の場所で光らせる(同じ位置だと縦線に見える)
+                    let g = if fx.kind == PixelKind::Sparkle && fx.axis == PixelAxis::Along && !fx.span { g + bar * 1009 } else { g };
                     let rgb = pixel_color(fx.kind, g, n2, phase, fx.width, a, b);
                     info.set_pixel(&mut vals[*i], p, rgb);
                 }

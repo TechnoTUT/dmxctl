@@ -35,7 +35,7 @@ impl App {
                 });
                 changed = true;
             }
-            ui.label(RichText::new("「MIDIラーン」を押してからパッドを叩く/ノブを回すと、そのボタンに割り当てられます。図で見たいときは「マップ」タブへ").weak());
+            crate::theme::help(ui, "「MIDIラーン」を押してからパッドを叩く/ノブを回すと、そのボタンに割り当てられます。図で見たいときは「MIDI」タブへ");
         });
 
         egui::ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {

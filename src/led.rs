@@ -142,7 +142,14 @@ fn base_color(core: &Core, action: &Action) -> u8 {
             .and_then(|r| r.color.map(|c| crate::color::nearest_named([c[0] as f32 / 255.0, c[1] as f32 / 255.0, c[2] as f32 / 255.0]).led()).or_else(|| label_color(&r.label)))
             .unwrap_or(C_BLUE),
         Action::Scene { .. } => C_GREEN,
-        Action::Effect { .. } => C_VIOLET,
+        // LEDバーの模様は雰囲気ごとに色分け(チル=水色 / グルーヴ=紫 / ピーク=マゼンタ / モノクロ=白)。ムービングなどはオレンジ
+        Action::Effect { name, .. } => match crate::pixel::energy_of(&core.project, name) {
+            Some(crate::pixel::Energy::Calm) => C_LIGHT_BLUE,
+            Some(crate::pixel::Energy::Groove) => C_VIOLET,
+            Some(crate::pixel::Energy::Peak) => C_MAGENTA,
+            Some(crate::pixel::Energy::Mono) => C_WHITE,
+            None => C_ORANGE,
+        },
         Action::Blackout { .. } => C_RED,
         Action::Master { .. } => C_ORANGE,
         Action::Tempo { .. } => C_LIGHT_BLUE,
@@ -156,6 +163,9 @@ fn base_color(core: &Core, action: &Action) -> u8 {
         Action::Palette { .. } => C_MAGENTA,
         Action::Flash { .. } => C_WHITE,
         Action::Fade { .. } => C_ORANGE,
+        Action::Level { .. } => C_ORANGE,
+        Action::Mute { .. } => C_RED,
+        Action::Pixel { .. } => C_VIOLET,
     }
 }
 
@@ -199,8 +209,8 @@ fn set_value_active(core: &Core, sel: &Selector, attr: &str, on: f32) -> bool {
     any
 }
 
-/// この割り当てが「効いている」状態か
-fn is_active(core: &Core, action: &Action) -> bool {
+/// この割り当てが「効いている」状態か(パッドの点灯と、画面の表示の両方で使う)
+pub fn is_active(core: &Core, action: &Action) -> bool {
     match action {
         Action::Effect { name, .. } => core.project.effects.iter().any(|e| e.name == *name && e.enabled) || core.project.pixel_fx.iter().any(|e| e.name == *name && e.enabled),
         Action::Blackout { .. } => core.rt.blackout,
@@ -225,7 +235,11 @@ fn is_active(core: &Core, action: &Action) -> bool {
         Action::Position { name } => core.rt.last_position.as_deref() == Some(name.as_str()),
         Action::Page { op: PageOp::Go(p) } => core.rt.page == *p,
         Action::Page { .. } => false,
-        Action::Color { color: None, .. } | Action::Tempo { .. } | Action::Master { .. } => false,
+        Action::Mute { sel, .. } => {
+            let ids: Vec<u32> = core.resolve(sel).into_iter().map(|i| core.project.fixtures[i].id).collect();
+            !ids.is_empty() && ids.iter().all(|id| core.rt.muted.contains(id))
+        }
+        Action::Color { color: None, .. } | Action::Tempo { .. } | Action::Master { .. } | Action::Level { .. } | Action::Pixel { .. } => false,
     }
 }
 

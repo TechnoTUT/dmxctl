@@ -245,8 +245,7 @@ impl App {
         // 機材ごと(同じ機種が複数あるときは、機種ごとにもまとめて選べる)
         let fixtures: Vec<(u32, String, String, ColorRole)> = core.project.fixtures.iter().map(|f| (f.id, f.name.clone(), f.profile.clone(), f.color_role)).collect();
         let mut set: Vec<(u32, ColorRole)> = Vec::new();
-        ui.horizontal_wrapped(|ui| {
-            ui.label(RichText::new("出す色:").weak());
+        egui::CollapsingHeader::new("機材ごとのメイン/サブ").id_salt("crole_list").default_open(false).show(ui, |ui| ui.horizontal_wrapped(|ui| {
             for (id, name, _, role) in &fixtures {
                 let (sw, _) = ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
                 match core.role_rgb(*role) {
@@ -283,7 +282,7 @@ impl App {
                     });
                 }
             }
-        });
+        }));
         for (id, r) in set {
             core.set_color_role(id, r);
         }
@@ -293,7 +292,7 @@ impl App {
 #[allow(clippy::too_many_arguments)]
 fn fixture_panel(ui: &mut egui::Ui, fx: &mut FixtureInstance, profile: &Profile, mode: &Mode, hidden: &HashSet<String>, view: Option<&PairView>, out: Option<&[u8]>, touched: &mut Vec<(u32, usize)>) {
     let title = format!("{}   {} / {}   U{} @{}", fx.name, profile.name, mode.name, fx.universe + 1, fx.address);
-    egui::CollapsingHeader::new(RichText::new(title).strong()).id_salt(fx.id).default_open(true).show(ui, |ui| {
+    egui::CollapsingHeader::new(RichText::new(title).strong()).id_salt(fx.id).default_open(false).show(ui, |ui| {
         if profile.needs_arm {
             ui.horizontal(|ui| {
                 let (text, fill) = if fx.armed {

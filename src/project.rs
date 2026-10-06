@@ -357,6 +357,12 @@ pub enum Action {
     Flash { white: bool, mode: PadMode },
     /// 暗転フェード: secs秒かけて暗くする/戻す
     Fade { secs: f32, mode: PadMode },
+    /// 対象の機材だけの明るさ(フェーダー)。全体光量と同じように、ディマー(無ければ色の強さ)に掛かる
+    Level { sel: Selector },
+    /// ミュート: 対象の機材を消す(明るさのチャンネルを0にする)
+    Mute { sel: Selector, mode: PadMode },
+    /// LEDバー(ピクセルエフェクト)全体の速さ・斜めを、フェーダーで変える
+    Pixel { param: crate::pixel::PixelParam },
 }
 
 /// パッドのページ数
@@ -424,6 +430,9 @@ impl Action {
             Action::Palette { .. } => "メイン/サブ色",
             Action::Flash { .. } => "フラッシュ",
             Action::Fade { .. } => "暗転フェード",
+            Action::Level { .. } => "明るさ(機材ごと)",
+            Action::Mute { .. } => "ミュート",
+            Action::Pixel { .. } => "LEDバー調整",
         }
     }
 }
@@ -723,6 +732,10 @@ pub fn backup_to(path: &Path, dir: &Path, keep: usize) -> Option<PathBuf> {
 /// 設定の保存場所。Windows: %APPDATA%\dmxctl / Mac: ~/Library/Application Support/dmxctl / Linux: ~/.config/dmxctl
 pub fn config_dir() -> PathBuf {
     let env = |k: &str| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from);
+    // 開発・確認用: 本番の設定に触れずに別の設定で起動する
+    if let Some(dir) = env("DMXCTL_CONFIG_DIR") {
+        return dir;
+    }
     let base = if cfg!(windows) {
         env("APPDATA")
     } else if cfg!(target_os = "macos") {

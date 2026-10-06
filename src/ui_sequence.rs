@@ -14,59 +14,87 @@ enum StepOp {
 impl App {
     /// 上部バーの2段目: 全体光量スライダーと、BPM・TAP・頭出し・拍の表示
     pub fn transport_row(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().slider_width = 170.0;
+        use crate::theme;
+        ui.horizontal(|ui| {
+            ui.spacing_mut().slider_width = 150.0;
+            ui.spacing_mut().item_spacing.x = 6.0;
+            let caption = |ui: &mut egui::Ui, t: &str| {
+                ui.label(RichText::new(t).small().color(theme::TEXT_FAINT));
+            };
+
+            // 全体光量
+            caption(ui, "MASTER");
             let mut pct = lock(&self.core).rt.master * 100.0;
-            if ui.add(egui::Slider::new(&mut pct, 0.0..=100.0).fixed_decimals(0).suffix("%").text("全体光量")).changed() {
+            if ui.add(egui::Slider::new(&mut pct, 0.0..=100.0).fixed_decimals(0).suffix("%")).on_hover_text("全体光量(すべての機材の明るさに掛かります)").changed() {
                 lock(&self.core).rt.master = pct / 100.0;
             }
+            ui.add_space(6.0);
             ui.separator();
+            ui.add_space(6.0);
 
+            // テンポ
             let (mut bpm, beat, src, peers, clock_ok) = {
                 let c = lock(&self.core);
                 (c.project.bpm, c.rt.beat, c.project.tempo_source, c.rt.link_peers, c.clock_alive(std::time::Instant::now()))
             };
-            ui.label("BPM");
+            caption(ui, "BPM");
             // MIDIクロック中は、BPMはクロックで決まる
             let by_clock = src == TempoSource::MidiClock && clock_ok;
-            if ui.add_enabled(!by_clock, egui::DragValue::new(&mut bpm).range(BPM_MIN..=BPM_MAX).speed(0.2).fixed_decimals(1)).changed() {
+            let drag = egui::DragValue::new(&mut bpm).range(BPM_MIN..=BPM_MAX).speed(0.2).fixed_decimals(1);
+            if ui.add_enabled(!by_clock, drag).on_hover_text("ドラッグかダブルクリックで変更").changed() {
                 lock(&self.core).set_bpm(bpm);
             }
             match src {
                 TempoSource::Link => {
-                    let text = RichText::new(format!("Link {peers}")).strong().color(if peers > 0 { Color32::from_rgb(80, 195, 115) } else { Color32::from_gray(150) });
+                    let text = RichText::new(format!("Link {peers}")).small().strong().color(if peers > 0 { theme::OK } else { theme::TEXT_DIM });
                     ui.label(text).on_hover_text(format!("Ableton Link: 接続中のアプリ {peers} 個"));
                 }
                 TempoSource::MidiClock => {
-                    let text = RichText::new("CLK").strong().color(if clock_ok { Color32::from_rgb(80, 195, 115) } else { WARN });
+                    let text = RichText::new("CLK").small().strong().color(if clock_ok { theme::OK } else { WARN });
                     ui.label(text).on_hover_text(if clock_ok { "MIDIクロックを受信中" } else { "MIDIクロックが来ていません(内部のテンポで走っています)" });
                 }
                 TempoSource::Internal => {}
             }
-            if ui.button("TAP").on_hover_text("リズムに合わせて叩くとBPMが決まり、拍の位置も合います").clicked() {
+            if ui.button("TAP").on_hover_text("リズムに合わせて叩くとBPMが決まり、拍の位置も合います(Space)").clicked() {
                 lock(&self.core).tap();
             }
-            if ui.button("頭出し").on_hover_text("拍の位置を小節の頭に戻します").clicked() {
+            if ui.button("頭出し").on_hover_text("拍の位置を小節の頭に戻します(R)").clicked() {
                 lock(&self.core).resync();
             }
-            // 暗転フェード
+            // 拍の表示(1拍目はアンバー)
+            ui.add_space(2.0);
+            let in_bar = (beat.floor() as i64).rem_euclid(BEATS_PER_BAR);
+            for b in 0..BEATS_PER_BAR {
+                let (rect, _) = ui.allocate_exact_size(vec2(14.0, 18.0), Sense::hover());
+                let lit = b == in_bar;
+                let color = match (lit, b) {
+                    (true, 0) => theme::WARN,
+                    (true, _) => theme::ACCENT,
+                    _ => theme::WIDGET_ACTIVE,
+                };
+                ui.painter().circle_filled(rect.center(), if lit { 5.5 } else { 3.5 }, color);
+            }
+            ui.add_space(6.0);
             ui.separator();
+            ui.add_space(6.0);
+
+            // 暗転フェード
             let (dim, target, secs) = {
                 let c = lock(&self.core);
                 (c.rt.dim, c.rt.dim_target, c.project.fade_secs)
             };
             let text = if target < 0.5 {
-                if dim > 0.001 { format!("暗転中 {:.0}%", dim * 100.0) } else { "暗転中 - 戻す (D)".to_string() }
+                if dim > 0.001 { format!("暗転中 {:.0}%", dim * 100.0) } else { "暗転中 - 戻す".to_string() }
             } else if dim < 0.999 {
                 format!("復帰中 {:.0}%", dim * 100.0)
             } else {
-                "暗転 (D)".to_string()
+                "暗転".to_string()
             };
-            let mut btn = egui::Button::new(RichText::new(text).color(if target < 0.5 { Color32::WHITE } else { ui.visuals().text_color() }));
+            let mut btn = egui::Button::new(RichText::new(text).color(if target < 0.5 { Color32::WHITE } else { theme::TEXT }));
             if target < 0.5 {
-                btn = btn.fill(Color32::from_rgb(130, 70, 25));
+                btn = btn.fill(theme::mix(theme::WIDGET, theme::WARN, 0.55));
             }
-            if ui.add(btn).on_hover_text("全体の明るさを、右の秒数をかけて0にします(暗転しきるとレーザーも止まります)。もう一度押すと、同じ秒数で戻ります").clicked() {
+            if ui.add(btn).on_hover_text("全体の明るさを、右の秒数をかけて0にします(暗転しきるとレーザーも止まります)。もう一度押すと、同じ秒数で戻ります(D)").clicked() {
                 lock(&self.core).toggle_fade(secs);
             }
             let mut s = secs;
@@ -75,42 +103,43 @@ impl App {
                 c.project.fade_secs = s;
                 c.dirty = true;
             }
+            ui.add_space(6.0);
             ui.separator();
-
-            // 拍の表示(1拍目はオレンジ)
-            let in_bar = (beat.floor() as i64).rem_euclid(BEATS_PER_BAR);
-            for b in 0..BEATS_PER_BAR {
-                let (rect, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
-                let lit = b == in_bar;
-                let color = match (lit, b) {
-                    (true, 0) => Color32::from_rgb(255, 150, 30),
-                    (true, _) => Color32::from_rgb(80, 195, 115),
-                    _ => Color32::from_gray(155),
-                };
-                ui.painter().circle_filled(rect.center(), if lit { 6.5 } else { 4.0 }, color);
-            }
+            ui.add_space(6.0);
 
             // 色の操作先: 全体(全機材) ⇄ 個別(選んだ機材だけ)
-            ui.separator();
             let (global, selected, fixtures) = {
                 let c = lock(&self.core);
                 (c.rt.color_global, c.rt.selected.clone(), c.project.fixtures.iter().map(|f| (f.id, f.name.clone())).collect::<Vec<_>>())
             };
-            let (label, fill) = if global { ("色: 全体", Color32::from_rgb(45, 110, 60)) } else { ("色: 個別", Color32::from_rgb(190, 120, 30)) };
-            let btn = egui::Button::new(RichText::new(label).strong().color(Color32::WHITE)).fill(fill);
-            if ui.add(btn).on_hover_text("色の操作を、全機材(全体)にかけるか、選んだ機材だけ(個別)にかけるかを切り替えます").clicked() {
+            let (label, color) = if global { ("色: 全体", theme::TEXT) } else { ("色: 個別", theme::WARN) };
+            if ui.add(egui::Button::new(RichText::new(label).color(color))).on_hover_text("色の操作を、全機材(全体)にかけるか、選んだ機材だけ(個別)にかけるかを切り替えます").clicked() {
                 lock(&self.core).rt.color_global = !global;
             }
             if !global {
-                for (id, name) in fixtures {
-                    if ui.selectable_label(selected.contains(&id), name).on_hover_text("クリックで選択/解除(個別モードで色をかける機材)").clicked() {
-                        lock(&self.core).toggle_selected(id);
+                ui.menu_button(format!("選択中 {}台 ▾", selected.len()), |ui| {
+                    for (id, name) in fixtures {
+                        if ui.selectable_label(selected.contains(&id), name).clicked() {
+                            lock(&self.core).toggle_selected(id);
+                        }
                     }
-                }
+                });
             }
-            ui.separator();
-            let help: String = crate::app::SHORTCUTS.iter().map(|(k, d)| format!("{k}: {d}")).collect::<Vec<_>>().join("\n");
-            ui.label(RichText::new("⌨ キー").weak()).on_hover_text(format!("キーボードショートカット(文字の入力中は Esc と保存だけ)\n\n{help}"));
+
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let bo = lock(&self.core).rt.blackout;
+                let (text, fill, stroke) = if bo {
+                    ("BLACKOUT中 ・ 解除", theme::DANGER, theme::DANGER)
+                } else {
+                    ("BLACKOUT", theme::mix(theme::BAR, theme::DANGER, 0.22), theme::mix(theme::BAR, theme::DANGER, 0.6))
+                };
+                let btn = egui::Button::new(RichText::new(text).font(theme::bold(13.0)).color(Color32::WHITE)).fill(fill).stroke(egui::Stroke::new(1.0, stroke)).min_size(vec2(118.0, 28.0));
+                if ui.add(btn).on_hover_text("すべての機材を消します(Esc)").clicked() {
+                    lock(&self.core).rt.blackout = !bo;
+                }
+                let help: String = crate::app::SHORTCUTS.iter().map(|(k, d)| format!("{k}: {d}")).collect::<Vec<_>>().join("\n");
+                theme::help(ui, &format!("キーボードショートカット(文字の入力中は Esc と保存だけ)\n\n{help}"));
+            });
         });
     }
 
@@ -126,7 +155,7 @@ impl App {
         let mut services = false;
 
         // ---- 同期(映像ソフトなどとテンポ・拍を揃える) ----
-        ui.label(RichText::new("同期").strong().size(15.0));
+        crate::theme::heading(ui, "同期");
         ui.horizontal(|ui| {
             ui.label("テンポの元");
             for s in TempoSource::ALL {
@@ -138,7 +167,6 @@ impl App {
         });
         match core.project.tempo_source {
             TempoSource::Internal => {
-                ui.label(RichText::new("このアプリのBPM(TAP・手入力)で動きます").weak());
             }
             TempoSource::Link => {
                 let peers = core.rt.link_peers;
@@ -150,12 +178,10 @@ impl App {
                     (format!("接続中のアプリ: {peers}"), Color32::from_rgb(80, 195, 115))
                 };
                 ui.colored_label(color, text);
-                ui.label(
-                    RichText::new(
-                        "同じPC・同じネットワークのLink対応アプリ(TouchDesignerの Ableton Link CHOP、Resolume、Ableton Live など)と、テンポと拍の位置が揃います。\
-                         ここでのTAP・BPM変更・頭出しは相手にも伝わります。初回はWindowsのファイアウォールの確認が出ます(別のPCとつなぐときは「許可」)",
-                    )
-                    .weak(),
+                crate::theme::help(
+                    ui,
+                    "同じPC・同じネットワークのLink対応アプリ(TouchDesignerの Ableton Link CHOP、Resolume、Ableton Live など)と、テンポと拍の位置が揃います。\
+                     ここでのTAP・BPM変更・頭出しは相手にも伝わります。初回はファイアウォール(Macでは「ローカルネットワーク」)の確認が出ます",
                 );
             }
             TempoSource::MidiClock => {
@@ -185,15 +211,16 @@ impl App {
                         ui.colored_label(WARN, "受信なし(内部のテンポで走ります)");
                     }
                 });
-                ui.label(
-                    RichText::new("映像ソフトから送るときは loopMIDI などの仮想MIDIポートを使います。Start(0xFA)で小節の頭に揃います。クロック中はBPMの手入力とTAPは効きません").weak(),
-                );
+                crate::theme::help(ui, "映像ソフトから送るときは loopMIDI(Macは IACドライバ)などの仮想MIDIポートを使います。Start(0xFA)で小節の頭に揃います。クロック中はBPMの手入力とTAPは効きません");
             }
         }
         ui.separator();
 
         // ---- テンポ ----
-        ui.label(RichText::new("テンポ").strong().size(15.0));
+        ui.horizontal(|ui| {
+            crate::theme::heading(ui, "テンポ");
+            crate::theme::help(ui, "TAP・頭出し・BPM調整は、MIDIのパッドやフェーダーにも割り当てられます(割り当ての動作「テンポ」)。エフェクトは「速さ」を拍数にするとBPMに同期します");
+        });
         ui.horizontal(|ui| {
             let mut bpm = core.project.bpm;
             ui.label("BPM");
@@ -215,18 +242,13 @@ impl App {
             let beat = core.rt.beat;
             ui.label(RichText::new(format!("{}小節 {}拍目", beat.floor() as i64 / BEATS_PER_BAR + 1, (beat.floor() as i64).rem_euclid(BEATS_PER_BAR) + 1)).weak());
         });
-        ui.label(
-            RichText::new("TAP・頭出し・BPM調整は、MIDIのパッドやフェーダーにも割り当てられます(マップ/MIDIタブの動作「テンポ」)。エフェクトは「速さ」を拍数にするとBPMに同期します")
-                .weak(),
-        );
         ui.separator();
 
         // ---- チェイス ----
-        ui.label(RichText::new("チェイス").strong().size(15.0));
-        ui.label(
-            RichText::new("シーンをBPMに合わせて順番に呼び出します。「色だけ」「動きだけ」のシーン(シーンタブの「保存する項目」)を使うと、色と動きを別々のテンポで回せます")
-                .weak(),
-        );
+        ui.horizontal(|ui| {
+            crate::theme::heading(ui, "チェイス");
+            crate::theme::help(ui, "シーンをBPMに合わせて順番に呼び出します。「色だけ」「動きだけ」のシーン(シーンタブの「保存する項目」)を使うと、色と動きを別々のテンポで回せます");
+        });
         ui.horizontal(|ui| {
             if ui.button("＋ チェイスを追加").clicked() {
                 let mut c = Chase { name: format!("チェイス{}", core.project.chases.len() + 1), ..Chase::default() };
@@ -243,7 +265,7 @@ impl App {
         egui::ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
             for (ci, c) in core.project.chases.iter_mut().enumerate() {
                 let now_step = running.get(&c.name).map(|idx| step_index(c.order, *idx, c.steps.len()));
-                egui::Frame::group(ui.style()).show(ui, |ui| {
+                crate::theme::card().show(ui, |ui| {
                     ui.horizontal(|ui| {
                         changed |= ui.checkbox(&mut c.enabled, "動作中").changed();
                         changed |= ui.add(egui::TextEdit::singleline(&mut c.name).desired_width(160.0)).changed();

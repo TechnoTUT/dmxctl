@@ -410,7 +410,7 @@ impl App {
         let split_n = &mut pe.split_n;
         egui::ScrollArea::vertical().id_salt("chlist").auto_shrink([false; 2]).show(ui, |ui| {
             for ci in 0..n {
-                egui::Frame::group(ui.style()).show(ui, |ui| {
+                crate::theme::card().show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     let ch = &mut m.channels[ci];
                     let is_fine = snap[ci].1.is_some();

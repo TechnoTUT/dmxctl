@@ -1,58 +1,193 @@
-//! マップタブ: APC mini mk2 の配置図。割り当ての確認・編集と、押した/動かした状態の表示。
+//! MIDIタブ(メイン画面): APC mini mk2 の配置図。割り当ての確認・編集と、押した/動かした状態の表示。
+//! 右側は、何も選んでいないときは「ステージ」(LEDバーの今の模様・メイン/サブ色・機材の色)、
+//! 図のコントロールを選ぶと、その割り当ての編集になる
 
 use crate::apcmini::{pad_note, Ctl};
 use crate::app::{App, SelMeta};
-use crate::engine::lock;
+use crate::engine::{lock, Core};
+use crate::pixel::{Energy, PixelParam};
 use crate::project::*;
+use crate::theme::{self, alpha, mix};
 use crate::ui_binding::{binding_editor, default_action, names, summary, EditCtx, Learn};
-use eframe::egui::{self, vec2, Align, Align2, Color32, FontId, Layout, Rect, RichText, Sense, Stroke, StrokeKind};
-use std::collections::HashSet;
+use eframe::egui::{self, pos2, vec2, Align, Align2, Color32, FontId, Layout, Rect, RichText, Sense, Stroke, StrokeKind, UiBuilder};
 
-const PAD_W: f32 = 78.0;
-const PAD_H: f32 = 50.0;
-const GAP: f32 = 4.0;
-const SIDE_W: f32 = 58.0;
-const TRACK_H: f32 = 34.0;
-const FADER_H: f32 = 118.0;
-
-const COL_SET: Color32 = Color32::from_rgb(62, 95, 165);
-const COL_SCENE: Color32 = Color32::from_rgb(46, 125, 80);
-const COL_FX: Color32 = Color32::from_rgb(125, 80, 165);
-const COL_BLACKOUT: Color32 = Color32::from_rgb(170, 50, 50);
-const COL_MASTER: Color32 = Color32::from_rgb(190, 135, 35);
-const COL_TEMPO: Color32 = Color32::from_rgb(40, 140, 150);
-const COL_CHASE: Color32 = Color32::from_rgb(120, 130, 45);
-const COL_PAIR: Color32 = Color32::from_rgb(165, 85, 125);
-const COL_COLOR: Color32 = Color32::from_rgb(45, 140, 105);
-const COL_SELECT_FX: Color32 = Color32::from_rgb(95, 105, 60);
-const COL_POSITION: Color32 = Color32::from_rgb(55, 125, 190);
-const COL_PAGE: Color32 = Color32::from_rgb(105, 105, 120);
-const COL_FLASH: Color32 = Color32::from_rgb(150, 150, 95);
-const COL_EMPTY: Color32 = Color32::from_rgb(48, 48, 54);
-const COL_SELECT: Color32 = Color32::from_rgb(255, 210, 60);
-
-fn mix(a: Color32, b: Color32, t: f32) -> Color32 {
-    let f = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round() as u8;
-    Color32::from_rgb(f(a.r(), b.r()), f(a.g(), b.g()), f(a.b(), b.b()))
+const fn rgb(r: u8, g: u8, b: u8) -> Color32 {
+    Color32::from_rgb(r, g, b)
 }
 
-fn action_color(a: &Action) -> Color32 {
+// 種類ごとの色(実機のパッドのLEDとおおよそ揃える)
+const COL_SET: Color32 = rgb(0x3B, 0x82, 0xF6);
+const COL_SCENE: Color32 = rgb(0x10, 0xB9, 0x81);
+const COL_FX: Color32 = rgb(0xF5, 0x9E, 0x0B);
+const COL_CALM: Color32 = rgb(0x38, 0xBD, 0xF8);
+const COL_GROOVE: Color32 = rgb(0x8B, 0x5C, 0xF6);
+const COL_PEAK: Color32 = rgb(0xF4, 0x3F, 0x5E);
+const COL_MONO: Color32 = rgb(0xCB, 0xD5, 0xE1);
+const COL_DARK: Color32 = rgb(0xEF, 0x44, 0x44);
+const COL_LEVEL: Color32 = rgb(0xFB, 0xBF, 0x24);
+const COL_TEMPO: Color32 = rgb(0x22, 0xD3, 0xEE);
+const COL_CHASE: Color32 = rgb(0x84, 0xCC, 0x16);
+const COL_PAIR: Color32 = rgb(0xEC, 0x48, 0x99);
+const COL_COLOR: Color32 = rgb(0x14, 0xB8, 0xA6);
+const COL_SWAP: Color32 = rgb(0xD9, 0x46, 0xEF);
+const COL_POSITION: Color32 = rgb(0x0E, 0xA5, 0xE9);
+const COL_PAGE: Color32 = rgb(0x64, 0x74, 0x8B);
+const COL_FLASH: Color32 = rgb(0xFD, 0xE6, 0x8A);
+const COL_PIXEL: Color32 = rgb(0xA7, 0x8B, 0xFA);
+
+/// パッドの地の色
+const PAD: Color32 = rgb(0x1B, 0x1F, 0x27);
+
+/// 凡例(種類と色)
+const LEGEND: [(&str, Color32); 16] = [
+    ("LEDバーの模様: チル", COL_CALM),
+    ("LEDバーの模様: グルーヴ", COL_GROOVE),
+    ("LEDバーの模様: ピーク", COL_PEAK),
+    ("LEDバーの模様: モノクロ", COL_MONO),
+    ("エフェクト(ムービングなど)", COL_FX),
+    ("色・メイン/サブ色(実際の色で表示)", COL_COLOR),
+    ("メイン⇄サブ入れ替え", COL_SWAP),
+    ("チャンネル値", COL_SET),
+    ("シーン", COL_SCENE),
+    ("チェイス", COL_CHASE),
+    ("テンポ", COL_TEMPO),
+    ("明るさ・全体光量", COL_LEVEL),
+    ("LEDバーの速さ・斜め", COL_PIXEL),
+    ("フラッシュ", COL_FLASH),
+    ("ブラックアウト・暗転・ミュート", COL_DARK),
+    ("ページ・位置・ペア", COL_PAGE),
+];
+
+fn energy_color(e: Option<Energy>) -> Color32 {
+    match e {
+        Some(Energy::Calm) => COL_CALM,
+        Some(Energy::Groove) => COL_GROOVE,
+        Some(Energy::Peak) => COL_PEAK,
+        Some(Energy::Mono) => COL_MONO,
+        None => COL_FX,
+    }
+}
+
+fn action_color(a: &Action, p: &Project) -> Color32 {
     match a {
         Action::SetValue { .. } => COL_SET,
         Action::Scene { .. } => COL_SCENE,
-        Action::Effect { .. } => COL_FX,
-        Action::Blackout { .. } => COL_BLACKOUT,
-        Action::Master { .. } => COL_MASTER,
+        Action::Effect { name, .. } => energy_color(crate::pixel::energy_of(p, name)),
+        Action::Blackout { .. } | Action::Fade { .. } | Action::Mute { .. } => COL_DARK,
+        Action::Master { .. } | Action::Level { .. } => COL_LEVEL,
         Action::Tempo { .. } => COL_TEMPO,
         Action::Chase { .. } => COL_CHASE,
         Action::Pair { .. } => COL_PAIR,
-        Action::Color { .. } => COL_COLOR,
-        Action::ColorScope { .. } | Action::Select { .. } => COL_SELECT_FX,
+        Action::Color { .. } | Action::ColorScope { .. } | Action::Select { .. } => COL_COLOR,
+        Action::Palette { .. } => COL_SWAP,
         Action::Position { .. } => COL_POSITION,
         Action::Page { .. } => COL_PAGE,
-        Action::Palette { .. } => COL_COLOR,
         Action::Flash { .. } => COL_FLASH,
-        Action::Fade { .. } => COL_BLACKOUT,
+        Action::Pixel { .. } => COL_PIXEL,
+    }
+}
+
+/// 対象の名前(前置きなし)
+fn target_plain(sel: &Selector, meta: &SelMeta) -> String {
+    match sel {
+        Selector::All => "全機材".into(),
+        Selector::Fixture(_) => meta.label(sel),
+        Selector::Group(g) => g.clone(),
+        Selector::Profile(p) => meta.profiles.iter().find(|(id, _)| id == p).map(|(_, n)| n.clone()).unwrap_or_else(|| p.clone()),
+    }
+}
+
+/// パッドに出す文字: (小さい見出し, 大きい文字)
+fn pad_text(a: &Action, meta: &SelMeta, core: &Core) -> (String, String) {
+    let mode = |m: &PadMode| match m {
+        PadMode::Continuous => "連続",
+        PadMode::Momentary => "押中",
+        PadMode::Toggle => "",
+        PadMode::Trigger => "1回",
+    };
+    let s = |x: &str| x.to_string();
+    match a {
+        Action::Effect { name, mode: m } => {
+            // LEDバーの模様は雰囲気、ほかのエフェクトは対象の機材
+            let head = match crate::pixel::energy_of(&core.project, name) {
+                Some(e) => s(e.label()),
+                None => core.project.effects.iter().find(|e| e.name == *name).map(|e| target_plain(&e.sel, meta)).unwrap_or_else(|| s("エフェクト")),
+            };
+            let head = if *m == PadMode::Toggle { head } else { format!("{head}・{}", mode(m)) };
+            (head, name.clone())
+        }
+        Action::Color { color, target } => {
+            let head = match target {
+                crate::color::ColorTarget::Main => "メイン",
+                crate::color::ColorTarget::Sub => "サブ",
+                crate::color::ColorTarget::Selected => "選択中の色",
+                _ => "色",
+            };
+            (s(head), s(color.map(|c| c.label()).unwrap_or("色相")))
+        }
+        Action::SetValue { sel, attr, mode: m, on, .. } => {
+            // 選択式のチャンネルは、ON値の名前(「回転」「オートプログラム1」など)
+            let title = meta.ranges(&core.lib, sel, attr).iter().find(|r| r.contains(on.clamp(0.0, 255.0) as u8)).map(|r| r.label.clone()).unwrap_or_else(|| attr.clone());
+            let head = target_plain(sel, meta);
+            let head = if mode(m).is_empty() { head } else { format!("{head}・{}", mode(m)) };
+            (head, title)
+        }
+        Action::Flash { white, mode: m } => (if *m == PadMode::Toggle { s("フラッシュ") } else { s("フラッシュ・押中") }, s(if *white { "白で全開" } else { "今の色で全開" })),
+        Action::Blackout { mode: m } => (s(if *m == PadMode::Toggle { "全部消す" } else { "押中" }), s(if *m == PadMode::Toggle { "BLACKOUT" } else { "消灯" })),
+        Action::Fade { secs, .. } => (format!("{secs}秒"), s("暗転")),
+        Action::Tempo { op } => match op {
+            TempoOp::Tap => (s("テンポ"), s("TAP")),
+            TempoOp::Resync => (s("テンポ"), s("頭出し")),
+            TempoOp::Set { .. } => (s("テンポ"), s("BPM")),
+            TempoOp::Nudge { delta } => (s("テンポ"), format!("BPM {delta:+}")),
+        },
+        Action::Palette { op } => match op {
+            crate::color::PaletteOp::Swap => (s("色"), s("メイン⇄サブ")),
+            crate::color::PaletteOp::HoldSwap => (s("押中"), s("メイン⇄サブ")),
+            crate::color::PaletteOp::Auto => (s("拍で"), s("自動入れ替え")),
+        },
+        Action::Mute { sel, .. } => (s("ミュート"), target_plain(sel, meta)),
+        Action::Level { sel } => (s("明るさ"), target_plain(sel, meta)),
+        Action::Pixel { param } => (s("LEDバー"), s(if *param == PixelParam::Speed { "速さ" } else { "斜め" })),
+        Action::Master { .. } => (s("全体光量"), s("MASTER")),
+        Action::Scene { name } => (s("シーン"), name.clone()),
+        Action::Chase { name, .. } => (s("チェイス"), name.clone()),
+        Action::Pair { name, op, .. } => (s(if *op == PairOp::Link { "ペア連動" } else { "ペア反転" }), name.clone()),
+        Action::Position { name } => (s("位置"), name.clone()),
+        Action::Select { fixture, .. } => (s("選択"), meta.fixtures.iter().find(|f| f.id == *fixture).map(|f| f.name.clone()).unwrap_or_else(|| s("(削除された機材)"))),
+        Action::ColorScope { .. } => (s("色の操作先"), s("全体/個別")),
+        Action::Page { op } => (s("ページ"), op.label()),
+    }
+}
+
+/// フェーダーの値の出し方
+#[derive(Clone, Copy, PartialEq)]
+enum Readout {
+    Raw,
+    Percent,
+    Hue,
+    Speed,
+    Skew,
+}
+
+fn readout(a: &Action) -> Readout {
+    match a {
+        Action::Master { .. } | Action::Level { .. } => Readout::Percent,
+        Action::Color { color: None, .. } => Readout::Hue,
+        Action::Pixel { param: PixelParam::Speed } => Readout::Speed,
+        Action::Pixel { param: PixelParam::Skew } => Readout::Skew,
+        _ => Readout::Raw,
+    }
+}
+
+fn readout_text(r: Readout, v: u8) -> String {
+    let f = v as f32 / 127.0;
+    match r {
+        Readout::Raw => v.to_string(),
+        Readout::Percent => format!("{:.0}%", f * 100.0),
+        Readout::Hue => format!("{:.0}°", f * 360.0),
+        Readout::Speed => crate::pixel::speed_label(crate::pixel::speed_step(f)),
+        Readout::Skew => format!("+{:.1}周", f * crate::pixel::SKEW_FADER_MAX),
     }
 }
 
@@ -85,16 +220,28 @@ fn add_page_template(p: &mut Project) -> (usize, usize) {
 
 /// 図に描く1コントロール分の情報
 struct Info {
-    text: String,
+    tag: String,
+    title: String,
     tip: String,
     count: usize,
     color: Option<Color32>,
     /// エフェクトON中・トグルON中・ブラックアウト中など「効いている」状態
     active: bool,
-    /// 色相(HSVのH)のフェーダーか
-    hue: bool,
     /// 実際の色(色を指定するパッドなど)
     rgb: Option<[f32; 3]>,
+    readout: Readout,
+}
+
+/// 配置メニューで選ばれたこと(Coreを借りている間は実行できないものは、借り終えてから実行する)
+#[derive(Default)]
+struct MenuOut {
+    recommended: bool,
+    page: bool,
+    color: bool,
+    palette: bool,
+    pixel: bool,
+    read_faders: bool,
+    move_common: bool,
 }
 
 impl App {
@@ -107,48 +254,200 @@ impl App {
         let nm = names(&core.project);
         let cx = EditCtx::new(&meta, &lib, &nm);
         let mut changed = false;
-        let mut color_template = false;
-        let mut palette_template = false;
-        let mut pixel_template = false;
-        let mut page_template = false;
-        let mut move_common: Option<u8> = None;
+        let mut menu = MenuOut::default();
         let mut new_page: Option<u8> = None;
         let mut remove: Option<usize> = None;
+        let mut clicked: Option<Ctl> = None;
+        let mut close_editor = false;
         let page = core.rt.page;
         let use_pages = pages_in_use(&core.project);
-        // 今の出力の色(全体光量・ブラックアウト・エフェクト込み)と、メイン/サブ色
-        let looks = crate::look::looks(core);
-        let look_rgb = crate::led::look_colors(core);
-        let palette_now = (core.role_rgb(crate::color::ColorRole::Main).unwrap_or([1.0; 3]), core.role_rgb(crate::color::ColorRole::Sub).unwrap_or([0.0; 3]), core.palette_swapped());
 
-        // 左にマップ、右に編集パネル。右から順に置いて、パネルの幅を固定する
-        let full = ui.available_size();
-        let map_w = 8.0 * (PAD_W + GAP) + 10.0 + SIDE_W + 16.0;
-        let editor_w = (full.x - map_w - 16.0).max(380.0);
-        ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-        ui.allocate_ui_with_layout(vec2(editor_w, full.y), Layout::top_down(Align::Min), |ui| {
-            ui.set_width(editor_w);
-            egui::ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| match self.map_sel {
-                None => {
-                    ui.add_space(6.0);
-                    ui.label("図のパッド・ボタン・フェーダーをクリックすると、ここで割り当てを編集できます。");
-                    ui.label(RichText::new("空のパッドに出ている数字は、そのパッドのNote番号です。").weak());
-                    let stray = core
-                        .project
-                        .bindings
-                        .iter()
-                        // OSCだけで動かす割り当ては、図に載らなくて正常
-                        .filter(|b| !(b.trigger.is_none() && b.osc.is_some()))
-                        .filter(|b| !b.trigger.is_some_and(|t| Ctl::from_trigger(t.kind, t.number).is_some_and(|c| c.matches(&t))))
-                        .count();
-                    if stray > 0 {
-                        ui.add_space(8.0);
-                        ui.colored_label(crate::app::WARN, format!("この図に載らない割り当てが {stray} 件あります(未設定、または別のMIDI機器/チャンネル)。MIDI/OSCタブで確認できます。"));
+        // 左に図、右にパネル
+        let avail = ui.available_rect_before_wrap();
+        let panel_w = (avail.width() * 0.32).clamp(330.0, 470.0);
+        let left = Rect::from_min_max(avail.min, pos2(avail.max.x - panel_w - 16.0, avail.max.y));
+        let right = Rect::from_min_max(pos2(avail.max.x - panel_w, avail.min.y), avail.max);
+        ui.allocate_rect(avail, Sense::hover());
+        ui.painter().vline(left.max.x + 8.0, avail.y_range(), Stroke::new(1.0, theme::LINE));
+
+        // ---- 左: APC mini mk2 の図 ----
+        let mut lui = ui.new_child(UiBuilder::new().max_rect(left).layout(Layout::top_down(Align::Min)));
+        {
+            let ui = &mut lui;
+            let common_pads = core.project.bindings.iter().filter(|b| b.page.is_none() && b.trigger.is_some_and(|t| t.kind == TriggerKind::Note && t.number < 64 && t.channel.is_none_or(|c| c == 0))).count();
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("APC mini mk2").font(theme::bold(15.0)).color(theme::TEXT));
+                if use_pages {
+                    ui.add_space(10.0);
+                    ui.label(RichText::new("ページ").small().color(theme::TEXT_DIM));
+                    for p in 0..PAGES {
+                        let used = core.project.bindings.iter().any(|b| b.page == Some(p));
+                        let text = RichText::new(format!("{}", p + 1)).color(if used || p == page { theme::TEXT } else { theme::TEXT_FAINT });
+                        if ui.selectable_label(p == page, text).on_hover_text("このページに切り替えます(コントローラーのパッドもこのページになります)").clicked() {
+                            new_page = Some(p);
+                        }
                     }
                 }
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    ui.menu_button("配置 ▼", |ui| {
+                        ui.set_min_width(300.0);
+                        ui.label(RichText::new("おすすめ配置").font(theme::bold(14.0)));
+                        ui.label(
+                            RichText::new("上の4段=LEDバーの模様(チル/グルーヴ/ピーク/モノクロ)、5段目=ムービングなど、6・7段目=メイン色・サブ色、最下段=フラッシュなど。右の列=TAP・入れ替え・BLACKOUT、下の列=LEDバー1〜8のミュート、フェーダー=明るさ・速さ・斜め・色相")
+                                .small()
+                                .color(theme::TEXT_DIM),
+                        );
+                        if ui.button(RichText::new("おすすめ配置にする(今の割り当てを置き換え)").color(theme::WARN)).on_hover_text("置き換える前の状態はバックアップに残します(ファイル → バックアップから戻す)").clicked() {
+                            menu.recommended = true;
+                            ui.close();
+                        }
+                        ui.separator();
+                        ui.label(RichText::new("空いているところに足す").small().color(theme::TEXT_DIM));
+                        if ui.button("ページ切替(右の列)").clicked() {
+                            menu.page = true;
+                            ui.close();
+                        }
+                        if ui.button("色の操作(最下段の色・全体/個別・機材の選択)").clicked() {
+                            menu.color = true;
+                            ui.close();
+                        }
+                        if ui.button("メイン/サブ色").clicked() {
+                            menu.palette = true;
+                            ui.close();
+                        }
+                        if ui.button("LEDバーの模様(1本用・最上段)").clicked() {
+                            menu.pixel = true;
+                            ui.close();
+                        }
+                        ui.separator();
+                        if ui.add_enabled(self.midi.can_request_faders(), egui::Button::new("フェーダー位置を読み取る")).clicked() {
+                            menu.read_faders = true;
+                            ui.close();
+                        }
+                        if use_pages && common_pads > 0 {
+                            if ui.button(format!("共通のパッド {common_pads} 件をページ{}専用にする", page + 1)).on_hover_text("「全ページ共通」になっているパッドの割り当てを、表示中のページだけで効くようにします(ボタンとフェーダーは共通のまま)").clicked() {
+                                menu.move_common = true;
+                                ui.close();
+                            }
+                        }
+                    });
+                    legend(ui);
+                });
+            });
+            ui.add_space(6.0);
+
+            let rt = &core.rt;
+            let bindings = &core.project.bindings;
+            let core_ref: &Core = core;
+            let look_rgb = crate::led::look_colors(core_ref);
+            let info = |ctl: Ctl| -> Info {
+                let hits: Vec<&Binding> = bindings.iter().filter(|b| b.on_page(page) && b.trigger.is_some_and(|t| ctl.matches(&t))).collect();
+                let Some(first) = hits.first() else {
+                    return Info { tag: String::new(), title: String::new(), tip: format!("{}\n割り当てなし", ctl.label()), count: 0, color: None, active: false, rgb: None, readout: Readout::Raw };
+                };
+                let (tag, title) = pad_text(&first.action, &meta, core_ref);
+                // フェーダーとチャンネル値は、名前を付けてあればその名前のほうが分かりやすい(「LEDバー 明るさ」「ストロボ」など)
+                let named = !first.name.trim().is_empty() && first.name != ctl.short_name();
+                let title = match ctl {
+                    // フェーダーは「対象 / 何を」の2行に分ける
+                    Ctl::Fader(_) if named => match first.name.trim().rsplit_once(' ') {
+                        Some((a, b)) => format!("{a}\n{b}"),
+                        None => first.name.trim().to_string(),
+                    },
+                    _ if named && matches!(first.action, Action::SetValue { .. }) => first.name.clone(),
+                    _ => title,
+                };
+                let tip = hits.iter().map(|b| format!("{}: {}", b.name, summary(&b.action, &meta).replace('\n', " "))).collect::<Vec<_>>().join("\n");
+                Info {
+                    tag,
+                    title: if hits.len() > 1 { format!("{title} +{}", hits.len() - 1) } else { title },
+                    tip: format!("{}\n{tip}", ctl.label()),
+                    count: hits.len(),
+                    color: Some(action_color(&first.action, &core_ref.project)),
+                    active: hits.iter().any(|b| crate::led::is_active(core_ref, &b.action)),
+                    rgb: if matches!(ctl, Ctl::Pad(_)) { crate::led::action_rgb(core_ref, &first.action, &look_rgb) } else { None },
+                    readout: readout(&first.action),
+                }
+            };
+
+            // 図の大きさを、残りの場所に合わせて決める(パッドは横長、フェーダーはパッド2段ぶん)
+            let area = ui.available_rect_before_wrap();
+            let gap = 6.0;
+            let side_k = 0.72;
+            let (track_k, fader_k) = (0.42, 2.0);
+            let pad_h = ((area.height() - 9.0 * gap - 8.0) / (8.0 + track_k + fader_k)).clamp(30.0, 86.0);
+            let pad_w = ((area.width() - 8.0 * gap - 8.0) / (8.0 + side_k)).clamp(pad_h, pad_h * 1.8);
+            let side_w = (pad_w * side_k).max(54.0);
+            let track_h = (pad_h * track_k).max(22.0);
+            let fader_h = pad_h * fader_k;
+            let side_x = 8.0 * (pad_w + gap) + 2.0;
+            let track_y = 8.0 * (pad_h + gap) + 2.0;
+            let fader_y = track_y + track_h + gap + 2.0;
+            let total = vec2(side_x + side_w, fader_y + fader_h);
+
+            egui::ScrollArea::both().auto_shrink([false; 2]).show(ui, |ui| {
+                let (area, _) = ui.allocate_exact_size(total, Sense::hover());
+                let at = |x: f32, y: f32, w: f32, h: f32| Rect::from_min_size(area.min + vec2(x, y), vec2(w, h));
+                let down = |ctl: Ctl| rt.notes_down[ctl.trigger().1 as usize];
+                let sel = self.map_sel;
+
+                // パッド(最上段が0x38..0x3F)
+                for row in 0..8u8 {
+                    for col in 0..8u8 {
+                        let ctl = Ctl::Pad(pad_note(row, col));
+                        let r = at(col as f32 * (pad_w + gap), row as f32 * (pad_h + gap), pad_w, pad_h);
+                        if button_cell(ui, r, ctl, &info(ctl), down(ctl), sel == Some(ctl)) {
+                            clicked = Some(ctl);
+                        }
+                    }
+                }
+                // シーンボタン(上から1..8)
+                for i in 0..8u8 {
+                    let ctl = Ctl::Scene(i);
+                    let r = at(side_x, i as f32 * (pad_h + gap), side_w, pad_h);
+                    if button_cell(ui, r, ctl, &info(ctl), down(ctl), sel == Some(ctl)) {
+                        clicked = Some(ctl);
+                    }
+                }
+                // トラックボタン(左から1..8)とSHIFT
+                for i in 0..8u8 {
+                    let ctl = Ctl::Track(i);
+                    let r = at(i as f32 * (pad_w + gap), track_y, pad_w, track_h);
+                    if button_cell(ui, r, ctl, &info(ctl), down(ctl), sel == Some(ctl)) {
+                        clicked = Some(ctl);
+                    }
+                }
+                let r = at(side_x, track_y, side_w, track_h);
+                if button_cell(ui, r, Ctl::Shift, &info(Ctl::Shift), down(Ctl::Shift), sel == Some(Ctl::Shift)) {
+                    clicked = Some(Ctl::Shift);
+                }
+                // フェーダー(左から1..8、9がマスター)
+                for i in 0..9u8 {
+                    let ctl = Ctl::Fader(i);
+                    let (x, w) = if i < 8 { (i as f32 * (pad_w + gap), pad_w) } else { (side_x, side_w) };
+                    let r = at(x, fader_y, w, fader_h);
+                    if fader_cell(ui, r, ctl, &info(ctl), rt.cc_value[ctl.trigger().1 as usize], sel == Some(ctl)) {
+                        clicked = Some(ctl);
+                    }
+                }
+            });
+        }
+
+        // ---- 右: ステージ / 割り当ての編集 ----
+        let mut rui = ui.new_child(UiBuilder::new().max_rect(right).layout(Layout::top_down(Align::Min)));
+        {
+            let ui = &mut rui;
+            egui::ScrollArea::vertical().id_salt("map_panel").auto_shrink([false; 2]).show(ui, |ui| match self.map_sel {
+                None => stage_panel(ui, core),
                 Some(ctl) => {
-                    ui.add_space(6.0);
-                    ui.label(RichText::new(ctl.label()).strong().size(15.0));
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(ctl.label()).font(theme::bold(14.0)).color(theme::TEXT));
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            if ui.button("×").on_hover_text("閉じる(ステージの表示に戻る)").clicked() {
+                                close_editor = true;
+                            }
+                        });
+                    });
                     let (kind, num) = ctl.trigger();
                     let live = match kind {
                         TriggerKind::Cc => match core.rt.cc_value[num as usize] {
@@ -157,18 +456,18 @@ impl App {
                         },
                         TriggerKind::Note => if core.rt.notes_down[num as usize] { "押されています" } else { "離されています" }.to_string(),
                     };
-                    ui.label(RichText::new(live).weak());
-                    ui.separator();
+                    ui.label(RichText::new(live).small().color(theme::TEXT_DIM));
+                    ui.add_space(4.0);
 
                     // 今のページで効く割り当て(共通 + このページ)だけを編集対象にする
                     let mine = |b: &Binding| b.trigger.is_some_and(|t| ctl.matches(&t));
                     let idxs: Vec<usize> = core.project.bindings.iter().enumerate().filter(|(_, b)| mine(b) && b.on_page(page)).map(|(i, _)| i).collect();
                     let elsewhere = core.project.bindings.iter().filter(|b| mine(b) && !b.on_page(page)).count();
                     if use_pages {
-                        ui.label(RichText::new(format!("ページ{} を表示中", page + 1)).weak());
+                        ui.label(RichText::new(format!("ページ{} を表示中", page + 1)).small().color(theme::TEXT_DIM));
                     }
                     if idxs.is_empty() {
-                        ui.label("まだ割り当てがありません。");
+                        ui.label(RichText::new("まだ割り当てがありません。").color(theme::TEXT_DIM));
                     }
                     for i in idxs {
                         let learn = Learn { midi: &mut core.rt.learn, osc: &mut core.rt.osc_learn };
@@ -179,8 +478,9 @@ impl App {
                         }
                     }
                     if elsewhere > 0 {
-                        ui.label(RichText::new(format!("ほかのページにも {elsewhere} 件の割り当てがあります(上のページ番号で切り替え)")).weak());
+                        ui.label(RichText::new(format!("ほかのページにも {elsewhere} 件の割り当てがあります(ページ番号で切り替え)")).small().color(theme::TEXT_DIM));
                     }
+                    ui.add_space(4.0);
                     if ui.button("＋ このコントロールに割り当てを追加").clicked() {
                         // ページを使っているときは、パッドの新しい割り当ては表示中のページ専用にする
                         let pg = (use_pages && matches!(ctl, Ctl::Pad(_))).then_some(page);
@@ -195,202 +495,42 @@ impl App {
                     }
                 }
             });
-        });
+        }
 
-        ui.separator();
-        ui.allocate_ui_with_layout(vec2(map_w, full.y), Layout::top_down(Align::Min), |ui| {
-            let fx_on: HashSet<&str> = core.project.effects.iter().filter(|e| e.enabled).map(|e| e.name.as_str()).chain(core.project.pixel_fx.iter().filter(|e| e.enabled).map(|e| e.name.as_str())).collect();
-            let pairs = &core.project.pairs;
-            let chase_on: HashSet<&str> = core.project.chases.iter().filter(|c| c.enabled).map(|c| c.name.as_str()).collect();
-            let bindings = &core.project.bindings;
-            let rt = &core.rt;
-
-            let positions_on = rt.last_position.as_deref();
-            let palette = &core.project.palette;
-            let core_ref: &crate::engine::Core = core;
-            let info = |ctl: Ctl| -> Info {
-                let hits: Vec<(usize, &Binding)> =
-                    bindings.iter().enumerate().filter(|(_, b)| b.on_page(page) && b.trigger.is_some_and(|t| ctl.matches(&t))).collect();
-                let Some((_, first)) = hits.first() else {
-                    return Info { text: String::new(), tip: format!("{}\n割り当てなし", ctl.label()), count: 0, color: None, active: false, hue: false, rgb: None };
-                };
-                let active = hits.iter().any(|(i, b)| match &b.action {
-                    Action::Effect { name, .. } => fx_on.contains(name.as_str()),
-                    Action::Chase { name, .. } => chase_on.contains(name.as_str()),
-                    Action::Color { color: Some(c), target } => match target.slot() {
-                        Some(crate::color::ColorRole::Sub) => crate::color::same_rgb(palette.sub, c.rgb()),
-                        Some(_) => crate::color::same_rgb(palette.main, c.rgb()),
-                        None => rt.last_color == Some(*c),
-                    },
-                    Action::Palette { op: crate::color::PaletteOp::Auto } => palette.auto,
-                    Action::Palette { .. } => rt.color_swapped,
-                    Action::Flash { .. } => rt.flash.is_some(),
-                    Action::Fade { .. } => rt.dim_target < 0.5,
-                    Action::ColorScope { .. } => !rt.color_global,
-                    Action::Select { fixture, .. } => rt.selected.contains(fixture),
-                    Action::Pair { name, op, .. } => pairs.iter().any(|p| p.name == *name && if *op == PairOp::Link { p.enabled } else { p.mirror }),
-                    Action::Blackout { .. } => rt.blackout,
-                    Action::SetValue { mode: PadMode::Toggle, .. } => rt.toggle_state.get(i).copied().unwrap_or(false),
-                    Action::Position { name } => positions_on == Some(name.as_str()),
-                    Action::Page { op: PageOp::Go(p) } => *p == page,
-                    _ => false,
-                });
-                let tip = hits.iter().map(|(_, b)| format!("{}: {}", b.name, summary(&b.action, &meta).replace('\n', " "))).collect::<Vec<_>>().join("\n");
-                Info {
-                    text: summary(&first.action, &meta),
-                    tip: format!("{}\n{tip}", ctl.label()),
-                    count: hits.len(),
-                    color: Some(action_color(&first.action)),
-                    active,
-                    hue: matches!(first.action, Action::Color { color: None, .. }),
-                    rgb: if matches!(ctl, Ctl::Pad(_)) { crate::led::action_rgb(core_ref, &first.action, &look_rgb) } else { None },
-                }
-            };
-
-            // ページ(クリックで実際のページも切り替わる)
-            ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new("ページ").strong());
-                for p in 0..PAGES {
-                    let used = bindings.iter().any(|b| b.page == Some(p));
-                    let text = if used { RichText::new(format!(" {} ", p + 1)).strong() } else { RichText::new(format!(" {} ", p + 1)) };
-                    if ui.selectable_label(p == page, text).on_hover_text("このページに切り替えます(コントローラーのパッドもこのページになります)").clicked() {
-                        new_page = Some(p);
-                    }
-                }
-                if ui.button("ページ切替を配置").on_hover_text("右の列のシーンボタン1〜8を「ページ1〜8へ」にします(使用中のボタンは飛ばします)").clicked() {
-                    page_template = true;
-                }
-                let common_pads = bindings.iter().filter(|b| b.page.is_none() && b.trigger.is_some_and(|t| t.kind == TriggerKind::Note && t.number < 64 && t.channel.is_none_or(|c| c == 0))).count();
-                if use_pages && common_pads > 0 {
-                    if ui
-                        .button(format!("共通のパッド {common_pads} 件をページ{}専用にする", page + 1))
-                        .on_hover_text("「全ページ共通」になっているパッドの割り当てを、表示中のページだけで効くようにします(ボタンとフェーダーは共通のまま)")
-                        .clicked()
-                    {
-                        move_common = Some(page);
-                    }
-                }
-            });
-            ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new("■ チャンネル値").color(COL_SET));
-                ui.label(RichText::new("■ シーン").color(COL_SCENE));
-                ui.label(RichText::new("■ エフェクト").color(COL_FX));
-                ui.label(RichText::new("■ 全体光量").color(COL_MASTER));
-                ui.label(RichText::new("■ テンポ").color(COL_TEMPO));
-                ui.label(RichText::new("■ チェイス").color(COL_CHASE));
-                ui.label(RichText::new("■ ペア").color(COL_PAIR));
-                ui.label(RichText::new("■ 色").color(COL_COLOR));
-                ui.label(RichText::new("■ 位置").color(COL_POSITION));
-                ui.label(RichText::new("■ ページ").color(COL_PAGE));
-                ui.label(RichText::new("■ フラッシュ").color(COL_FLASH));
-                ui.label(RichText::new("■ ブラックアウト").color(COL_BLACKOUT));
-                ui.label(RichText::new("明るい = 押している/効いている   黄色の枠 = 編集中").weak());
-                if ui.button("色の操作を配置").on_hover_text("下段のパッド=色 / 右下のシーンボタン=全体⇄個別 / トラックボタン=機材の選択 を、空いているところに割り当てます").clicked() {
-                    color_template = true;
-                }
-                if ui.button("メイン/サブ色を配置").on_hover_text("下から2段目のパッド=メイン色 / 3段目=サブ色 / シーンボタン7=メイン⇄サブ入れ替え / 6=自動入れ替え / フェーダー6・7=メイン・サブの色相 を、空いているところに割り当てます").clicked() {
-                    palette_template = true;
-                }
-                if ui.button("LEDバーの模様を配置").on_hover_text("メイン色/サブ色を混ぜる模様(縞々・ウェーブなど8種)を、パッドの最上段にトグルで並べます。ページを使っているときは表示中のページに置きます").clicked() {
-                    pixel_template = true;
-                }
-                if ui.add_enabled(self.midi.can_request_faders(), egui::Button::new("フェーダー位置を読み取る")).clicked() {
-                    if let Err(e) = self.midi.request_faders() {
-                        self.notice = format!("フェーダー位置の読み取りに失敗: {e}");
-                    }
-                }
-            });
-            look_row(ui, &looks, palette_now);
-            ui.add_space(4.0);
-
-            let cell_w = PAD_W + GAP;
-            let cell_h = PAD_H + GAP;
-            let side_x = 8.0 * cell_w + 10.0;
-            let track_y = 8.0 * cell_h + 8.0;
-            let fader_y = track_y + TRACK_H + 8.0;
-            let total = vec2(side_x + SIDE_W, fader_y + FADER_H);
-
-            egui::ScrollArea::both().auto_shrink([false; 2]).show(ui, |ui| {
-                let (area, _) = ui.allocate_exact_size(total, Sense::hover());
-                let at = |x: f32, y: f32, w: f32, h: f32| Rect::from_min_size(area.min + vec2(x, y), vec2(w, h));
-                let mut clicked: Option<Ctl> = None;
-
-                // パッド(最上段が0x38..0x3F)
-                for row in 0..8u8 {
-                    for col in 0..8u8 {
-                        let ctl = Ctl::Pad(pad_note(row, col));
-                        let r = at(col as f32 * cell_w, row as f32 * cell_h, PAD_W, PAD_H);
-                        if button_cell(ui, r, ctl, &info(ctl), rt.notes_down[ctl.trigger().1 as usize], self.map_sel == Some(ctl)) {
-                            clicked = Some(ctl);
-                        }
-                    }
-                }
-                // シーンボタン(上から1..8)
-                for i in 0..8u8 {
-                    let ctl = Ctl::Scene(i);
-                    let r = at(side_x, i as f32 * cell_h, SIDE_W, PAD_H);
-                    if button_cell(ui, r, ctl, &info(ctl), rt.notes_down[ctl.trigger().1 as usize], self.map_sel == Some(ctl)) {
-                        clicked = Some(ctl);
-                    }
-                }
-                // トラックボタン(左から1..8)とSHIFT
-                for i in 0..8u8 {
-                    let ctl = Ctl::Track(i);
-                    let r = at(i as f32 * cell_w, track_y, PAD_W, TRACK_H);
-                    if button_cell(ui, r, ctl, &info(ctl), rt.notes_down[ctl.trigger().1 as usize], self.map_sel == Some(ctl)) {
-                        clicked = Some(ctl);
-                    }
-                }
-                let shift = Ctl::Shift;
-                let r = at(side_x, track_y, SIDE_W, TRACK_H);
-                if button_cell(ui, r, shift, &info(shift), rt.notes_down[shift.trigger().1 as usize], self.map_sel == Some(shift)) {
-                    clicked = Some(shift);
-                }
-                // フェーダー(左から1..8、9がマスター)
-                for i in 0..9u8 {
-                    let ctl = Ctl::Fader(i);
-                    let (x, w) = if i < 8 { (i as f32 * cell_w, PAD_W) } else { (side_x, SIDE_W) };
-                    let r = at(x, fader_y, w, FADER_H);
-                    let v = rt.cc_value[ctl.trigger().1 as usize];
-                    let inf = info(ctl);
-                    if fader_cell(ui, r, ctl, &inf, v, self.map_sel == Some(ctl)) {
-                        clicked = Some(ctl);
-                    }
-                }
-                if let Some(c) = clicked {
-                    self.map_sel = Some(c);
-                }
-            });
-        });
-        });
-
+        if let Some(c) = clicked {
+            // もう一度クリックすると閉じる
+            self.map_sel = if self.map_sel == Some(c) { None } else { Some(c) };
+        }
+        if close_editor {
+            self.map_sel = None;
+        }
         if let Some(p) = new_page {
             core.rt.page = p;
         }
-        if page_template {
+        if menu.page {
             let (added, skipped) = add_page_template(&mut core.project);
             self.notice = if skipped > 0 { format!("ページ切替を {added} 個配置しました({skipped} 個は使用中のため飛ばしました)") } else { format!("ページ切替を {added} 個配置しました") };
             changed = true;
         }
-        if let Some(p) = move_common {
+        if menu.move_common {
             for b in core.project.bindings.iter_mut() {
                 if b.page.is_none() && b.trigger.is_some_and(|t| t.kind == TriggerKind::Note && t.number < 64 && t.channel.is_none_or(|c| c == 0)) {
-                    b.page = Some(p);
+                    b.page = Some(page);
                 }
             }
             changed = true;
         }
-        if pixel_template {
+        if menu.pixel {
             let (added, skipped) = crate::pixel::add_pad_template(&mut core.project, use_pages.then_some(page));
             self.notice = if skipped > 0 { format!("LEDバーの模様を {added} 個配置しました({skipped} 個は使用中のため飛ばしました)") } else { format!("LEDバーの模様を {added} 個配置しました(エフェクトタブで速さや幅を変えられます)") };
             changed = true;
         }
-        if palette_template {
+        if menu.palette {
             let (added, skipped) = crate::color::add_palette_template(&mut core.project);
             self.notice = if skipped > 0 { format!("メイン/サブ色の操作を {added} 個配置しました({skipped} 個は使用中のため飛ばしました)") } else { format!("メイン/サブ色の操作を {added} 個配置しました") };
             changed = true;
         }
-        if color_template {
+        if menu.color {
             let (added, skipped) = crate::color::add_template(&mut core.project);
             self.notice = if skipped > 0 { format!("色の操作を {added} 個配置しました({skipped} 個は使用中のため飛ばしました)") } else { format!("色の操作を {added} 個配置しました") };
             changed = true;
@@ -405,99 +545,36 @@ impl App {
         if changed {
             core.dirty = true;
         }
-    }
-}
+        drop(guard);
 
-fn draw_text(ui: &egui::Ui, rect: Rect, text: &str, color: Color32, size: f32) {
-    let p = ui.painter().with_clip_rect(rect);
-    let galley = p.layout(text.to_string(), FontId::proportional(size), color, rect.width() - 6.0);
-    p.galley(rect.min + vec2(3.0, 2.0), galley, color);
-}
-
-fn frame(ui: &egui::Ui, rect: Rect, fill: Color32, selected: bool, pressed: bool) {
-    let p = ui.painter();
-    p.rect_filled(rect, 4.0, fill);
-    if selected {
-        p.rect_stroke(rect, 4.0, Stroke::new(2.5, COL_SELECT), StrokeKind::Inside);
-    } else if pressed {
-        p.rect_stroke(rect, 4.0, Stroke::new(2.0, Color32::WHITE), StrokeKind::Inside);
-    }
-}
-
-/// パッド/ボタン1個を描いて、クリックされたらtrueを返す
-fn button_cell(ui: &mut egui::Ui, rect: Rect, ctl: Ctl, info: &Info, down: bool, selected: bool) -> bool {
-    let resp = ui.interact(rect, ui.id().with(("apc", ctl.trigger().1, ctl.trigger().0 == TriggerKind::Cc)), Sense::click());
-    // 色に関係するパッドは実際の色(待機中は暗め、効いている間は明るく)
-    let mut fill = match info.rgb {
-        Some(c) => rgb32(c, if info.active { 1.0 } else { 0.45 }),
-        None => {
-            let base = info.color.unwrap_or(COL_EMPTY);
-            if info.active { mix(base, Color32::WHITE, 0.35) } else { base }
+        if menu.read_faders {
+            if let Err(e) = self.midi.request_faders() {
+                self.notice = format!("フェーダー位置の読み取りに失敗: {e}");
+            }
         }
-    };
-    if down {
-        fill = mix(fill, Color32::WHITE, 0.55);
-    }
-    if resp.hovered() {
-        fill = mix(fill, Color32::WHITE, 0.08);
-    }
-    frame(ui, rect, fill, selected, down);
-    if info.count == 0 {
-        let hex = format!("0x{:02X}", ctl.trigger().1);
-        let c = if down { Color32::BLACK } else { Color32::from_gray(120) };
-        ui.painter().text(rect.center(), Align2::CENTER_CENTER, hex, FontId::monospace(11.0), c);
-    } else {
-        let text = if info.count > 1 { format!("{} (+{})", info.text, info.count - 1) } else { info.text.clone() };
-        // 幅の狭いボタン(シーン/SHIFT)は文字を小さくして「BLACKOUT」などが折り返されないようにする
-        let size = if rect.width() < 70.0 { 10.0 } else { 11.0 };
-        // 文字は背景の明るさに合わせて黒/白
-        let lum = 0.3 * fill.r() as f32 + 0.59 * fill.g() as f32 + 0.11 * fill.b() as f32;
-        draw_text(ui, rect, &text, if lum > 140.0 { Color32::BLACK } else { Color32::WHITE }, size);
-        if info.rgb.is_some() && info.active && !selected {
-            // 実際の色のパッドは、効いている目印に白い枠
-            ui.painter().rect_stroke(rect, 4.0, Stroke::new(2.0, Color32::WHITE), StrokeKind::Inside);
+        if menu.recommended {
+            self.apply_recommended_layout();
         }
     }
-    resp.on_hover_text(&info.tip).clicked()
-}
 
-fn fader_cell(ui: &mut egui::Ui, rect: Rect, ctl: Ctl, info: &Info, value: Option<u8>, selected: bool) -> bool {
-    let resp = ui.interact(rect, ui.id().with(("apc", ctl.trigger().1, true)), Sense::click());
-    let base = info.color.unwrap_or(COL_EMPTY);
-    frame(ui, rect, mix(COL_EMPTY, Color32::BLACK, 0.2), selected, false);
-    // 現在位置までを色付きバーで表示し、実機のつまみのように白い線を重ねる
-    if let Some(v) = value {
-        let top = rect.max.y - 2.0 - (rect.height() - 4.0) * v as f32 / 127.0;
-        let bar = Rect::from_min_max(egui::pos2(rect.min.x + 2.0, top), egui::pos2(rect.max.x - 2.0, rect.max.y - 2.0));
-        // 色相フェーダーは、その位置の色でバーを塗る
-        let bar_color = if info.hue {
-            let [r, g, b] = crate::color::hsv(v as f32 / 127.0 * 360.0, 1.0, 1.0);
-            Color32::from_rgb((r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8)
-        } else if info.color.is_some() {
-            mix(base, Color32::WHITE, 0.15)
-        } else {
-            Color32::from_gray(90)
+    /// おすすめ配置にする。置き換える前の状態は保存してバックアップに残す
+    pub fn apply_recommended_layout(&mut self) {
+        self.save();
+        let backup = backup_to(&self.project_path, &backup_dir(), BACKUP_KEEP);
+        let mut c = lock(&self.core);
+        let lib = c.lib.clone();
+        let r = crate::layout::apply(&mut c.project, &lib);
+        c.rt.pad_state.clear();
+        c.rt.toggle_state.clear();
+        c.rt.learn = None;
+        c.dirty = true;
+        drop(c);
+        self.map_sel = None;
+        self.notice = match backup {
+            Some(_) => format!("{}。元の配置は「ファイル → バックアップから戻す」で戻せます", r.text()),
+            None => r.text(),
         };
-        ui.painter().rect_filled(bar, 3.0, bar_color);
-        let cap_y = top.clamp(rect.min.y + 5.0, rect.max.y - 5.0);
-        let cap = Rect::from_center_size(egui::pos2(rect.center().x, cap_y), vec2(rect.width() - 12.0, 8.0));
-        ui.painter().rect_filled(cap, 3.0, Color32::from_gray(235));
     }
-    if selected {
-        ui.painter().rect_stroke(rect, 4.0, Stroke::new(2.5, COL_SELECT), StrokeKind::Inside);
-    }
-    let title = match ctl {
-        Ctl::Fader(8) => "MST".to_string(),
-        Ctl::Fader(i) => format!("F{}", i + 1),
-        _ => String::new(),
-    };
-    let label = if info.count == 0 { title } else { format!("{title}\n{}", info.text) };
-    draw_text(ui, rect, &label, Color32::WHITE, 11.0);
-    // 色相フェーダーは、値の代わりに度数(H)を出す
-    let val = value.map(|v| if info.hue { format!("{}°", (v as f32 / 127.0 * 360.0).round() as i32) } else { v.to_string() }).unwrap_or_else(|| "--".into());
-    // つまみ(白線)と重ならないよう、数値は右上に出す
-    ui.painter().text(egui::pos2(rect.max.x - 5.0, rect.min.y + 9.0), Align2::RIGHT_CENTER, val, FontId::monospace(12.0), Color32::WHITE);
-    resp.on_hover_text(&info.tip).clicked()
 }
 
 fn rgb32(c: [f32; 3], level: f32) -> Color32 {
@@ -505,67 +582,291 @@ fn rgb32(c: [f32; 3], level: f32) -> Color32 {
     Color32::from_rgb(f(c[0]), f(c[1]), f(c[2]))
 }
 
-/// 各機材が今出している色(実際の出力値から)。暗いほど明るさ(ディマー・全体光量)が低い
-fn look_row(ui: &mut egui::Ui, looks: &[crate::look::FixtureLook], palette: ([f32; 3], [f32; 3], bool)) {
-    use crate::look::Look;
-    ui.horizontal_wrapped(|ui| {
-        ui.label(RichText::new("今の色").strong()).on_hover_text("実際に出力している値から表示します(全体光量・ブラックアウト・エフェクト込み)。暗く見えるのは明るさが低いとき");
-        for l in looks {
-            let resp = ui
-                .horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 3.0;
-                    ui.label(RichText::new(&l.name).small());
-                    match &l.look {
-                        Look::Strip(px) => {
-                            let cell = (90.0 / px.len().max(1) as f32).clamp(3.0, 10.0);
-                            let (rect, _) = ui.allocate_exact_size(vec2(cell * px.len() as f32, 18.0), Sense::hover());
-                            for (k, c) in px.iter().enumerate() {
-                                let r = Rect::from_min_size(rect.min + vec2(k as f32 * cell, 0.0), vec2(cell, 18.0));
-                                ui.painter().rect_filled(r, 0.0, rgb32(*c, 1.0));
-                            }
-                            ui.painter().rect_stroke(rect, 2.0, Stroke::new(1.0, Color32::from_gray(90)), StrokeKind::Outside);
-                        }
-                        Look::One { rgb, level, .. } => {
-                            let (rect, _) = ui.allocate_exact_size(vec2(26.0, 18.0), Sense::hover());
-                            let p = ui.painter();
-                            match rgb {
-                                Some(c) => {
-                                    p.rect_filled(rect, 3.0, rgb32(*c, *level));
-                                }
-                                None => {
-                                    p.rect_filled(rect, 3.0, Color32::from_gray((40.0 + 80.0 * level) as u8));
-                                    p.text(rect.center(), Align2::CENTER_CENTER, "?", FontId::proportional(12.0), Color32::WHITE);
-                                }
-                            }
-                            p.rect_stroke(rect, 3.0, Stroke::new(1.0, Color32::from_gray(90)), StrokeKind::Outside);
-                            if *level <= 0.001 {
-                                // 消えている
-                                p.line_segment([rect.left_bottom(), rect.right_top()], Stroke::new(1.5, Color32::from_gray(150)));
-                            }
-                        }
-                    }
-                    if let Some(n) = l.note {
-                        ui.label(RichText::new(n).small().color(crate::app::WARN));
-                    }
-                })
-                .response;
-            let tip = match &l.look {
-                Look::One { label, level, .. } => format!("{}: {label} / 明るさ {:.0}%", l.name, level * 100.0),
-                Look::Strip(px) => format!("{}: {}ピクセル", l.name, px.len()),
-            };
-            resp.on_hover_text(tip);
-            ui.add_space(6.0);
+/// 種類と色の凡例(マウスを乗せると出る)
+fn legend(ui: &mut egui::Ui) {
+    let resp = ui.label(RichText::new("凡例").small().color(theme::TEXT_DIM));
+    resp.on_hover_ui(|ui| {
+        ui.label(RichText::new("パッドの色").font(theme::bold(13.0)));
+        for (name, c) in LEGEND {
+            ui.horizontal(|ui| {
+                let (r, _) = ui.allocate_exact_size(vec2(12.0, 12.0), Sense::hover());
+                ui.painter().rect_filled(r, 3.0, c);
+                ui.label(RichText::new(name).small());
+            });
         }
-        ui.separator();
-        let (main, sub, swapped) = palette;
-        ui.label(RichText::new("メイン").small());
-        let (r, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
-        ui.painter().rect_filled(r, 3.0, rgb32(main, 1.0));
-        ui.label(RichText::new("サブ").small());
-        let (r, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
-        ui.painter().rect_filled(r, 3.0, rgb32(sub, 1.0));
-        if swapped {
-            ui.label(RichText::new("⇄入れ替え中").small().color(crate::app::WARN));
+        ui.add_space(4.0);
+        ui.label(RichText::new("明るく光っている = 効いている(ON)\n白い枠 = 押している / ミントの枠 = 編集中").small().color(theme::TEXT_DIM));
+    });
+}
+
+/// パッド/ボタン1個を描いて、クリックされたらtrueを返す
+fn button_cell(ui: &mut egui::Ui, rect: Rect, ctl: Ctl, info: &Info, down: bool, selected: bool) -> bool {
+    let resp = ui.interact(rect, ui.id().with(("apc", ctl.trigger().1, ctl.trigger().0 == TriggerKind::Cc)), Sense::click());
+    let p = ui.painter();
+    let radius = 7.0;
+    let small = rect.width() < 70.0 || rect.height() < 34.0;
+
+    if info.count == 0 {
+        p.rect_filled(rect, radius, if resp.hovered() { mix(PAD, Color32::WHITE, 0.05) } else { PAD });
+        p.rect_stroke(rect, radius, Stroke::new(1.0, mix(PAD, Color32::WHITE, 0.06)), StrokeKind::Inside);
+        if down {
+            p.rect_stroke(rect, radius, Stroke::new(2.0, Color32::WHITE), StrokeKind::Inside);
+        }
+        if selected {
+            p.rect_stroke(rect.expand(1.5), radius + 1.5, Stroke::new(2.5, theme::ACCENT), StrokeKind::Outside);
+        }
+        let hex = format!("{:02X}", ctl.trigger().1);
+        p.text(rect.center(), Align2::CENTER_CENTER, hex, FontId::monospace(10.0), theme::TEXT_FAINT);
+        return resp.on_hover_text(&info.tip).clicked();
+    }
+
+    // 色に関係するパッドは実際の色(待機中は暗め)、ほかは種類の色
+    let accent = info.rgb.map(|c| rgb32(c, 1.0)).or(info.color).unwrap_or(theme::LINE);
+    let mut fill = if info.rgb.is_some() {
+        if info.active { accent } else { mix(PAD, accent, 0.42) }
+    } else if info.active {
+        mix(PAD, accent, 0.82)
+    } else {
+        mix(PAD, accent, 0.16)
+    };
+    if resp.hovered() {
+        fill = mix(fill, Color32::WHITE, 0.07);
+    }
+    if down {
+        fill = mix(fill, Color32::WHITE, 0.45);
+    }
+    if info.active {
+        // 効いている間は、まわりにぼんやり光を出す
+        p.rect_filled(rect.expand(3.0), radius + 3.0, alpha(accent, 0.30));
+    }
+    p.rect_filled(rect, radius, fill);
+    // 種類の色の細い線(実機のLEDの代わり)。実際の色のパッドは全体が色なので付けない
+    if info.rgb.is_none() && !small {
+        let strip = Rect::from_min_size(rect.min + vec2(7.0, 5.0), vec2(rect.width() - 14.0, 3.0));
+        p.rect_filled(strip, 1.5, if info.active { alpha(Color32::WHITE, 0.85) } else { accent });
+    }
+    if down {
+        p.rect_stroke(rect, radius, Stroke::new(2.0, Color32::WHITE), StrokeKind::Inside);
+    } else if info.rgb.is_some() && info.active {
+        p.rect_stroke(rect, radius, Stroke::new(2.0, alpha(Color32::WHITE, 0.9)), StrokeKind::Inside);
+    }
+    if selected {
+        p.rect_stroke(rect.expand(1.5), radius + 1.5, Stroke::new(2.5, theme::ACCENT), StrokeKind::Outside);
+    }
+
+    let lit = info.active || info.rgb.is_some() || down;
+    let fg = if lit { theme::text_on(fill) } else { theme::TEXT };
+    let tag_color = if lit { alpha(fg, 0.72) } else { mix(accent, Color32::WHITE, 0.35) };
+    let clip = p.with_clip_rect(rect.shrink(2.0));
+    let inner_w = rect.width() - if small { 10.0 } else { 13.0 };
+    let mut title_size = if small { 11.0 } else { (rect.height() * 0.21).clamp(11.0, 14.0) };
+    // 1語の長い名前(BLACKOUTなど)は、途中で折り返さないよう文字を小さくして収める
+    let one_line = clip.layout_no_wrap(info.title.clone(), theme::bold(title_size), fg).size().x;
+    if !info.title.contains(' ') && info.title.is_ascii() && one_line > inner_w {
+        title_size = (title_size * inner_w / one_line).max(6.5);
+    }
+    let title = clip.layout(info.title.clone(), theme::bold(title_size), fg, inner_w);
+    let tag_h = 24.0;
+    if small || title.size().y > rect.height() - tag_h - 4.0 {
+        // 狭いボタンや、名前が2行になって見出しと重なるときは、名前だけを真ん中に
+        clip.galley(pos2(rect.min.x + 7.0, rect.center().y - title.size().y / 2.0 + if small { 0.0 } else { 3.0 }), title, fg);
+    } else {
+        let tag = clip.layout_no_wrap(info.tag.clone(), FontId::proportional(10.0), tag_color);
+        clip.galley(pos2(rect.min.x + 7.0, rect.min.y + 11.0), tag, tag_color);
+        clip.galley(pos2(rect.min.x + 7.0, rect.max.y - title.size().y - 6.0), title, fg);
+    }
+    resp.on_hover_text(&info.tip).clicked()
+}
+
+fn fader_cell(ui: &mut egui::Ui, rect: Rect, ctl: Ctl, info: &Info, value: Option<u8>, selected: bool) -> bool {
+    let resp = ui.interact(rect, ui.id().with(("apc", ctl.trigger().1, true)), Sense::click());
+    let p = ui.painter();
+    let radius = 8.0;
+    let accent = info.color.unwrap_or(theme::TEXT_FAINT);
+    p.rect_filled(rect, radius, if resp.hovered() { mix(PAD, Color32::WHITE, 0.04) } else { mix(PAD, Color32::BLACK, 0.15) });
+    p.rect_stroke(rect, radius, Stroke::new(1.0, mix(PAD, Color32::WHITE, 0.06)), StrokeKind::Inside);
+
+    // 見出し(上)と値(下)のあいだに、つまみの溝
+    let title = match ctl {
+        Ctl::Fader(8) => "MASTER".to_string(),
+        Ctl::Fader(i) => format!("F{}", i + 1),
+        _ => String::new(),
+    };
+    let head_h = if info.count > 0 { 36.0 } else { 20.0 };
+    let groove = Rect::from_min_max(pos2(rect.center().x - 2.0, rect.min.y + head_h), pos2(rect.center().x + 2.0, rect.max.y - 22.0));
+    p.rect_filled(groove, 2.0, mix(PAD, Color32::BLACK, 0.45));
+    if let Some(v) = value {
+        let t = v as f32 / 127.0;
+        let y = groove.max.y - groove.height() * t;
+        let fill_color = if info.readout == Readout::Hue {
+            let [r, g, b] = crate::color::hsv(t * 360.0, 1.0, 1.0);
+            Color32::from_rgb((r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8)
+        } else {
+            accent
+        };
+        p.rect_filled(Rect::from_min_max(pos2(groove.min.x, y), groove.max), 2.0, fill_color);
+        let cap = Rect::from_center_size(pos2(rect.center().x, y), vec2((rect.width() - 16.0).min(46.0), 9.0));
+        p.rect_filled(cap, 3.0, Color32::from_gray(232));
+        p.hline(cap.x_range().shrink(5.0), cap.center().y, Stroke::new(1.0, fill_color));
+    }
+    if selected {
+        p.rect_stroke(rect.expand(1.5), radius + 1.5, Stroke::new(2.5, theme::ACCENT), StrokeKind::Outside);
+    }
+    let clip = p.with_clip_rect(rect.shrink(2.0));
+    clip.text(pos2(rect.min.x + 7.0, rect.min.y + 6.0), Align2::LEFT_TOP, &title, FontId::monospace(10.0), if info.count > 0 { accent } else { theme::TEXT_FAINT });
+    if info.count > 0 {
+        let g = clip.layout(info.title.clone(), theme::bold(11.0), theme::TEXT, rect.width() - 10.0);
+        clip.galley(pos2(rect.min.x + 6.0, rect.min.y + 19.0), g, theme::TEXT);
+    }
+    let val = value.map(|v| readout_text(info.readout, v)).unwrap_or_else(|| "--".into());
+    clip.text(pos2(rect.center().x, rect.max.y - 11.0), Align2::CENTER_CENTER, val, FontId::monospace(11.0), theme::TEXT_DIM);
+    resp.on_hover_text(&info.tip).clicked()
+}
+
+/// 右のパネル(何も選んでいないとき): LEDバーの今の模様、メイン/サブ色、機材ごとの色
+fn stage_panel(ui: &mut egui::Ui, core: &Core) {
+    use crate::look::Look;
+    let looks = crate::look::looks(core);
+    let bars: Vec<&crate::look::FixtureLook> = looks.iter().filter(|l| matches!(l.look, Look::Strip(_))).collect();
+    theme::heading(ui, "ステージ");
+    ui.add_space(2.0);
+
+    if !bars.is_empty() {
+        theme::card().show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(format!("LEDバー {}本", bars.len())).font(theme::bold(13.0)));
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    let skew = core.rt.px_skew;
+                    if skew > 0.001 {
+                        ui.label(RichText::new(format!("斜め +{skew:.1}周")).small().color(COL_PIXEL));
+                    }
+                    let fast = (core.rt.px_speed - 1.0).abs() > 1e-3;
+                    ui.label(RichText::new(format!("速さ {}", crate::pixel::speed_label(core.rt.px_speed))).small().color(if fast { COL_PIXEL } else { theme::TEXT_DIM }));
+                });
+            });
+            // 8本 × ピクセル の面のプレビュー(実際の出力の色)
+            let w = ui.available_width();
+            let (row_h, row_gap) = (9.0, 4.0);
+            let (rect, _) = ui.allocate_exact_size(vec2(w, bars.len() as f32 * (row_h + row_gap) + 10.0), Sense::hover());
+            let p = ui.painter();
+            p.rect_filled(rect, 8.0, Color32::from_rgb(0x07, 0x08, 0x0B));
+            for (b, l) in bars.iter().enumerate() {
+                let Look::Strip(px) = &l.look else { continue };
+                let n = px.len().max(1);
+                let y = rect.min.y + 5.0 + b as f32 * (row_h + row_gap);
+                let x0 = rect.min.x + 8.0;
+                let cw = (w - 16.0) / n as f32;
+                for (k, c) in px.iter().enumerate() {
+                    let r = Rect::from_min_size(pos2(x0 + k as f32 * cw, y), vec2(cw.max(1.0) + 0.3, row_h));
+                    p.rect_filled(r, 0.0, rgb32(*c, 1.0));
+                }
+                if l.note == Some("MUTE") {
+                    p.text(pos2(rect.max.x - 10.0, y + row_h / 2.0), Align2::RIGHT_CENTER, "MUTE", FontId::proportional(9.0), theme::DANGER);
+                }
+            }
+            // 動いている模様
+            let on: Vec<&crate::pixel::PixelFx> = core.project.pixel_fx.iter().filter(|f| f.enabled).collect();
+            ui.horizontal_wrapped(|ui| {
+                if on.is_empty() {
+                    ui.label(RichText::new("模様なし(上の4段のパッドで選べます)").small().color(theme::TEXT_DIM));
+                }
+                for f in on {
+                    let c = energy_color(Some(f.energy()));
+                    egui::Frame::new().fill(alpha(c, 0.16)).stroke(Stroke::new(1.0, alpha(c, 0.5))).corner_radius(10).inner_margin(egui::Margin::symmetric(8, 2)).show(ui, |ui| {
+                        ui.label(RichText::new(format!("▶ {}", f.name)).small().color(mix(c, Color32::WHITE, 0.3)));
+                    });
+                }
+            });
+        });
+        ui.add_space(6.0);
+    }
+
+    // メイン/サブ色
+    theme::card().show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        let main = core.role_rgb(crate::color::ColorRole::Main).unwrap_or([1.0; 3]);
+        let sub = core.role_rgb(crate::color::ColorRole::Sub).unwrap_or([0.0; 3]);
+        ui.horizontal(|ui| {
+            for (label, c) in [("メイン", main), ("サブ", sub)] {
+                let (r, _) = ui.allocate_exact_size(vec2(30.0, 22.0), Sense::hover());
+                ui.painter().rect_filled(r, 6.0, rgb32(c, 1.0));
+                ui.painter().rect_stroke(r, 6.0, Stroke::new(1.0, alpha(Color32::WHITE, 0.15)), StrokeKind::Inside);
+                ui.label(RichText::new(label).small());
+                ui.add_space(6.0);
+            }
+        });
+        if core.project.palette.auto || core.palette_swapped() {
+            ui.horizontal(|ui| {
+                if core.palette_swapped() {
+                    ui.label(RichText::new("⇄ 入れ替え中").small().color(theme::WARN));
+                }
+                if core.project.palette.auto {
+                    ui.label(RichText::new(format!("自動入れ替え {}拍ごと", core.project.palette.auto_beats)).small().color(COL_SWAP));
+                }
+            });
         }
     });
+    ui.add_space(6.0);
+
+    // 機材ごとの今の色
+    let others: Vec<&crate::look::FixtureLook> = looks.iter().filter(|l| !matches!(l.look, Look::Strip(_))).collect();
+    if !others.is_empty() {
+        theme::card().show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.label(RichText::new("機材の色").font(theme::bold(13.0)));
+            let col_w = (ui.available_width() - 8.0) / 2.0;
+            egui::Grid::new("stage_fx").num_columns(2).min_col_width(col_w).max_col_width(col_w).spacing([8.0, 5.0]).show(ui, |ui| {
+                for (k, l) in others.iter().enumerate() {
+                    ui.horizontal(|ui| {
+                        ui.set_max_width(col_w);
+                        let (r, resp) = ui.allocate_exact_size(vec2(22.0, 16.0), Sense::hover());
+                        let p = ui.painter();
+                        let tip = match &l.look {
+                            Look::One { rgb, level, label } => {
+                                let fill = match rgb {
+                                    Some(c) => rgb32(*c, *level),
+                                    None => Color32::from_gray((30.0 + 70.0 * level) as u8),
+                                };
+                                p.rect_filled(r, 4.0, fill);
+                                if *level <= 0.001 {
+                                    p.line_segment([r.left_bottom(), r.right_top()], Stroke::new(1.2, theme::TEXT_FAINT));
+                                }
+                                format!("{}: {label} / 明るさ {:.0}%", l.name, level * 100.0)
+                            }
+                            Look::Strip(_) => String::new(),
+                        };
+                        p.rect_stroke(r, 4.0, Stroke::new(1.0, alpha(Color32::WHITE, 0.12)), StrokeKind::Inside);
+                        resp.on_hover_text(tip);
+                        if let Some(n) = l.note {
+                            // 名前より先に置いて、狭くても状態(SAFEなど)が見えるようにする
+                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                ui.label(RichText::new(n).small().color(theme::WARN));
+                                ui.add(egui::Label::new(RichText::new(&l.name).small().color(theme::TEXT_DIM)).truncate());
+                            });
+                        } else {
+                            ui.add(egui::Label::new(RichText::new(&l.name).small().color(theme::TEXT_DIM)).truncate());
+                        }
+                    });
+                    if k % 2 == 1 {
+                        ui.end_row();
+                    }
+                }
+            });
+        });
+        ui.add_space(6.0);
+    }
+
+    let stray = core
+        .project
+        .bindings
+        .iter()
+        // OSCだけで動かす割り当ては、図に載らなくて正常
+        .filter(|b| !(b.trigger.is_none() && b.osc.is_some()))
+        .filter(|b| !b.trigger.is_some_and(|t| Ctl::from_trigger(t.kind, t.number).is_some_and(|c| c.matches(&t))))
+        .count();
+    if stray > 0 {
+        ui.label(RichText::new(format!("この図に載らない割り当てが {stray} 件あります(未設定、または別のMIDI機器/チャンネル)。「MIDI設定」タブで確認できます。")).small().color(theme::WARN));
+    }
+    ui.label(RichText::new("図のパッド・ボタン・フェーダーをクリックすると、ここで割り当てを編集できます").small().color(theme::TEXT_FAINT));
 }

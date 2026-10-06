@@ -15,16 +15,14 @@ impl App {
         let mut changed = false;
         let mut remove: Option<usize> = None;
 
-        ui.label(
-            RichText::new(
-                "ペア = 「元」の機材の動きに「ペア相手」が連動します(値・エフェクト・シーン・チェイスの結果がそのまま追従)。左右反転をONにすると、指定した機能(通常はPan)が反転します",
-            )
-            .weak(),
-        );
-        ui.label(
-            RichText::new("連動・反転はMIDIパッドにも割り当てられます(マップ/MIDIタブの動作「ペア」)。ペア相手のチャンネルは、連動している間はコントロール画面で操作できません")
-                .weak(),
-        );
+        ui.horizontal(|ui| {
+            crate::theme::heading(ui, "ペア");
+            crate::theme::help(
+                ui,
+                "ペア = 「元」の機材の動きに「ペア相手」が連動します(値・エフェクト・シーン・チェイスの結果がそのまま追従)。左右反転をONにすると、指定した機能(通常はPan)が反転します。\n\
+                 連動・反転はMIDIパッドにも割り当てられます(割り当ての動作「ペア」)。ペア相手のチャンネルは、連動している間はコントロール画面で操作できません",
+            );
+        });
         ui.horizontal(|ui| {
             let ok = fixtures.len() >= 2;
             if ui.add_enabled(ok, egui::Button::new("＋ ペアを追加")).clicked() {
@@ -77,7 +75,7 @@ impl App {
                 ui.label("ペアはまだありません。");
             }
             for (i, p) in core.project.pairs.iter_mut().enumerate() {
-                egui::Frame::group(ui.style()).show(ui, |ui| {
+                crate::theme::card().show(ui, |ui| {
                     ui.horizontal(|ui| {
                         changed |= ui.checkbox(&mut p.enabled, "連動").changed();
                         changed |= ui.checkbox(&mut p.mirror, "左右反転").changed();

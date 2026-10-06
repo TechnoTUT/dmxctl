@@ -25,22 +25,24 @@ pub enum Tab {
     Monitor,
 }
 
+/// タブ。先頭の`LIVE_TABS`個が本番で使う画面、残りが準備・設定
 const TABS: [(Tab, &str); 11] = [
+    (Tab::Map, "MIDI"),
     (Tab::Control, "コントロール"),
-    (Tab::Map, "マップ"),
+    (Tab::Effects, "エフェクト"),
+    (Tab::Scenes, "シーン"),
+    (Tab::Sequence, "BPM/チェイス"),
+    (Tab::Pairs, "ペア"),
     (Tab::Patch, "パッチ"),
     (Tab::Profiles, "機材定義"),
-    (Tab::Pairs, "ペア"),
-    (Tab::Scenes, "シーン"),
-    (Tab::Effects, "エフェクト"),
-    (Tab::Sequence, "BPM/チェイス"),
-    (Tab::Midi, "MIDI/OSC"),
     (Tab::Output, "出力"),
+    (Tab::Midi, "MIDI設定"),
     (Tab::Monitor, "モニター"),
 ];
+const LIVE_TABS: usize = 6;
 
-pub const RED: Color32 = Color32::from_rgb(220, 70, 70);
-pub const WARN: Color32 = Color32::from_rgb(255, 140, 90);
+pub const RED: Color32 = crate::theme::DANGER;
+pub const WARN: Color32 = crate::theme::WARN;
 
 pub struct App {
     pub core: Shared,
@@ -56,6 +58,8 @@ pub struct App {
     pub scene_name: String,
     pub scene_fade: f32,
     pub monitor_universe: usize,
+    /// モニターで、使っていないチャンネルも512chまで並べる
+    pub monitor_all: bool,
     pub midi_ports: Vec<String>,
     pub midi_choice: String,
     pub serial_ports: Vec<(String, String)>,
@@ -80,6 +84,8 @@ pub struct App {
     pub ctx: egui::Context,
     /// 診断表示(環境変数 DMXCTL_PERF=1): 描画1回あたりの時間
     perf: Option<Perf>,
+    /// 確認用の画面保存(環境変数 DMXCTL_SHOT)
+    shot: Option<crate::shot::Shot>,
 }
 
 struct Perf {
@@ -91,7 +97,8 @@ struct Perf {
 
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        setup_fonts(&cc.egui_ctx);
+        crate::theme::setup_fonts(&cc.egui_ctx);
+        crate::theme::apply(&cc.egui_ctx);
 
         let (lib, lib_errors) = Library::load(&config_dir().join("fixtures"));
         let lib = Arc::new(lib);
@@ -101,7 +108,12 @@ impl App {
         backup_to(&path, &backup_dir(), BACKUP_KEEP);
         let mut project = match Project::load(&path) {
             Ok(p) => p,
-            Err(_) if !path.exists() => Project::starter(&lib),
+            // 初めての起動: おすすめのMIDI配置で始める
+            Err(_) if !path.exists() => {
+                let mut p = Project::starter(&lib);
+                crate::layout::apply(&mut p, &lib);
+                p
+            }
             Err(e) => {
                 let saved = Project::backup_broken(&path).map(|p| format!(" 元のファイルは {} に退避しました。", p.display())).unwrap_or_default();
                 notice = format!("プロジェクトを読めませんでした({e})。初期状態で起動します。{saved}");
@@ -110,7 +122,7 @@ impl App {
         };
         // 全体光量を右端のフェーダーに初期割り当て(既存のプロジェクトにも、一度だけ)
         if project.seed_master_binding() == Some(false) {
-            notice = format!("{notice} 右端のフェーダーは別の用途で使われているため、全体光量は未割り当てです(マップで割り当てられます)");
+            notice = format!("{notice} 右端のフェーダーは別の用途で使われているため、全体光量は未割り当てです(MIDIタブで割り当てられます)");
         }
         let midi_choice = project.midi_input.clone();
         let core: Shared = Arc::new(Mutex::new(Core::new(project, lib)));
@@ -121,7 +133,7 @@ impl App {
             core,
             engine,
             midi: Midi::default(),
-            tab: Tab::Control,
+            tab: Tab::Map,
             project_path: path,
             last_save: Instant::now(),
             notice,
@@ -130,6 +142,7 @@ impl App {
             scene_name: String::new(),
             scene_fade: 1.0,
             monitor_universe: 0,
+            monitor_all: false,
             midi_ports: midi::list_ports(),
             midi_choice,
             serial_ports: crate::opendmx::list_serial_ports(),
@@ -147,7 +160,17 @@ impl App {
             key_flash: false,
             ctx: cc.egui_ctx.clone(),
             perf: std::env::var_os("DMXCTL_PERF").map(|_| Perf { frames: 0, ui_time: Duration::ZERO, since: Instant::now(), text: String::new() }),
+            shot: crate::shot::Shot::from_env(),
         };
+        // 確認用: DMXCTL_TAB=タブ名 で開くタブ、DMXCTL_UNIVERSE=番号 でモニターのユニバースを選ぶ
+        if let Ok(name) = std::env::var("DMXCTL_TAB") {
+            if let Some((t, _)) = TABS.iter().find(|(_, label)| *label == name) {
+                app.tab = *t;
+            }
+        }
+        if let Some(u) = std::env::var("DMXCTL_UNIVERSE").ok().and_then(|v| v.parse::<usize>().ok()) {
+            app.monitor_universe = u.clamp(1, NUM_UNIVERSES) - 1;
+        }
         // 前回のMIDI機器、なければAPC mini が見つかれば自動接続。
         // 環境変数 DMXCTL_NO_MIDI=1 なら自動接続しない(本番のアプリが使っているコントローラーを、2つ目のアプリが奪わないように)
         let auto_midi = std::env::var_os("DMXCTL_NO_MIDI").is_none();
@@ -251,76 +274,143 @@ impl App {
     }
 
     fn top_bar(&mut self, ui: &mut egui::Ui) {
-        ui.add_space(4.0);
+        use crate::theme;
+        ui.add_space(6.0);
         ui.horizontal(|ui| {
-            for (t, label) in TABS {
-                ui.selectable_value(&mut self.tab, t, label);
+            brand(ui);
+            ui.add_space(14.0);
+            ui.spacing_mut().item_spacing.x = 2.0;
+            for (k, (t, label)) in TABS.iter().enumerate() {
+                if k == LIVE_TABS {
+                    ui.add_space(8.0);
+                    ui.separator();
+                    ui.add_space(8.0);
+                }
+                if tab_button(ui, self.tab == *t, label).clicked() {
+                    self.tab = *t;
+                }
             }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                let bo = lock(&self.core).rt.blackout;
-                let (text, fill) = if bo {
-                    ("BLACKOUT中 - 解除 (Esc)", RED)
-                } else {
-                    ("BLACKOUT (Esc)", Color32::from_rgb(90, 35, 35))
-                };
-                if ui.add(egui::Button::new(RichText::new(text).strong().color(Color32::WHITE)).fill(fill)).clicked() {
-                    lock(&self.core).rt.blackout = !bo;
-                }
-                if ui.button("バックアップから戻す").on_hover_text("起動のたび・別のファイルを開く前に、自動でバックアップを残しています(最新20個)。選んだものに戻します(戻す前の状態もバックアップされます)").clicked() {
-                    if let Some(p) = rfd::FileDialog::new().add_filter("プロジェクト", &["json"]).set_directory(backup_dir()).pick_file() {
-                        self.load_from(p);
-                    }
-                }
-                if ui.button("開く").clicked() {
-                    if let Some(p) = rfd::FileDialog::new().add_filter("プロジェクト", &["json"]).pick_file() {
-                        self.load_from(p);
-                    }
-                }
-                if ui.button("別名で保存").clicked() {
-                    if let Some(p) = rfd::FileDialog::new().add_filter("プロジェクト", &["json"]).set_file_name("show.json").save_file() {
-                        self.project_path = p;
+                ui.spacing_mut().item_spacing.x = 8.0;
+                ui.menu_button("ファイル ▼", |ui| {
+                    if ui.button("保存").on_hover_text(if cfg!(target_os = "macos") { "⌘S" } else { "Ctrl+S" }).clicked() {
                         self.save();
+                        self.notice = "保存しました".into();
+                        ui.close();
                     }
-                }
-                if ui.button("保存").clicked() {
-                    self.save();
+                    if ui.button("別名で保存…").clicked() {
+                        ui.close();
+                        if let Some(p) = rfd::FileDialog::new().add_filter("プロジェクト", &["json"]).set_file_name("show.json").save_file() {
+                            self.project_path = p;
+                            self.save();
+                        }
+                    }
+                    if ui.button("開く…").clicked() {
+                        ui.close();
+                        if let Some(p) = rfd::FileDialog::new().add_filter("プロジェクト", &["json"]).pick_file() {
+                            self.load_from(p);
+                        }
+                    }
+                    ui.separator();
+                    if ui.button("バックアップから戻す…").on_hover_text("起動のたび・別のファイルを開く前に、自動でバックアップを残しています(最新20個)。選んだものに戻します(戻す前の状態もバックアップされます)").clicked() {
+                        ui.close();
+                        if let Some(p) = rfd::FileDialog::new().add_filter("プロジェクト", &["json"]).set_directory(backup_dir()).pick_file() {
+                            self.load_from(p);
+                        }
+                    }
+                });
+                if lock(&self.core).dirty {
+                    ui.label(RichText::new("● 未保存").small().color(theme::WARN)).on_hover_text("変更は5秒ごとに自動で保存されます");
                 }
             });
         });
+        ui.add_space(6.0);
         self.transport_row(ui);
-        ui.add_space(4.0);
+        ui.add_space(6.0);
     }
 
     fn status_bar(&mut self, ui: &mut egui::Ui) {
-        let (midi, last, outs, dirty) = {
+        use crate::theme;
+        let (midi, last, outs) = {
             let c = lock(&self.core);
-            (c.rt.midi_status.clone(), c.rt.last_midi.clone(), c.rt.output_status.clone(), c.dirty)
+            (c.rt.midi_status.clone(), c.rt.last_midi.clone(), c.rt.output_status.clone())
         };
-        ui.horizontal_wrapped(|ui| {
-            ui.label(format!("MIDI: {midi}"));
+        ui.add_space(3.0);
+        ui.horizontal(|ui| {
+            let connected = self.midi.connected.is_some();
+            theme::dot(ui, if connected { theme::OK } else { theme::TEXT_FAINT });
+            ui.label(RichText::new(format!("MIDI {midi}")).small().color(theme::TEXT_DIM));
             if !last.is_empty() {
-                ui.label(RichText::new(format!("最後の入力: {last}")).weak());
+                ui.label(RichText::new(format!("最後の入力: {last}")).small().color(theme::TEXT_FAINT));
             }
             ui.separator();
-            if outs.is_empty() {
-                ui.label(RichText::new("出力: 未設定(「出力」タブで追加)").color(WARN));
-            }
-            for (i, s) in outs.iter().enumerate() {
-                ui.label(format!("出力{}: {s}", i + 1));
-            }
-            if dirty {
-                ui.label(RichText::new("(未保存)").weak());
-            }
+            // 出力はまとめて1行に(詳しくはマウスを乗せると出る)
+            let on: Vec<(usize, &String)> = outs.iter().enumerate().filter(|(_, s)| s.as_str() != "無効").collect();
+            let bad = on.iter().filter(|(_, s)| output_has_error(s)).count();
+            let color = if outs.is_empty() || bad > 0 { theme::WARN } else if on.is_empty() { theme::TEXT_FAINT } else { theme::OK };
+            theme::dot(ui, color);
+            let text = if outs.is_empty() {
+                "出力: 未設定(「出力」タブで追加)".to_string()
+            } else if bad > 0 {
+                format!("出力 {}/{} ・ エラー {bad}件", on.len(), outs.len())
+            } else {
+                format!("出力 {}/{}", on.len(), outs.len())
+            };
+            let detail = outs.iter().enumerate().map(|(i, s)| format!("出力{}: {s}", i + 1)).collect::<Vec<_>>().join("\n");
+            ui.label(RichText::new(text).small().color(if bad > 0 { theme::WARN } else { theme::TEXT_DIM })).on_hover_text(detail);
             if let Some(p) = &self.perf {
                 ui.separator();
-                ui.label(RichText::new(&p.text).weak());
+                ui.label(RichText::new(&p.text).small().color(theme::TEXT_FAINT));
             }
             if !self.notice.is_empty() {
-                ui.separator();
-                ui.label(RichText::new(&self.notice).color(WARN));
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    if ui.small_button("×").on_hover_text("消す").clicked() {
+                        self.notice.clear();
+                    }
+                    ui.add(egui::Label::new(RichText::new(&self.notice).small().color(theme::WARN)).truncate()).on_hover_text(&self.notice);
+                });
             }
         });
+        ui.add_space(1.0);
     }
+}
+
+/// 出力の状態の文字から、エラーかどうか
+fn output_has_error(status: &str) -> bool {
+    ["エラー", "失敗", "見つかりません", "開けません"].iter().any(|k| status.contains(k))
+}
+
+/// 左上のロゴ
+fn brand(ui: &mut egui::Ui) {
+    use crate::theme;
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(22.0, 22.0), egui::Sense::hover());
+    let p = ui.painter();
+    let c = rect.center();
+    // 3色の光が重なるマーク
+    for (dx, dy, color) in [(-3.5, -2.0, Color32::from_rgb(255, 70, 110)), (3.5, -2.0, Color32::from_rgb(70, 140, 255)), (0.0, 3.8, theme::ACCENT)] {
+        p.circle_filled(c + egui::vec2(dx, dy), 5.5, theme::alpha(color, 0.85));
+    }
+    ui.label(RichText::new("DMX").font(theme::bold(15.0)).color(theme::TEXT));
+}
+
+/// タブのボタン(選ばれているタブはうっすら色付きの角丸)
+fn tab_button(ui: &mut egui::Ui, selected: bool, label: &str) -> egui::Response {
+    use crate::theme;
+    let font = egui::FontId::proportional(13.5);
+    let galley = ui.painter().layout_no_wrap(label.to_string(), font, theme::TEXT);
+    let size = galley.size() + egui::vec2(18.0, 12.0);
+    let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
+    let hovered = resp.hovered();
+    let (fill, color) = if selected {
+        (theme::alpha(theme::ACCENT, 0.15), theme::ACCENT)
+    } else if hovered {
+        (theme::WIDGET, theme::TEXT)
+    } else {
+        (Color32::TRANSPARENT, theme::TEXT_DIM)
+    };
+    ui.painter().rect_filled(rect, 7.0, fill);
+    ui.painter().galley_with_override_text_color(rect.center() - galley.size() / 2.0, galley, color);
+    resp
 }
 
 impl App {
@@ -464,6 +554,9 @@ impl App {
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.ui_timed(ui);
+        if let Some(s) = self.shot.as_mut() {
+            s.tick(ui.ctx());
+        }
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
@@ -481,36 +574,6 @@ impl eframe::App for App {
         self.engine.stop();
         self.save();
     }
-}
-
-/// 日本語表示用にWindows標準フォントを追加する
-fn setup_fonts(ctx: &egui::Context) {
-    let mut fonts = egui::FontDefinitions::default();
-    // OSの標準の日本語フォント(Windows: メイリオ等 / Mac: ヒラギノ / Linux: Noto CJK)
-    const JP_FONTS: &[&str] = &[
-        "C:/Windows/Fonts/meiryo.ttc",
-        "C:/Windows/Fonts/YuGothM.ttc",
-        "C:/Windows/Fonts/msgothic.ttc",
-        "/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc",
-        "/System/Library/Fonts/Hiragino Sans GB.ttc",
-        "/Library/Fonts/Arial Unicode.ttf",
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
-    ];
-    for path in JP_FONTS {
-        if let Ok(bytes) = std::fs::read(path) {
-            fonts.font_data.insert("jp".into(), Arc::new(egui::FontData::from_owned(bytes)));
-            // 通常の文字は日本語フォントを先頭にして字の太さを揃える。等幅(数値表示)は既定フォントを優先し、日本語だけ補う
-            if let Some(list) = fonts.families.get_mut(&egui::FontFamily::Proportional) {
-                list.insert(0, "jp".into());
-            }
-            if let Some(list) = fonts.families.get_mut(&egui::FontFamily::Monospace) {
-                list.push("jp".into());
-            }
-            break;
-        }
-    }
-    ctx.set_fonts(fonts);
 }
 
 // ------------------------------------------------------------ 対象セレクタ用の共通部品

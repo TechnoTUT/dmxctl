@@ -128,6 +128,15 @@ pub struct Runtime {
     /// 暗転フェードの向かう先(0か1)と、かける秒数
     pub dim_target: f32,
     pub dim_secs: f32,
+    /// 機材ごとの明るさ(0.0〜1.0。「明るさ」のフェーダーで変える)。無い機材は1.0。全体光量と同じところに掛かる。保存しない
+    pub level: HashMap<u32, f32>,
+    /// ミュート中の機材(明るさのチャンネルを0にする)。保存しない
+    pub muted: HashSet<u32>,
+    /// ピクセルエフェクト全体の速さの倍率と、倍率を変えても模様が飛ばないようにするための拍のずれ
+    pub px_speed: f32,
+    pub px_offset: f64,
+    /// ピクセルエフェクトに足す斜めのずれ(周)
+    pub px_skew: f32,
 }
 
 impl Runtime {
@@ -172,6 +181,11 @@ impl Runtime {
             dim: 1.0,
             dim_target: 1.0,
             dim_secs: 3.0,
+            level: HashMap::new(),
+            muted: HashSet::new(),
+            px_speed: 1.0,
+            px_offset: 0.0,
+            px_skew: 0.0,
         }
     }
 }
@@ -617,6 +631,8 @@ impl Core {
         let c = &mut self.rt.clock;
         c.base = -(c.ticks as f64) / CLOCK_PPQ;
         self.rt.beat = 0.0;
+        // 速さを変えてずれたLEDバーの模様も、小節の頭にそろえ直す
+        self.rt.px_offset = 0.0;
     }
 
     /// 動作中のチェイスを、拍の位置に合わせて進める。ステップが変わった瞬間にシーンを呼び出す
@@ -858,10 +874,14 @@ impl Core {
         }
 
         // 全体光量: 各機材のディマー(無ければ色の強さのチャンネル)に掛ける
-        // 暗転フェードも全体光量と同じところにかける
+        // 暗転フェードと機材ごとの明るさ(フェーダー)も、全体光量と同じところにかける
         let master = self.rt.master * self.rt.dim;
-        if master < 0.9999 {
+        if master < 0.9999 || !self.rt.level.is_empty() {
             for (i, fx) in self.project.fixtures.iter().enumerate() {
+                let master = master * self.rt.level.get(&fx.id).copied().unwrap_or(1.0);
+                if master >= 0.9999 {
+                    continue;
+                }
                 let Some(mode) = lib.mode(&fx.profile, fx.mode) else { continue };
                 if vals[i].len() != mode.channels.len() {
                     continue;
@@ -908,8 +928,8 @@ impl Core {
                     }
                 }
             }
-            // ブラックアウトでは、安全値の無い機材(RGBの灯具など)も、明るさのチャンネルを0にする
-            if dark {
+            // ブラックアウトでは、安全値の無い機材(RGBの灯具など)も、明るさのチャンネルを0にする。ミュート中の機材も同じ
+            if dark || self.rt.muted.contains(&fx.id) {
                 if let Some(info) = lib.info(&fx.profile, fx.mode) {
                     for &ch in &info.master {
                         info.set_f(v, ch, 0.0);
@@ -950,6 +970,21 @@ impl Core {
         }
         if let Some(m) = master {
             self.rt.master = m;
+        }
+        // 機材ごとの明るさとLEDバーの速さ・斜めも、全体光量と同じく実機のフェーダー位置に合わせる
+        let sync: Vec<(usize, f32)> = self
+            .project
+            .bindings
+            .iter()
+            .enumerate()
+            .filter(|(_, b)| matches!(b.action, Action::Level { .. } | Action::Pixel { .. }))
+            .filter_map(|(i, b)| {
+                let t = b.trigger?;
+                (t.kind == TriggerKind::Cc && (0x30..=0x38).contains(&t.number) && t.channel.is_none_or(|c| c == 0)).then(|| (i, positions[(t.number - 0x30) as usize] as f32 / 127.0))
+            })
+            .collect();
+        for (i, v) in sync {
+            self.apply_binding(i, v, false);
         }
     }
 
@@ -1230,6 +1265,34 @@ impl Core {
                     };
                 }
             }
+            Action::Level { sel } => {
+                for i in self.resolve(&sel) {
+                    let id = self.project.fixtures[i].id;
+                    self.rt.level.insert(id, v);
+                }
+            }
+            Action::Mute { sel, mode } => {
+                let ids: Vec<u32> = self.resolve(&sel).into_iter().map(|i| self.project.fixtures[i].id).collect();
+                let all = !ids.is_empty() && ids.iter().all(|id| self.rt.muted.contains(id));
+                let new = match mode {
+                    PadMode::Toggle => rising.then_some(!all),
+                    PadMode::Trigger => rising.then_some(true),
+                    _ => (rising || falling).then_some(pressed),
+                };
+                if let Some(m) = new {
+                    for id in ids {
+                        if m {
+                            self.rt.muted.insert(id);
+                        } else {
+                            self.rt.muted.remove(&id);
+                        }
+                    }
+                }
+            }
+            Action::Pixel { param } => match param {
+                crate::pixel::PixelParam::Speed => self.set_pixel_speed(crate::pixel::speed_step(v)),
+                crate::pixel::PixelParam::Skew => self.rt.px_skew = v * crate::pixel::SKEW_FADER_MAX,
+            },
             Action::Blackout { mode } => {
                 let cur = self.rt.blackout;
                 let new = match mode {

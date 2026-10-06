@@ -47,15 +47,20 @@ pub fn default_action(continuous: bool) -> Action {
 }
 
 /// マップの升目に出す短い説明(2〜3行)
+/// 対象の短い名前(マップの升目用)
+pub fn target_short(sel: &Selector, meta: &SelMeta) -> String {
+    match sel {
+        Selector::All => "全機材".to_string(),
+        Selector::Fixture(_) => meta.label(sel),
+        Selector::Group(g) => format!("G:{g}"),
+        Selector::Profile(p) => format!("機種:{}", meta.profiles.iter().find(|(id, _)| id == p).map(|(_, n)| n.as_str()).unwrap_or(p)),
+    }
+}
+
 pub fn summary(a: &Action, meta: &SelMeta) -> String {
     match a {
         Action::SetValue { sel, attr, mode, .. } => {
-            let target = match sel {
-                Selector::All => "全機材".to_string(),
-                Selector::Fixture(_) => meta.label(sel),
-                Selector::Group(g) => format!("G:{g}"),
-                Selector::Profile(p) => format!("機種:{}", meta.profiles.iter().find(|(id, _)| id == p).map(|(_, n)| n.as_str()).unwrap_or(p)),
-            };
+            let target = target_short(sel, meta);
             let m = match mode {
                 PadMode::Continuous => "連続",
                 PadMode::Momentary => "押中",
@@ -99,6 +104,12 @@ pub fn summary(a: &Action, meta: &SelMeta) -> String {
             PageOp::Next => "ページ\n次へ".into(),
             PageOp::Prev => "ページ\n前へ".into(),
         },
+        Action::Level { sel } => format!("明るさ\n{}", target_short(sel, meta)),
+        Action::Mute { sel, .. } => format!("ミュート\n{}", target_short(sel, meta)),
+        Action::Pixel { param } => match param {
+            crate::pixel::PixelParam::Speed => "LEDバー\n速さ".into(),
+            crate::pixel::PixelParam::Skew => "LEDバー\n斜め".into(),
+        },
     }
 }
 
@@ -111,7 +122,7 @@ pub fn page_label(page: Option<u8>) -> String {
 
 pub fn binding_editor(ui: &mut egui::Ui, i: usize, b: &mut Binding, learn: Learn, cx: &EditCtx) -> EditOut {
     let mut out = EditOut::default();
-    egui::Frame::group(ui.style()).show(ui, |ui| {
+    crate::theme::card().show(ui, |ui| {
         ui.horizontal(|ui| {
             let learning = *learn.midi == Some(i);
             let text = if learning { "待機中... パッドを押してください" } else { "MIDIラーン" };
@@ -343,6 +354,22 @@ pub fn binding_editor(ui: &mut egui::Ui, i: usize, b: &mut Binding, learn: Learn
                         out.changed |= ui.selectable_value(op, PageOp::Prev, PageOp::Prev.label()).changed();
                     });
                 }
+                Action::Level { sel } => {
+                    out.changed |= selector_combo(ui, &format!("blvl{i}"), sel, cx.meta);
+                    ui.label(RichText::new("フェーダーで、対象の機材だけの明るさを変えます").weak());
+                }
+                Action::Mute { sel, mode } => {
+                    out.changed |= selector_combo(ui, &format!("bmute{i}"), sel, cx.meta);
+                    out.changed |= pad_mode_combo(ui, &format!("bmutem{i}"), mode, false);
+                }
+                Action::Pixel { param } => {
+                    egui::ComboBox::from_id_salt(format!("bpx{i}")).selected_text(param.label()).width(170.0).show_ui(ui, |ui| {
+                        for p in crate::pixel::PixelParam::ALL {
+                            out.changed |= ui.selectable_value(param, p, p.label()).changed();
+                        }
+                    });
+                    ui.label(RichText::new("動いているLEDバーの模様すべてに掛かります(フェーダー用)").weak());
+                }
                 Action::Master { mode, on, off } => {
                     out.changed |= pad_mode_combo(ui, &format!("bmm{i}"), mode, true);
                     let (a, c) = if *mode == PadMode::Continuous { ("最大", "最小") } else { ("ON時", "OFF時") };
@@ -421,6 +448,18 @@ fn action_kind_combo(ui: &mut egui::Ui, i: usize, action: &mut Action, cx: &Edit
         }
         if ui.selectable_label(is(action, "全体光量"), "全体光量").clicked() && !is(action, "全体光量") {
             *action = Action::Master { mode: PadMode::Continuous, on: 100.0, off: 0.0 };
+            changed = true;
+        }
+        if ui.selectable_label(is(action, "明るさ(機材ごと)"), "明るさ(機材ごと)").clicked() && !is(action, "明るさ(機材ごと)") {
+            *action = Action::Level { sel: Selector::All };
+            changed = true;
+        }
+        if ui.selectable_label(is(action, "ミュート"), "ミュート").clicked() && !is(action, "ミュート") {
+            *action = Action::Mute { sel: Selector::All, mode: PadMode::Toggle };
+            changed = true;
+        }
+        if ui.selectable_label(is(action, "LEDバー調整"), "LEDバー調整(速さ・斜め)").clicked() && !is(action, "LEDバー調整") {
+            *action = Action::Pixel { param: crate::pixel::PixelParam::Speed };
             changed = true;
         }
         if ui.selectable_label(is(action, "暗転フェード"), "暗転フェード").clicked() && !is(action, "暗転フェード") {

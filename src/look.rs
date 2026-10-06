@@ -42,6 +42,8 @@ pub fn looks(core: &Core) -> Vec<FixtureLook> {
             Some("暗転")
         } else if profile.needs_arm && !fx.armed {
             Some("SAFE")
+        } else if core.rt.muted.contains(&fx.id) {
+            Some("MUTE")
         } else {
             None
         };

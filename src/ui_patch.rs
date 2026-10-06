@@ -27,7 +27,7 @@ impl App {
                     changed = true;
                 }
             }
-            ui.label(RichText::new(format!("機材定義は {} に .json を置くと増やせます", crate::project::config_dir().join("fixtures").display())).weak());
+            crate::theme::help(ui, &format!("機材定義は「機材定義」タブで作れます。{} に .json を置いても増やせます", crate::project::config_dir().join("fixtures").display()));
         });
         ui.separator();
 
@@ -51,7 +51,7 @@ impl App {
                 ui.end_row();
 
                 for (i, fx) in core.project.fixtures.iter_mut().enumerate() {
-                    changed |= ui.add(egui::TextEdit::singleline(&mut fx.name).desired_width(140.0)).changed();
+                    changed |= ui.add_sized([150.0, 24.0], egui::TextEdit::singleline(&mut fx.name)).changed();
                     let profile = lib.get(&fx.profile);
                     ui.label(profile.map(|p| p.name.as_str()).unwrap_or("(不明)"));
 
@@ -96,8 +96,10 @@ impl App {
             });
 
             ui.add_space(12.0);
-            ui.label(RichText::new("グループ").strong());
-            ui.label(RichText::new("MIDI割り当てやエフェクトの対象に「グループ」を選べます").weak());
+            ui.horizontal(|ui| {
+                crate::theme::heading(ui, "グループ");
+                crate::theme::help(ui, "MIDI割り当てやエフェクトの対象に「グループ」を選べます");
+            });
             let fx_names: Vec<(u32, String)> = core.project.fixtures.iter().map(|f| (f.id, f.name.clone())).collect();
             let mut del_group: Option<usize> = None;
             for (gi, g) in core.project.groups.iter_mut().enumerate() {
