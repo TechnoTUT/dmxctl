@@ -1,0 +1,3 @@
+# 別のPCでもVC++ランタイム無しで動くよう、Cランタイムをexeに内蔵する
+[target.'cfg(all(windows, target_env = "msvc"))']
+rustflags = ["-C", "target-feature=+crt-static"]

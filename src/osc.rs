@@ -1,0 +1,391 @@
+//! OSC受信(TouchDesignerなどから照明を動かす)。
+//!
+//! 2通りの動かし方がある:
+//! - 割り当て(MIDI/OSCタブ・マップ)にOSCアドレスを付けると、MIDIと同じ動作をOSCで実行できる(「OSCラーン」で登録)
+//! - 決まったアドレス(`/dmx/...`)で、よく使う操作を直接呼べる(`ADDRESSES`)
+//!
+//! 値は 0.0〜1.0 で受け取る(フェーダー用)。ボタン系は 0.5以上で押した、未満で離した扱い。値なしのメッセージは1回押した扱い
+
+use crate::color::{ColorTarget, NamedColor};
+use crate::engine::{lock, Core, Shared};
+use crate::project::*;
+use std::net::UdpSocket;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Arg {
+    Int(i64),
+    Float(f64),
+    Str(String),
+    Bool(bool),
+}
+
+impl Arg {
+    pub fn num(&self) -> Option<f32> {
+        match self {
+            Arg::Int(i) => Some(*i as f32),
+            Arg::Float(f) => Some(*f as f32),
+            Arg::Bool(b) => Some(if *b { 1.0 } else { 0.0 }),
+            Arg::Str(_) => None,
+        }
+    }
+    pub fn text(&self) -> Option<&str> {
+        match self {
+            Arg::Str(s) => Some(s),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Message {
+    pub addr: String,
+    pub args: Vec<Arg>,
+}
+
+/// 決まったアドレスの一覧(画面の説明用)。値の範囲は 0.0〜1.0
+pub const ADDRESSES: &[(&str, &str)] = &[
+    ("/dmx/master  f", "全体光量(0〜1)"),
+    ("/dmx/blackout  f", "ブラックアウト(1=ON / 0=OFF)"),
+    ("/dmx/fade  f [秒]", "暗転フェード(1=暗くする / 0=戻す)。秒数を付けられる。/dmx/fade/time f で標準の秒数"),
+    ("/dmx/flash  f", "フラッシュ(1の間だけ白で全開 / 0で戻す)。/dmx/flash/color f は今の色のまま全開"),
+    ("/dmx/bpm  f", "BPM(数値そのまま。例: 128)"),
+    ("/dmx/tap", "タップテンポ"),
+    ("/dmx/resync", "頭出し(小節の頭へ)"),
+    ("/dmx/scene  s", "シーンを名前で呼び出す"),
+    ("/dmx/position  s", "位置プリセットを名前で呼び出す"),
+    ("/dmx/color  s", "色(赤/red, 青/blue など)。全体/個別スイッチに従う"),
+    ("/dmx/hue  f", "色相(0〜1で一周)。全体/個別スイッチに従う"),
+    ("/dmx/main  s", "メイン色(色の名前)。/dmx/main/hue f で色相"),
+    ("/dmx/sub  s", "サブ色(色の名前)。/dmx/sub/hue f で色相"),
+    ("/dmx/swap  f", "メイン⇄サブ入れ替え(値なし/1で入れ替え)。/dmx/swap/auto f で自動入れ替えON/OFF"),
+    ("/dmx/effect  s f", "エフェクトのON/OFF(名前, 1/0)"),
+    ("/dmx/chase  s f", "チェイスのON/OFF(名前, 1/0)"),
+    ("/dmx/page  i", "パッドのページ(1〜8)"),
+    ("/dmx/fixture/<番号>/<機能>  f", "機材1台のチャンネル(0〜1)。番号はパッチタブのID。例: /dmx/fixture/1/dimmer"),
+    ("/dmx/all/<機能>  f", "全機材のチャンネル(0〜1)。例: /dmx/all/pan"),
+];
+
+// ------------------------------------------------------------ 解析
+
+fn read_str(b: &[u8], pos: &mut usize) -> Option<String> {
+    let start = *pos;
+    let end = start + b.get(start..)?.iter().position(|&c| c == 0)?;
+    let s = String::from_utf8_lossy(&b[start..end]).into_owned();
+    // 終端の0を含めて4バイト単位
+    *pos = (end + 4) & !3;
+    Some(s)
+}
+
+fn read_bytes<const N: usize>(b: &[u8], pos: &mut usize) -> Option<[u8; N]> {
+    let v: [u8; N] = b.get(*pos..*pos + N)?.try_into().ok()?;
+    *pos += N;
+    Some(v)
+}
+
+/// OSCパケット(メッセージ、またはバンドル)を読む。読めないものは空
+pub fn parse(b: &[u8]) -> Vec<Message> {
+    let mut out = Vec::new();
+    parse_into(b, &mut out, 0);
+    out
+}
+
+fn parse_into(b: &[u8], out: &mut Vec<Message>, depth: u32) {
+    if depth > 8 {
+        return;
+    }
+    if b.starts_with(b"#bundle\0") {
+        let mut pos = 16; // "#bundle\0" + タイムタグ(8バイト)
+        while let Some(len) = read_bytes::<4>(b, &mut pos).map(i32::from_be_bytes) {
+            let Ok(len) = usize::try_from(len) else { return };
+            let Some(el) = b.get(pos..pos + len) else { return };
+            parse_into(el, out, depth + 1);
+            pos += len;
+        }
+        return;
+    }
+    if let Some(m) = parse_message(b) {
+        out.push(m);
+    }
+}
+
+fn parse_message(b: &[u8]) -> Option<Message> {
+    let mut pos = 0;
+    let addr = read_str(b, &mut pos)?;
+    if !addr.starts_with('/') {
+        return None;
+    }
+    let mut args = Vec::new();
+    // 型タグが無い古い送信元もある
+    if pos >= b.len() {
+        return Some(Message { addr, args });
+    }
+    let tags = read_str(b, &mut pos)?;
+    for t in tags.strip_prefix(',')?.chars() {
+        let a = match t {
+            'i' => Arg::Int(i32::from_be_bytes(read_bytes(b, &mut pos)?) as i64),
+            'h' => Arg::Int(i64::from_be_bytes(read_bytes(b, &mut pos)?)),
+            'f' => Arg::Float(f32::from_be_bytes(read_bytes(b, &mut pos)?) as f64),
+            'd' => Arg::Float(f64::from_be_bytes(read_bytes(b, &mut pos)?)),
+            's' | 'S' => Arg::Str(read_str(b, &mut pos)?),
+            'T' => Arg::Bool(true),
+            'F' => Arg::Bool(false),
+            'N' | 'I' => continue,
+            'b' => {
+                let n = i32::from_be_bytes(read_bytes(b, &mut pos)?).max(0) as usize;
+                pos = (pos + n + 3) & !3;
+                continue;
+            }
+            // 知らない型は、その先が読めないので打ち切る
+            _ => break,
+        };
+        args.push(a);
+    }
+    Some(Message { addr, args })
+}
+
+/// テスト・送信用: 1つのメッセージを組み立てる
+#[cfg(test)]
+pub fn encode(addr: &str, args: &[Arg]) -> Vec<u8> {
+    fn put_str(v: &mut Vec<u8>, s: &str) {
+        v.extend_from_slice(s.as_bytes());
+        v.push(0);
+        while v.len() % 4 != 0 {
+            v.push(0);
+        }
+    }
+    let mut v = Vec::new();
+    put_str(&mut v, addr);
+    let mut tags = String::from(",");
+    for a in args {
+        tags.push(match a {
+            Arg::Int(_) => 'i',
+            Arg::Float(_) => 'f',
+            Arg::Str(_) => 's',
+            Arg::Bool(true) => 'T',
+            Arg::Bool(false) => 'F',
+        });
+    }
+    put_str(&mut v, &tags);
+    for a in args {
+        match a {
+            Arg::Int(i) => v.extend_from_slice(&(*i as i32).to_be_bytes()),
+            Arg::Float(f) => v.extend_from_slice(&(*f as f32).to_be_bytes()),
+            Arg::Str(s) => put_str(&mut v, s),
+            Arg::Bool(_) => {}
+        }
+    }
+    v
+}
+
+// ------------------------------------------------------------ 動作
+
+fn color_by_name(s: &str) -> Option<NamedColor> {
+    let l = s.trim().to_lowercase();
+    NamedColor::ALL.into_iter().find(|c| c.label() == s.trim() || format!("{c:?}").to_lowercase() == l)
+}
+
+impl Core {
+    pub fn handle_osc(&mut self, m: &Message) {
+        let first_num = m.args.iter().find_map(|a| a.num());
+        let args_text: Vec<String> = m
+            .args
+            .iter()
+            .map(|a| match a {
+                Arg::Int(i) => i.to_string(),
+                Arg::Float(f) => format!("{f:.3}"),
+                Arg::Str(s) => format!("\"{s}\""),
+                Arg::Bool(b) => b.to_string(),
+            })
+            .collect();
+        self.rt.last_osc = format!("{} {}", m.addr, args_text.join(" ")).trim_end().to_string();
+
+        // OSCラーン: 次に来たアドレスを割り当てに登録
+        if let Some(idx) = self.rt.osc_learn.take() {
+            if let Some(b) = self.project.bindings.get_mut(idx) {
+                b.osc = Some(m.addr.clone());
+                self.dirty = true;
+            }
+            return;
+        }
+
+        let hits: Vec<usize> = self.project.bindings.iter().enumerate().filter(|(_, b)| b.osc.as_deref() == Some(m.addr.as_str())).map(|(i, _)| i).collect();
+        if !hits.is_empty() {
+            for i in hits {
+                match first_num {
+                    Some(v) => self.apply_binding(i, v, v >= 0.5),
+                    // 値なしは「押して離した」
+                    None => {
+                        self.apply_binding(i, 1.0, true);
+                        self.apply_binding(i, 1.0, false);
+                    }
+                }
+            }
+            return;
+        }
+        self.builtin_osc(m, first_num);
+    }
+
+    fn builtin_osc(&mut self, m: &Message, num: Option<f32>) {
+        let Some(path) = m.addr.strip_prefix("/dmx/") else { return };
+        let text = m.args.iter().find_map(|a| a.text()).map(str::to_string);
+        // ボタン系: 値なし、または0.5以上のときだけ動く(TouchDesignerのボタンは押すと1、離すと0を送る)
+        let press = num.is_none_or(|v| v >= 0.5);
+        let parts: Vec<&str> = path.split('/').collect();
+        match parts.as_slice() {
+            ["master"] => {
+                if let Some(v) = num {
+                    self.rt.master = v.clamp(0.0, 1.0);
+                }
+            }
+            ["blackout"] => self.rt.blackout = press,
+            ["bpm"] => {
+                if let Some(v) = num {
+                    self.set_bpm(v);
+                }
+            }
+            ["tap"] if press => self.tap(),
+            ["resync"] if press => self.resync(),
+            ["scene"] if press => {
+                if let Some(n) = text {
+                    self.recall_scene(&n);
+                }
+            }
+            ["position"] if press => {
+                if let Some(n) = text {
+                    self.recall_position(&n);
+                }
+            }
+            ["color"] if press => {
+                if let Some(c) = text.as_deref().and_then(color_by_name) {
+                    self.apply_named_color(c, ColorTarget::Scope);
+                }
+            }
+            ["hue"] => {
+                if let Some(v) = num {
+                    self.apply_hue(v.clamp(0.0, 1.0) * 360.0, ColorTarget::Scope);
+                }
+            }
+            ["effect"] | ["chase"] => {
+                let Some(name) = text else { return };
+                let on = num.is_none_or(|v| v >= 0.5);
+                if parts[0] == "effect" {
+                    for e in self.project.effects.iter_mut().filter(|e| e.name == name) {
+                        e.enabled = on;
+                    }
+                    if self.project.pixel_fx.iter().any(|e| e.name == name) {
+                        self.set_pixel_fx(&name, on);
+                    }
+                } else {
+                    for c in self.project.chases.iter_mut().filter(|c| c.name == name) {
+                        c.enabled = on;
+                    }
+                }
+                self.dirty = true;
+            }
+            [slot @ ("main" | "sub")] if press => {
+                if let Some(c) = text.as_deref().and_then(color_by_name) {
+                    self.apply_named_color(c, if *slot == "main" { ColorTarget::Main } else { ColorTarget::Sub });
+                }
+            }
+            [slot @ ("main" | "sub"), "hue"] => {
+                if let Some(v) = num {
+                    self.apply_hue(v.clamp(0.0, 1.0) * 360.0, if *slot == "main" { ColorTarget::Main } else { ColorTarget::Sub });
+                }
+            }
+            ["swap"] if press => self.swap_palette(),
+            ["flash"] => self.rt.flash = press.then_some(true),
+            // 2つ目の数値があれば秒数(無ければ設定の秒数)
+            ["fade"] => {
+                let secs = m.args.iter().filter_map(|a| a.num()).nth(1).unwrap_or(self.project.fade_secs);
+                self.fade_to_black(press, secs);
+            }
+            ["fade", "time"] => {
+                if let Some(v) = num {
+                    self.project.fade_secs = v.clamp(0.0, 60.0);
+                    self.dirty = true;
+                }
+            }
+            ["flash", "color"] => self.rt.flash = press.then_some(false),
+            ["swap", "auto"] => self.set_palette_auto(press),
+            ["page"] => {
+                if let Some(v) = num {
+                    self.rt.page = (v.round() as i64 - 1).clamp(0, PAGES as i64 - 1) as u8;
+                }
+            }
+            ["fixture", id, attr] => {
+                if let (Ok(id), Some(v)) = (id.parse::<u32>(), num) {
+                    self.set_attr(&Selector::Fixture(id), attr, v.clamp(0.0, 1.0) * 255.0);
+                }
+            }
+            ["all", attr] => {
+                if let Some(v) = num {
+                    self.set_attr(&Selector::All, attr, v.clamp(0.0, 1.0) * 255.0);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+// ------------------------------------------------------------ 受信スレッド
+
+/// 指定のUDPポートでOSCを待ち受ける。Dropで止まる
+pub struct OscServer {
+    stop: Arc<AtomicBool>,
+    handle: Option<JoinHandle<()>>,
+    pub port: u16,
+}
+
+impl OscServer {
+    /// `ctx`は受信したときに画面を更新させるためのもの(映像ソフトから連続で来ても、画面の更新は0.25秒に1回まで)
+    pub fn start(core: Shared, ctx: Option<eframe::egui::Context>, port: u16) -> Result<OscServer, String> {
+        let sock = UdpSocket::bind(("0.0.0.0", port)).map_err(|e| format!("ポート{port}を開けません: {e}"))?;
+        sock.set_read_timeout(Some(Duration::from_millis(200))).map_err(|e| e.to_string())?;
+        let stop = Arc::new(AtomicBool::new(false));
+        let s2 = stop.clone();
+        lock(&core).rt.osc_status = format!("受信待ち (UDP {port})");
+        let handle = std::thread::Builder::new()
+            .name("osc-in".into())
+            .spawn(move || {
+                let mut buf = [0u8; 4096];
+                let mut count: u64 = 0;
+                let mut last_status = Instant::now();
+                while !s2.load(Ordering::SeqCst) {
+                    let Ok((n, _)) = sock.recv_from(&mut buf) else { continue };
+                    let msgs = parse(&buf[..n]);
+                    if msgs.is_empty() {
+                        continue;
+                    }
+                    count += msgs.len() as u64;
+                    {
+                        let mut c = lock(&core);
+                        for m in &msgs {
+                            c.handle_osc(m);
+                        }
+                        if last_status.elapsed() > Duration::from_millis(250) {
+                            c.rt.osc_status = format!("受信中 (UDP {port}) {count}件");
+                            last_status = Instant::now();
+                        }
+                    }
+                    if let Some(ctx) = &ctx {
+                        ctx.request_repaint_after(Duration::from_millis(250));
+                    }
+                }
+            })
+            .map_err(|e| e.to_string())?;
+        Ok(OscServer { stop, handle: Some(handle), port })
+    }
+}
+
+impl Drop for OscServer {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        if let Some(h) = self.handle.take() {
+            let _ = h.join();
+        }
+    }
+}
