@@ -24,6 +24,14 @@ lipo -create \
   -output "$APP/Contents/MacOS/dmxctl"
 cp scripts/mac/Info.plist "$APP/Contents/Info.plist"
 
+# FTDIのD2XXライブラリを同梱する(third_party/ftd2xx/mac/libftd2xx.dylib があれば)
+D2XX="third_party/ftd2xx/mac/libftd2xx.dylib"
+if [ -f "$D2XX" ]; then
+  mkdir -p "$APP/Contents/Frameworks"
+  # ダウンロード時の印(quarantine)は持ち込まない
+  ditto --noextattr "$D2XX" "$APP/Contents/Frameworks/libftd2xx.dylib"
+fi
+
 # 署名(開発者IDなしの簡易署名)。Apple Silicon では署名が無いと起動できない
 codesign --force --deep --sign - "$APP"
 

@@ -204,9 +204,12 @@ impl D2xxApi {
         } else {
             &["libftd2xx.so"]
         };
-        for name in names.iter().copied() {
+        // Macのアプリ(.app)に同梱したもの(Contents/Frameworks)を最初に探す
+        let bundled = std::env::current_exe().ok().and_then(|exe| Some(exe.parent()?.parent()?.join("Frameworks").join("libftd2xx.dylib"))).filter(|p| cfg!(target_os = "macos") && p.exists());
+        let candidates: Vec<std::ffi::OsString> = bundled.into_iter().map(|p| p.into_os_string()).chain(names.iter().map(|n| n.into())).collect();
+        for name in candidates {
             // SAFETY: FTDI公式のDLL。シンボルはD2XXの公開APIと同じシグネチャで宣言している
-            match unsafe { libloading::Library::new(name) } {
+            match unsafe { libloading::Library::new(&name) } {
                 Ok(lib) => return Self::bind(lib).map(Arc::new),
                 Err(e) => last = e.to_string(),
             }
