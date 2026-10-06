@@ -124,11 +124,16 @@ fn recommended_layout_fills_the_controller_without_conflicts() {
     assert_eq!(effect_at(5, 0), "点灯チェイス");
     assert!(matches!(&binding_at(&c, Ctl::Pad(pad_note(6, 0))).unwrap().action, Action::SetValue { attr, .. } if attr == "rotation"));
     assert!(!c.project.bindings.iter().any(|b| matches!(b.action, Action::Color { color: Some(_), .. })), "色のパッドは無い");
-    // トラックボタン=LEDバー1〜8のミュート(パッチ順)
-    for (i, id) in bar_ids(&c).into_iter().enumerate() {
-        let b = binding_at(&c, Ctl::Track(i as u8)).unwrap();
-        assert!(matches!(&b.action, Action::Mute { sel: Selector::Fixture(x), .. } if *x == id), "{}", b.name);
-    }
+    // トラックボタン=機種ごとの消灯(LEDバーはまとめて1つ、レーザーも)
+    let mutes: Vec<String> = (0..8u8)
+        .filter_map(|i| binding_at(&c, Ctl::Track(i)))
+        .map(|b| match &b.action {
+            Action::Mute { sel: Selector::Group(g), .. } => g.clone(),
+            Action::Mute { sel: Selector::Profile(p), .. } => p.clone(),
+            a => panic!("{a:?}"),
+        })
+        .collect();
+    assert_eq!(mutes, ["LEDバー", "stage-evolution/minispot30", TWINKLE, PAR, "stage-evolution/laserscan300"]);
     // フェーダー: LEDバーの明るさ・速さ・斜め / 機種ごとの明るさ / 色相 / 全体光量
     assert!(matches!(binding_at(&c, Ctl::Fader(0)).unwrap().action, Action::Level { .. }));
     assert!(matches!(binding_at(&c, Ctl::Fader(1)).unwrap().action, Action::Pixel { param: PixelParam::Speed }));
@@ -144,9 +149,9 @@ fn recommended_layout_fills_the_controller_without_conflicts() {
             assert!(names.effects.contains(name), "{name} が無い");
         }
     }
-    // レーザー(ARMが必要)は、動きのプリセット(ARMしたときだけ効く)だけ。明るさ・ミュートには入れない
+    // レーザー(ARMが必要)は、明るさのフェーダーには入れない(消灯ボタンと、ARMしたときだけ効く動きのプリセットはある)
     for b in &c.project.bindings {
-        if let Action::Level { sel: Selector::Profile(p) } | Action::Mute { sel: Selector::Profile(p), .. } = &b.action {
+        if let Action::Level { sel: Selector::Profile(p) } = &b.action {
             assert_ne!(p, "stage-evolution/laserscan300", "{}", b.name);
         }
     }
@@ -197,13 +202,24 @@ fn face_pads_run_the_patterns_and_mute_buttons_silence_bars() {
     let lit = |c: &Core| bars_out(c).iter().map(|b| b.iter().any(|p| p.iter().any(|&v| v > 0))).collect::<Vec<bool>>();
     assert!(lit(&c).iter().all(|&x| x), "メイン色の帯 + サブ色の地");
 
-    // トラックボタン1でバー1だけ消える。もう一度押すと戻る
+    // トラックボタン1でLEDバーが全部消える。もう一度押すと戻る
     press(&mut c, Ctl::Track(0));
     c.render();
-    assert_eq!(lit(&c), [false, true, true, true, true, true, true, true]);
+    assert!(lit(&c).iter().all(|&x| !x));
     press(&mut c, Ctl::Track(0));
     c.render();
     assert!(lit(&c).iter().all(|&x| x));
+
+    // レーザーの消灯ボタン: ARMしていても安全値(レーザーOFF)になる
+    for f in c.project.fixtures.iter_mut().filter(|f| f.profile == "stage-evolution/laserscan300") {
+        f.armed = true;
+    }
+    let laser = c.project.fixtures.iter().find(|f| f.profile == "stage-evolution/laserscan300").unwrap().address as usize - 1;
+    c.render();
+    assert_eq!(c.rt.frames[0][laser], 255, "ARM中はDMX制御");
+    press(&mut c, Ctl::Track(4));
+    c.render();
+    assert_eq!(c.rt.frames[0][laser], 0, "消灯中はレーザーOFF");
 
     // 別の模様のパッドを押すと、前の模様は止まる(1本のバーに1つずつ)
     press(&mut c, Ctl::Pad(pad_note(0, 0)));

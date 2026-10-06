@@ -3,7 +3,7 @@
 //! パッド(上から): 1〜4段=LEDバーの模様(チル/グルーヴ/ピーク/モノクロ) / 5段=ムービングの動き /
 //! 6段=ムービングの見た目(明るさ・ゴボ・カラー) / 7段=その他の機材(Twinkle Ball・レーザー) / 8段=押している間だけ効くアクセント
 //! 右の列(シーンボタン): TAP・頭出し・メイン⇄サブ・自動入れ替え・暗転フェード・BLACKOUT
-//! 下の列(トラックボタン): LEDバー1〜8のミュート
+//! 下の列(トラックボタン): 機種ごとの消灯(LEDバー全部・ムービング・その他の機種・レーザー)
 //! フェーダー: LEDバーの明るさ・速さ・斜め / 機種ごとの明るさ / メイン・サブの色相 / マスター=全体光量
 
 use crate::apcmini::{pad_note, Ctl};
@@ -236,9 +236,9 @@ pub fn apply(p: &mut Project, lib: &Library) -> Report {
         put(p, Ctl::Scene(i), name.into(), action);
     }
 
-    // 下の列(トラックボタン): LEDバー1本ずつのミュート。8本に満たなければ、他の機種ごとのミュート
-    let mut mutes: Vec<(String, Selector)> = bars.iter().map(|(id, name)| (format!("ミュート:{name}"), Selector::Fixture(*id))).collect();
-    mutes.extend(kinds.iter().map(|k| (format!("ミュート:{}", k.name), Selector::Profile(k.profile.clone()))));
+    // 下の列(トラックボタン): 機種ごとの消灯(LEDバーはまとめて1つ)
+    let mut mutes: Vec<(String, Selector)> = bar_sel.iter().map(|sel| ("ミュート:LEDバー".to_string(), sel.clone())).collect();
+    mutes.extend(kinds.iter().chain(armed.iter()).map(|k| (format!("ミュート:{}", k.name), k.sel())));
     for (i, (name, sel)) in mutes.into_iter().take(8).enumerate() {
         put(p, Ctl::Track(i as u8), name, Action::Mute { sel, mode: PadMode::Toggle });
     }

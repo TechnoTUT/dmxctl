@@ -920,7 +920,9 @@ impl Core {
             }
             // 暗転しきったら、ブラックアウトと同じ扱い(レーザーなど明るさのチャンネルが無い機材も止める)
             let dark = self.rt.blackout || self.rt.dim <= 0.001;
-            let gated = dark || (profile.needs_arm && !fx.armed);
+            // ミュート中も安全値を出す(明るさのチャンネルが無いレーザーも消えるように)
+            let muted = self.rt.muted.contains(&fx.id);
+            let gated = dark || muted || (profile.needs_arm && !fx.armed);
             if gated {
                 for (c, ch) in mode.channels.iter().enumerate() {
                     if let Some(s) = ch.safe {
@@ -929,7 +931,7 @@ impl Core {
                 }
             }
             // ブラックアウトでは、安全値の無い機材(RGBの灯具など)も、明るさのチャンネルを0にする。ミュート中の機材も同じ
-            if dark || self.rt.muted.contains(&fx.id) {
+            if dark || muted {
                 if let Some(info) = lib.info(&fx.profile, fx.mode) {
                     for &ch in &info.master {
                         info.set_f(v, ch, 0.0);

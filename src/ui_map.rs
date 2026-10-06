@@ -449,7 +449,7 @@ impl App {
                         ui.set_min_width(300.0);
                         ui.label(RichText::new("おすすめ配置").font(theme::bold(14.0)));
                         ui.label(
-                            RichText::new("上の4段=LEDバーの模様(チル/グルーヴ/ピーク/モノクロ)、5段目=ムービングなど、6・7段目=メイン色・サブ色、最下段=フラッシュなど。右の列=TAP・入れ替え・BLACKOUT、下の列=LEDバー1〜8のミュート、フェーダー=明るさ・速さ・斜め・色相")
+                            RichText::new("上の4段=LEDバーの模様(チル/グルーヴ/ピーク/モノクロ)、5段目=ムービングなど、6・7段目=メイン色・サブ色、最下段=フラッシュなど。右の列=TAP・入れ替え・BLACKOUT、下の列=機種ごとの消灯、フェーダー=明るさ・速さ・斜め・色相")
                                 .small()
                                 .color(theme::TEXT_DIM),
                         );
