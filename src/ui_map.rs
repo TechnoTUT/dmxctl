@@ -271,14 +271,13 @@ impl App {
         ui.painter().vline(left.max.x + 8.0, avail.y_range(), Stroke::new(1.0, theme::LINE));
 
         // ---- 左: APC mini mk2 の図 ----
+        let common_pads = core.project.bindings.iter().filter(|b| b.page.is_none() && b.trigger.is_some_and(|t| t.kind == TriggerKind::Note && t.number < 64 && t.channel.is_none_or(|c| c == 0))).count();
         let mut lui = ui.new_child(UiBuilder::new().max_rect(left).layout(Layout::top_down(Align::Min)));
         {
             let ui = &mut lui;
-            let common_pads = core.project.bindings.iter().filter(|b| b.page.is_none() && b.trigger.is_some_and(|t| t.kind == TriggerKind::Note && t.number < 64 && t.channel.is_none_or(|c| c == 0))).count();
+            if use_pages {
             ui.horizontal(|ui| {
-                ui.label(RichText::new("APC mini mk2").font(theme::bold(15.0)).color(theme::TEXT));
-                if use_pages {
-                    ui.add_space(10.0);
+                {
                     ui.label(RichText::new("ページ").small().color(theme::TEXT_DIM));
                     for p in 0..PAGES {
                         let used = core.project.bindings.iter().any(|b| b.page == Some(p));
@@ -288,53 +287,9 @@ impl App {
                         }
                     }
                 }
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    ui.menu_button("配置 ▼", |ui| {
-                        ui.set_min_width(300.0);
-                        ui.label(RichText::new("おすすめ配置").font(theme::bold(14.0)));
-                        ui.label(
-                            RichText::new("上の4段=LEDバーの模様(チル/グルーヴ/ピーク/モノクロ)、5段目=ムービングなど、6・7段目=メイン色・サブ色、最下段=フラッシュなど。右の列=TAP・入れ替え・BLACKOUT、下の列=LEDバー1〜8のミュート、フェーダー=明るさ・速さ・斜め・色相")
-                                .small()
-                                .color(theme::TEXT_DIM),
-                        );
-                        if ui.button(RichText::new("おすすめ配置にする(今の割り当てを置き換え)").color(theme::WARN)).on_hover_text("置き換える前の状態はバックアップに残します(ファイル → バックアップから戻す)").clicked() {
-                            menu.recommended = true;
-                            ui.close();
-                        }
-                        ui.separator();
-                        ui.label(RichText::new("空いているところに足す").small().color(theme::TEXT_DIM));
-                        if ui.button("ページ切替(右の列)").clicked() {
-                            menu.page = true;
-                            ui.close();
-                        }
-                        if ui.button("色の操作(最下段の色・全体/個別・機材の選択)").clicked() {
-                            menu.color = true;
-                            ui.close();
-                        }
-                        if ui.button("メイン/サブ色").clicked() {
-                            menu.palette = true;
-                            ui.close();
-                        }
-                        if ui.button("LEDバーの模様(1本用・最上段)").clicked() {
-                            menu.pixel = true;
-                            ui.close();
-                        }
-                        ui.separator();
-                        if ui.add_enabled(self.midi.can_request_faders(), egui::Button::new("フェーダー位置を読み取る")).clicked() {
-                            menu.read_faders = true;
-                            ui.close();
-                        }
-                        if use_pages && common_pads > 0 {
-                            if ui.button(format!("共通のパッド {common_pads} 件をページ{}専用にする", page + 1)).on_hover_text("「全ページ共通」になっているパッドの割り当てを、表示中のページだけで効くようにします(ボタンとフェーダーは共通のまま)").clicked() {
-                                menu.move_common = true;
-                                ui.close();
-                            }
-                        }
-                    });
-                    legend(ui);
-                });
             });
             ui.add_space(6.0);
+            }
 
             let rt = &core.rt;
             let bindings = &core.project.bindings;
@@ -374,7 +329,7 @@ impl App {
             let area = ui.available_rect_before_wrap();
             let gap = 6.0;
             let side_k = 0.72;
-            let (track_k, fader_k) = (0.42, 2.0);
+            let (track_k, fader_k) = (0.42, 2.9);
             let pad_h = ((area.height() - 9.0 * gap - 8.0) / (8.0 + track_k + fader_k)).clamp(30.0, 86.0);
             let pad_w = ((area.width() - 8.0 * gap - 8.0) / (8.0 + side_k)).clamp(pad_h, pad_h * 1.8);
             let side_w = (pad_w * side_k).max(54.0);
@@ -437,6 +392,53 @@ impl App {
         let mut rui = ui.new_child(UiBuilder::new().max_rect(right).layout(Layout::top_down(Align::Min)));
         {
             let ui = &mut rui;
+            ui.horizontal(|ui| {
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    ui.menu_button("配置 ▼", |ui| {
+                        ui.set_min_width(300.0);
+                        ui.label(RichText::new("おすすめ配置").font(theme::bold(14.0)));
+                        ui.label(
+                            RichText::new("上の4段=LEDバーの模様(チル/グルーヴ/ピーク/モノクロ)、5段目=ムービングなど、6・7段目=メイン色・サブ色、最下段=フラッシュなど。右の列=TAP・入れ替え・BLACKOUT、下の列=LEDバー1〜8のミュート、フェーダー=明るさ・速さ・斜め・色相")
+                                .small()
+                                .color(theme::TEXT_DIM),
+                        );
+                        if ui.button(RichText::new("おすすめ配置にする(今の割り当てを置き換え)").color(theme::WARN)).on_hover_text("置き換える前の状態はバックアップに残します(ファイル → バックアップから戻す)").clicked() {
+                            menu.recommended = true;
+                            ui.close();
+                        }
+                        ui.separator();
+                        ui.label(RichText::new("空いているところに足す").small().color(theme::TEXT_DIM));
+                        if ui.button("ページ切替(右の列)").clicked() {
+                            menu.page = true;
+                            ui.close();
+                        }
+                        if ui.button("色の操作(最下段の色・全体/個別・機材の選択)").clicked() {
+                            menu.color = true;
+                            ui.close();
+                        }
+                        if ui.button("メイン/サブ色").clicked() {
+                            menu.palette = true;
+                            ui.close();
+                        }
+                        if ui.button("LEDバーの模様(1本用・最上段)").clicked() {
+                            menu.pixel = true;
+                            ui.close();
+                        }
+                        ui.separator();
+                        if ui.add_enabled(self.midi.can_request_faders(), egui::Button::new("フェーダー位置を読み取る")).clicked() {
+                            menu.read_faders = true;
+                            ui.close();
+                        }
+                        if use_pages && common_pads > 0 {
+                            if ui.button(format!("共通のパッド {common_pads} 件をページ{}専用にする", page + 1)).on_hover_text("「全ページ共通」になっているパッドの割り当てを、表示中のページだけで効くようにします(ボタンとフェーダーは共通のまま)").clicked() {
+                                menu.move_common = true;
+                                ui.close();
+                            }
+                        }
+                    });
+                    legend(ui);
+                });
+            });
             egui::ScrollArea::vertical().id_salt("map_panel").auto_shrink([false; 2]).show(ui, |ui| match self.map_sel {
                 None => stage_panel(ui, core),
                 Some(ctl) => {
@@ -726,8 +728,6 @@ fn fader_cell(ui: &mut egui::Ui, rect: Rect, ctl: Ctl, info: &Info, value: Optio
 /// 右のパネル(何も選んでいないとき): LEDバーの今の模様、メイン/サブ色、機材ごとの色
 fn stage_panel(ui: &mut egui::Ui, core: &mut Core) {
     use crate::look::Look;
-    theme::heading(ui, "ステージ");
-    ui.add_space(2.0);
     tempo_card(ui, core);
     ui.add_space(6.0);
     let core: &Core = core;
@@ -737,17 +737,6 @@ fn stage_panel(ui: &mut egui::Ui, core: &mut Core) {
     if !bars.is_empty() {
         theme::card().show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.horizontal(|ui| {
-                ui.label(RichText::new(format!("LEDバー {}本", bars.len())).font(theme::bold(13.0)));
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    let skew = core.rt.px_skew;
-                    if skew > 0.001 {
-                        ui.label(RichText::new(format!("斜め +{skew:.1}周")).small().color(COL_PIXEL));
-                    }
-                    let fast = (core.rt.px_speed - 1.0).abs() > 1e-3;
-                    ui.label(RichText::new(format!("速さ {}", crate::pixel::speed_label(core.rt.px_speed))).small().color(if fast { COL_PIXEL } else { theme::TEXT_DIM }));
-                });
-            });
             // 8本 × ピクセル の面のプレビュー(実際の出力の色)
             let w = ui.available_width();
             let (row_h, row_gap) = (9.0, 4.0);
@@ -771,9 +760,6 @@ fn stage_panel(ui: &mut egui::Ui, core: &mut Core) {
             // 動いている模様
             let on: Vec<&crate::pixel::PixelFx> = core.project.pixel_fx.iter().filter(|f| f.enabled).collect();
             ui.horizontal_wrapped(|ui| {
-                if on.is_empty() {
-                    ui.label(RichText::new("模様なし(上の4段のパッドで選べます)").small().color(theme::TEXT_DIM));
-                }
                 for f in on {
                     let c = energy_color(Some(f.energy()));
                     egui::Frame::new().fill(alpha(c, 0.16)).stroke(Stroke::new(1.0, alpha(c, 0.5))).corner_radius(10).inner_margin(egui::Margin::symmetric(8, 2)).show(ui, |ui| {
@@ -797,7 +783,6 @@ fn stage_panel(ui: &mut egui::Ui, core: &mut Core) {
             });
             let pos = fader.and_then(|n| core.rt.cc_value[n as usize]).map(|v| v as f32 / 127.0);
             ui.horizontal(|ui| {
-                ui.add_sized([44.0, 18.0], egui::Label::new(RichText::new(label).small().color(theme::TEXT_DIM)));
                 let (r, _) = ui.allocate_exact_size(vec2(26.0, 18.0), Sense::hover());
                 ui.painter().rect_filled(r, 4.0, rgb32(c, 1.0));
                 ui.painter().rect_stroke(r, 4.0, Stroke::new(1.0, alpha(Color32::WHITE, 0.15)), StrokeKind::Inside);
@@ -821,16 +806,6 @@ fn stage_panel(ui: &mut egui::Ui, core: &mut Core) {
                 resp.on_hover_text(tip);
             });
         }
-        if core.project.palette.auto || core.palette_swapped() {
-            ui.horizontal(|ui| {
-                if core.palette_swapped() {
-                    ui.label(RichText::new("⇄ 入れ替え中").small().color(theme::WARN));
-                }
-                if core.project.palette.auto {
-                    ui.label(RichText::new(format!("自動入れ替え {}拍ごと", core.project.palette.auto_beats)).small().color(COL_SWAP));
-                }
-            });
-        }
     });
     ui.add_space(6.0);
 
@@ -839,7 +814,6 @@ fn stage_panel(ui: &mut egui::Ui, core: &mut Core) {
     if !others.is_empty() {
         theme::card().show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.label(RichText::new("機材の色").font(theme::bold(13.0)));
             let col_w = (ui.available_width() - 8.0) / 2.0;
             egui::Grid::new("stage_fx").num_columns(2).min_col_width(col_w).max_col_width(col_w).spacing([8.0, 5.0]).show(ui, |ui| {
                 for (k, l) in others.iter().enumerate() {
@@ -893,7 +867,6 @@ fn stage_panel(ui: &mut egui::Ui, core: &mut Core) {
     if stray > 0 {
         ui.label(RichText::new(format!("この図に載らない割り当てが {stray} 件あります(未設定、または別のMIDI機器/チャンネル)。「MIDI設定」タブで確認できます。")).small().color(theme::WARN));
     }
-    ui.label(RichText::new("図のパッド・ボタン・フェーダーをクリックすると、ここで割り当てを編集できます").small().color(theme::TEXT_FAINT));
 }
 
 /// テンポ: BPM・拍の位置・TAP・頭出し
