@@ -193,7 +193,9 @@ fn set_value_active(core: &Core, sel: &Selector, attr: &str, on: f32) -> bool {
         any = true;
         let v = m.get_f(&fx.values, ch);
         let def = &m.channels[ch];
-        let hit = if def.ranges.is_empty() {
+        // 速さなどの連続した範囲(sweep)の中では、値そのもので比べる(同じ範囲でも止まっている/動いているが違う)
+        let sweep = def.range_of(on.clamp(0.0, 255.0) as u8).is_some_and(|r| r.sweep);
+        let hit = if def.ranges.is_empty() || sweep {
             (v - on).abs() < 1.0
         } else {
             // 選択式は、同じレンジに入っていればON(色の範囲のどこでも同じ色)

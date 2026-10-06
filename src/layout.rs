@@ -1,28 +1,16 @@
 //! おすすめのMIDI配置(AKAI APC mini mk2)。マップの「配置」メニュー・初回起動・`--apply-layout` で使う。
 //!
-//! パッド(上から): 1〜4段=LEDバーの模様(チル/グルーヴ/ピーク/モノクロ) / 5段=ムービングなど他の機材 /
-//! 6段=メイン色 / 7段=サブ色 / 8段=押している間だけ効くアクセント(フラッシュ・ストロボなど)
+//! パッド(上から): 1〜4段=LEDバーの模様(チル/グルーヴ/ピーク/モノクロ) / 5段=ムービングの動き /
+//! 6段=ムービングの見た目(明るさ・ゴボ・カラー) / 7段=その他の機材(Twinkle Ball・レーザー) / 8段=押している間だけ効くアクセント
 //! 右の列(シーンボタン): TAP・頭出し・メイン⇄サブ・自動入れ替え・暗転フェード・BLACKOUT
 //! 下の列(トラックボタン): LEDバー1〜8のミュート
 //! フェーダー: LEDバーの明るさ・速さ・斜め / 機種ごとの明るさ / メイン・サブの色相 / マスター=全体光量
 
 use crate::apcmini::{pad_note, Ctl};
-use crate::color::{ColorTarget, NamedColor, PaletteOp};
+use crate::color::{ColorTarget, PaletteOp};
 use crate::fixture::Library;
 use crate::pixel::{PixelParam, FACE_SETS};
 use crate::project::*;
-
-/// メイン色・サブ色の段に並べる色(左から)
-pub const COLORS: [NamedColor; 8] = [
-    NamedColor::Red,
-    NamedColor::Orange,
-    NamedColor::Yellow,
-    NamedColor::Green,
-    NamedColor::Cyan,
-    NamedColor::Blue,
-    NamedColor::Violet,
-    NamedColor::White,
-];
 
 #[derive(Debug, Default, PartialEq)]
 pub struct Report {
@@ -49,13 +37,24 @@ impl Report {
 struct Kind {
     profile: String,
     name: String,
-    /// その機種が持つ機能名(attr)
-    attrs: Vec<String>,
+    mode: crate::fixture::Mode,
 }
 
 impl Kind {
     fn attr(&self, a: &str) -> bool {
-        self.attrs.iter().any(|x| x == a)
+        self.mode.find_attr(a).is_some()
+    }
+    /// 選択式のチャンネルで、表示名に`keyword`を含む範囲の真ん中の値
+    fn value(&self, attr: &str, keyword: &str) -> Option<f32> {
+        let ch = &self.mode.channels[self.mode.find_attr(attr)?];
+        ch.ranges.iter().find(|r| r.label.contains(keyword)).map(|r| r.mid() as f32)
+    }
+    /// チャンネルの初期値(トグルを切ったときに戻す値)
+    fn default_of(&self, attr: &str) -> f32 {
+        self.mode.find_attr(attr).map(|i| self.mode.channels[i].default as f32).unwrap_or(0.0)
+    }
+    fn sel(&self) -> Selector {
+        Selector::Profile(self.profile.clone())
     }
 }
 
@@ -67,55 +66,120 @@ pub fn apply(p: &mut Project, lib: &Library) -> Report {
     // ピクセルを持つ機材(LEDバー)と、それ以外の機種
     let mut bars: Vec<(u32, String)> = Vec::new();
     let mut kinds: Vec<Kind> = Vec::new();
+    // ARMが必要な機種(レーザー)は、明るさ・ミュートには使わず、動きのプリセットだけに使う
+    let mut armed: Vec<Kind> = Vec::new();
     for f in &p.fixtures {
         let (Some(prof), Some(mode)) = (lib.get(&f.profile), lib.mode(&f.profile, f.mode)) else { continue };
         if !mode.pixels().is_empty() {
             bars.push((f.id, f.name.clone()));
-        } else if !prof.needs_arm && !kinds.iter().any(|k| k.profile == f.profile) {
-            let attrs = mode.channels.iter().filter(|c| c.fine_of.is_none()).map(|c| c.attr.clone()).collect();
-            kinds.push(Kind { profile: f.profile.clone(), name: prof.name.clone(), attrs });
+            continue;
+        }
+        let list = if prof.needs_arm { &mut armed } else { &mut kinds };
+        if !list.iter().any(|k| k.profile == f.profile) {
+            list.push(Kind { profile: f.profile.clone(), name: prof.name.clone(), mode: mode.clone() });
         }
     }
     let bar_sel = if bars.is_empty() { None } else { Some(bar_group(p, &bars)) };
 
-    // ムービング(Pan/Tiltを持つ機種)のエフェクト
-    let mover = kinds.iter().find(|k| k.attr("pan") && k.attr("tilt"));
-    let mut mover_fx: Vec<String> = Vec::new();
-    if let Some(m) = mover {
-        let sel = Selector::Profile(m.profile.clone());
-        let fx = |name: &str, attr: &str, wave: Wave, min: f32, max: f32, beats: f32, phase: f32, spread: f32| Effect {
-            name: name.into(),
-            enabled: false,
-            sel: sel.clone(),
-            attr: attr.into(),
-            wave,
-            rate_hz: 0.25,
-            min,
-            max,
-            phase,
-            spread,
-            beats,
-        };
-        let mut list = vec![
-            fx("円運動", "pan", Wave::Sine, 96.0, 160.0, 8.0, 0.0, 0.0),
-            fx("円運動", "tilt", Wave::Sine, 96.0, 160.0, 8.0, 90.0, 0.0),
-            fx("パン揺れ", "pan", Wave::Sine, 80.0, 176.0, 4.0, 0.0, 90.0),
-            fx("チルト揺れ", "tilt", Wave::Sine, 90.0, 150.0, 4.0, 0.0, 90.0),
-        ];
-        if m.attr("dimmer") {
-            list.push(fx("点灯チェイス", "dimmer", Wave::Square, 0.0, 255.0, 4.0, 0.0, 90.0));
-            list.push(fx("ランダム点灯", "dimmer", Wave::Random, 0.0, 255.0, 1.0, 0.0, 0.0));
-        }
+    // 5〜7段: 動きのプリセット(ムービングの動き / ムービングの見た目 / その他の機材)
+    let mut rows: [Vec<(String, Action)>; 3] = Default::default();
+    let add_fx = |p: &mut Project, r: &mut Report, list: Vec<Effect>| -> Vec<String> {
+        let mut names: Vec<String> = Vec::new();
         for e in list {
-            if !mover_fx.contains(&e.name) {
-                mover_fx.push(e.name.clone());
+            if !names.contains(&e.name) {
+                names.push(e.name.clone());
             }
-            // 同じ名前のエフェクトが既にあれば、そちらを使う
+            // 同じ名前・同じ機能のエフェクトが既にあれば、そちらを使う
             if !p.effects.iter().any(|x| x.name == e.name && x.attr == e.attr) {
                 p.effects.push(e);
                 r.effects += 1;
             }
         }
+        names
+    };
+    let fx = |sel: &Selector, name: &str, attr: &str, wave: Wave, min: f32, max: f32, beats: f32, phase: f32, spread: f32| Effect {
+        name: name.into(),
+        enabled: false,
+        sel: sel.clone(),
+        attr: attr.into(),
+        wave,
+        rate_hz: 0.25,
+        min,
+        max,
+        phase,
+        spread,
+        beats,
+    };
+    let toggle = |k: &Kind, name: &str, attr: &str, keyword: &str| -> Option<(String, Action)> {
+        let on = k.value(attr, keyword)?;
+        Some((name.to_string(), Action::SetValue { sel: k.sel(), attr: attr.into(), mode: PadMode::Toggle, on, off: k.default_of(attr) }))
+    };
+    let effect = |n: String| (n.clone(), Action::Effect { name: n, mode: PadMode::Toggle });
+
+    if let Some(m) = kinds.iter().find(|k| k.attr("pan") && k.attr("tilt")) {
+        let sel = m.sel();
+        // 動き(Pan/Tilt)
+        let moves = vec![
+            fx(&sel, "円運動", "pan", Wave::Sine, 96.0, 160.0, 8.0, 0.0, 0.0),
+            fx(&sel, "円運動", "tilt", Wave::Sine, 96.0, 160.0, 8.0, 90.0, 0.0),
+            fx(&sel, "8の字", "pan", Wave::Sine, 96.0, 160.0, 8.0, 0.0, 0.0),
+            fx(&sel, "8の字", "tilt", Wave::Sine, 100.0, 156.0, 4.0, 90.0, 0.0),
+            fx(&sel, "パン揺れ", "pan", Wave::Sine, 80.0, 176.0, 4.0, 0.0, 90.0),
+            fx(&sel, "チルト揺れ", "tilt", Wave::Sine, 90.0, 150.0, 4.0, 0.0, 90.0),
+            fx(&sel, "ワイパー", "pan", Wave::Triangle, 60.0, 196.0, 4.0, 0.0, 0.0),
+            fx(&sel, "クロス", "pan", Wave::Sine, 80.0, 176.0, 4.0, 0.0, 180.0),
+            fx(&sel, "バラバラ", "pan", Wave::Random, 70.0, 186.0, 2.0, 0.0, 0.0),
+            fx(&sel, "バラバラ", "tilt", Wave::Random, 90.0, 160.0, 2.0, 0.0, 0.0),
+            fx(&sel, "高速円", "pan", Wave::Sine, 108.0, 148.0, 1.0, 0.0, 0.0),
+            fx(&sel, "高速円", "tilt", Wave::Sine, 108.0, 148.0, 1.0, 90.0, 0.0),
+        ];
+        rows[0] = add_fx(p, &mut r, moves).into_iter().map(effect).collect();
+        // 見た目(明るさ・ゴボ・カラーホイール)
+        let mut looks = Vec::new();
+        if m.attr("dimmer") {
+            looks.push(fx(&sel, "点灯チェイス", "dimmer", Wave::Square, 0.0, 255.0, 4.0, 0.0, 90.0));
+            looks.push(fx(&sel, "ランダム点灯", "dimmer", Wave::Random, 0.0, 255.0, 1.0, 0.0, 0.0));
+            looks.push(fx(&sel, "ブレス", "dimmer", Wave::Sine, 30.0, 255.0, 8.0, 0.0, 90.0));
+        }
+        if let Some(c) = m.mode.find_attr("gobo") {
+            // ゴボ1〜7を順番に(選択式の範囲を、ゆっくりなめていく)
+            let gobos: Vec<&crate::fixture::Range> = m.mode.channels[c].ranges.iter().filter(|r| r.label.starts_with("ゴボ") && !r.sweep).collect();
+            if let (Some(a), Some(b)) = (gobos.first(), gobos.last()) {
+                looks.push(fx(&sel, "ゴボ切替", "gobo", Wave::Saw, a.from as f32, b.to as f32, 8.0, 0.0, 0.0));
+            }
+        }
+        rows[1] = add_fx(p, &mut r, looks).into_iter().map(effect).collect();
+        rows[1].extend(
+            [
+                toggle(m, "ゴボ回転", "gobo", "ゴボホイール回転"),
+                toggle(m, "ゴボシェイク", "gobo", "シェイク"),
+                toggle(m, "カラー回転", "color", "レインボー"),
+                m.attr("dimmer").then(|| ("点灯".to_string(), Action::SetValue { sel: sel.clone(), attr: "dimmer".into(), mode: PadMode::Toggle, on: 255.0, off: 0.0 })),
+            ]
+            .into_iter()
+            .flatten(),
+        );
+    }
+    // その他の機材: モーターで回る灯具(Twinkle Ballなど)とレーザー
+    for k in kinds.iter().filter(|k| k.attr("rotation")) {
+        rows[2].extend(toggle(k, "回転", "rotation", "回転"));
+        let sway = fx(&k.sel(), &format!("{} 揺れ", k.name), "rotation", Wave::Sine, 0.0, 129.0, 8.0, 0.0, 0.0);
+        rows[2].extend(add_fx(p, &mut r, vec![sway]).into_iter().map(effect));
+        rows[2].extend(toggle(k, "オート", "program", "オートプログラム1"));
+        rows[2].extend(toggle(k, "サウンド", "program", "サウンドプログラム1"));
+    }
+    for k in &armed {
+        rows[2].extend(
+            [
+                toggle(k, "オートショー", "mode", "オートショー(速)"),
+                toggle(k, "回転", "z_roll", "時計まわり"),
+                toggle(k, "ズーム", "size", "ズームイン/アウト"),
+                toggle(k, "描画", "draw", "パターン描画"),
+                toggle(k, "7色", "color", "7色チェンジ"),
+            ]
+            .into_iter()
+            .flatten(),
+        );
     }
 
     // 今までのAPC mini の割り当てを外す
@@ -138,25 +202,9 @@ pub fn apply(p: &mut Project, lib: &Library) -> Report {
         }
     }
 
-    // 5段: ムービング・その他の機材
-    let mut extras: Vec<(String, Action)> = mover_fx.into_iter().map(|n| (n.clone(), Action::Effect { name: n, mode: PadMode::Toggle })).collect();
-    for k in &kinds {
-        let sel = Selector::Profile(k.profile.clone());
-        if k.attr("rotation") {
-            extras.push(("回転".to_string(), Action::SetValue { sel: sel.clone(), attr: "rotation".into(), mode: PadMode::Toggle, on: 200.0, off: 0.0 }));
-        }
-        if k.attr("program") {
-            extras.push(("オート".to_string(), Action::SetValue { sel, attr: "program".into(), mode: PadMode::Toggle, on: 25.0, off: 0.0 }));
-        }
-    }
-    for (col, (name, action)) in extras.into_iter().take(8).enumerate() {
-        put(p, Ctl::Pad(pad_note(4, col as u8)), name, action);
-    }
-
-    // 6・7段: メイン色・サブ色
-    for (row, target, who) in [(5u8, ColorTarget::Main, "メイン"), (6u8, ColorTarget::Sub, "サブ")] {
-        for (col, c) in COLORS.iter().enumerate() {
-            put(p, Ctl::Pad(pad_note(row, col as u8)), format!("{who}:{}", c.label()), Action::Color { color: Some(*c), target });
+    for (k, row) in rows.into_iter().enumerate() {
+        for (col, (name, action)) in row.into_iter().take(8).enumerate() {
+            put(p, Ctl::Pad(pad_note(4 + k as u8, col as u8)), name, action);
         }
     }
 

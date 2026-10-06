@@ -223,32 +223,39 @@ enum Preview {
     None,
     /// LEDバーの模様: バー(行) × 点(列) の色
     Face(Vec<Vec<[f32; 3]>>),
-    /// ムービングなどのエフェクト: 1周期の軌跡(0〜1の座標)と今の位置
-    Path { pts: Vec<[f32; 2]>, now: [f32; 2] },
+    /// ムービングなどのエフェクト: 1周期の軌跡(0〜1の座標)と、機材ごとの今の位置
+    Path { pts: Vec<[f32; 2]>, now: Vec<[f32; 2]> },
 }
 
 /// エフェクト(LEDバー以外)の1周期の軌跡。Pan/Tiltがあれば2次元(円運動など)、無ければ時間と値の波形
 fn effect_path(core: &Core, name: &str) -> Option<Preview> {
     let fx: Vec<&Effect> = core.project.effects.iter().filter(|e| e.name == name).collect();
     let first = *fx.first()?;
+    // 拍(自由な速さのエフェクトは秒)を単位にして、機能ごとに違う周期(8の字など)も1つの軌跡にする
+    let period = |e: &Effect| if e.beats > 0.0 { e.beats as f64 } else { 1.0 / e.rate_hz.max(0.001) as f64 };
+    let clock = if first.beats > 0.0 { core.rt.beat } else { core.rt.t0.elapsed().as_secs_f64() };
     let val = |e: &Effect, t: f64| -> f32 {
-        let p = t + e.phase as f64 / 360.0;
+        let p = t / period(e) + e.phase as f64 / 360.0;
         let w = e.wave.eval(p.rem_euclid(1.0) as f32, p.floor() as i64 as u64, 1);
         (e.min + (e.max - e.min) * w) / 255.0
     };
-    let now_t = if first.beats > 0.0 { core.rt.beat / first.beats as f64 } else { (core.rt.t0.elapsed().as_secs_f64()) * first.rate_hz as f64 };
+    let span = fx.iter().map(|e| period(e)).fold(0.0, f64::max);
     let pan = fx.iter().find(|e| e.attr == "pan");
     let tilt = fx.iter().find(|e| e.attr == "tilt");
-    const N: usize = 48;
+    const N: usize = 64;
+    // 機材ごとのずれ(spread)は、それぞれの今の位置の点で見せる
+    let count = core.resolve(&first.sel).len().clamp(1, 8);
+    let shift = |e: &Effect, n: usize| e.spread as f64 / 360.0 * period(e) * n as f64;
+    let now = |n: usize, at: &dyn Fn(f64, usize) -> [f32; 2]| at(clock.rem_euclid(span), n);
     let preview = match (pan, tilt) {
         (Some(p), Some(t)) => {
-            let at = |s: f64| [val(p, s), 1.0 - val(t, s)];
-            Preview::Path { pts: (0..=N).map(|i| at(i as f64 / N as f64)).collect(), now: at(now_t.rem_euclid(1.0)) }
+            let at = |s: f64, n: usize| [val(p, s + shift(p, n)), 1.0 - val(t, s + shift(t, n))];
+            Preview::Path { pts: (0..=N).map(|i| at(i as f64 / N as f64 * span, 0)).collect(), now: (0..count).map(|n| now(n, &at)).collect() }
         }
         _ => {
-            let at = |s: f64| [s as f32, 1.0 - val(first, s)];
-            let f = now_t.rem_euclid(1.0);
-            Preview::Path { pts: (0..=N).map(|i| at(i as f64 / N as f64)).collect(), now: [f as f32, 1.0 - val(first, f)] }
+            let curve = |s: f64| [(s / span) as f32, 1.0 - val(first, s)];
+            let at = |s: f64, n: usize| curve((s + shift(first, n)).rem_euclid(span));
+            Preview::Path { pts: (0..=N).map(|i| curve(i as f64 / N as f64 * span)).collect(), now: (0..count).map(|n| now(n, &at)).collect() }
         }
     };
     Some(preview)
@@ -1056,7 +1063,7 @@ fn draw_preview(p: &egui::Painter, rect: Rect, preview: &Preview, active: bool, 
             // 枠いっぱいに描く(動く範囲を拡大)
             let area = area.shrink2(vec2(6.0, 5.0));
             let (mut lo, mut hi) = ([f32::MAX; 2], [f32::MIN; 2]);
-            for q in pts.iter().chain(std::iter::once(now)) {
+            for q in pts.iter().chain(now.iter()) {
                 for d in 0..2 {
                     lo[d] = lo[d].min(q[d]);
                     hi[d] = hi[d].max(q[d]);
@@ -1066,8 +1073,10 @@ fn draw_preview(p: &egui::Painter, rect: Rect, preview: &Preview, active: bool, 
             let to = |q: &[f32; 2]| pos2(area.min.x + norm(q[0], 0) * area.width(), area.min.y + norm(q[1], 1) * area.height());
             let line: Vec<egui::Pos2> = pts.iter().map(to).collect();
             p.add(egui::Shape::line(line, Stroke::new(1.5, alpha(accent, if active { 0.95 } else { 0.6 }))));
-            let dot = Rect::from_center_size(to(now), vec2(6.0, 6.0));
-            p.rect_filled(dot, 1.0, if active { Color32::WHITE } else { alpha(Color32::WHITE, 0.7) });
+            for q in now {
+                let dot = Rect::from_center_size(to(q), vec2(6.0, 6.0));
+                p.rect_filled(dot, 1.0, if active { Color32::WHITE } else { alpha(Color32::WHITE, 0.7) });
+            }
         }
     }
 }

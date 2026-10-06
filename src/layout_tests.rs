@@ -22,7 +22,11 @@ fn rig() -> Core {
     let (mut lib, _) = Library::load(Path::new("none"));
     lib.add(Profile { id: BAR.into(), name: "LEDバー 90px RGBW".into(), manufacturer: String::new(), needs_arm: false, modes: vec![Mode { name: "360ch".into(), channels: fixture::pixel_channels(1, 90, "RGBW") }] });
     let tw = ["dimmer", "strobe", "red", "green", "blue", "rotation", "program", "program_speed"];
-    lib.add(Profile { id: TWINKLE.into(), name: "Twinkle Ball".into(), manufacturer: String::new(), needs_arm: false, modes: vec![Mode { name: "8ch".into(), channels: tw.iter().map(|a| ch(a, a)).collect() }] });
+    let range = |from: u8, to: u8, label: &str| fixture::Range { from, to, label: label.into(), sweep: false, warn: false, color: None };
+    let mut tw_ch: Vec<ChannelDef> = tw.iter().map(|a| ch(a, a)).collect();
+    tw_ch[5].ranges = vec![range(0, 129, "角度調整"), range(130, 139, "リセット"), range(140, 255, "回転(遅→速)")];
+    tw_ch[6].ranges = vec![range(0, 9, "機能なし"), range(10, 39, "オートプログラム1"), range(40, 159, "オートプログラム2〜5"), range(160, 189, "サウンドプログラム1"), range(190, 255, "サウンドプログラム2")];
+    lib.add(Profile { id: TWINKLE.into(), name: "Twinkle Ball".into(), manufacturer: String::new(), needs_arm: false, modes: vec![Mode { name: "8ch".into(), channels: tw_ch }] });
     lib.add(Profile { id: PAR.into(), name: "RGBパー".into(), manufacturer: String::new(), needs_arm: false, modes: vec![Mode { name: "3ch".into(), channels: ["red", "green", "blue"].iter().map(|a| ch(a, a)).collect() }] });
     let lib = Arc::new(lib);
     let mut p = Project::default();
@@ -111,8 +115,15 @@ fn recommended_layout_fills_the_controller_without_conflicts() {
             assert!(matches!(&b.action, Action::Effect { name, .. } if name == fx.name), "{}", b.name);
         }
     }
-    assert!(matches!(binding_at(&c, Ctl::Pad(pad_note(5, 0))).unwrap().action, Action::Color { target: crate::color::ColorTarget::Main, .. }));
-    assert!(matches!(binding_at(&c, Ctl::Pad(pad_note(6, 7))).unwrap().action, Action::Color { target: crate::color::ColorTarget::Sub, .. }));
+    // 5段目=ムービングの動き、6段目=ムービングの見た目、7段目=その他の機材(色のパッドは置かない)
+    let effect_at = |row: u8, col: u8| match &binding_at(&c, Ctl::Pad(pad_note(row, col))).unwrap().action {
+        Action::Effect { name, .. } => name.clone(),
+        a => panic!("{row}段{col}列: {a:?}"),
+    };
+    assert_eq!((0..8).map(|k| effect_at(4, k)).collect::<Vec<_>>(), ["円運動", "8の字", "パン揺れ", "チルト揺れ", "ワイパー", "クロス", "バラバラ", "高速円"]);
+    assert_eq!(effect_at(5, 0), "点灯チェイス");
+    assert!(matches!(&binding_at(&c, Ctl::Pad(pad_note(6, 0))).unwrap().action, Action::SetValue { attr, .. } if attr == "rotation"));
+    assert!(!c.project.bindings.iter().any(|b| matches!(b.action, Action::Color { color: Some(_), .. })), "色のパッドは無い");
     // トラックボタン=LEDバー1〜8のミュート(パッチ順)
     for (i, id) in bar_ids(&c).into_iter().enumerate() {
         let b = binding_at(&c, Ctl::Track(i as u8)).unwrap();
@@ -133,12 +144,14 @@ fn recommended_layout_fills_the_controller_without_conflicts() {
             assert!(names.effects.contains(name), "{name} が無い");
         }
     }
-    // レーザー(ARMが必要)には、明るさもミュートも割り当てない
+    // レーザー(ARMが必要)は、動きのプリセット(ARMしたときだけ効く)だけ。明るさ・ミュートには入れない
     for b in &c.project.bindings {
-        if let Action::SetValue { sel: Selector::Profile(p), .. } | Action::Level { sel: Selector::Profile(p) } | Action::Mute { sel: Selector::Profile(p), .. } = &b.action {
+        if let Action::Level { sel: Selector::Profile(p) } | Action::Mute { sel: Selector::Profile(p), .. } = &b.action {
             assert_ne!(p, "stage-evolution/laserscan300", "{}", b.name);
         }
     }
+    let laser: Vec<&str> = c.project.bindings.iter().filter(|b| matches!(&b.action, Action::SetValue { sel: Selector::Profile(p), .. } if p == "stage-evolution/laserscan300")).map(|b| b.name.as_str()).collect();
+    assert_eq!(laser, ["オートショー", "回転", "ズーム", "描画"], "7段目の残り(8個まで)");
 }
 
 #[test]
