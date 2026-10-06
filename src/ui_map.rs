@@ -218,6 +218,42 @@ fn add_page_template(p: &mut Project) -> (usize, usize) {
     (added, skipped)
 }
 
+/// パッドの中に描くプレビュー
+enum Preview {
+    None,
+    /// LEDバーの模様: バー(行) × 点(列) の色
+    Face(Vec<Vec<[f32; 3]>>),
+    /// ムービングなどのエフェクト: 1周期の軌跡(0〜1の座標)と今の位置
+    Path { pts: Vec<[f32; 2]>, now: [f32; 2] },
+}
+
+/// エフェクト(LEDバー以外)の1周期の軌跡。Pan/Tiltがあれば2次元(円運動など)、無ければ時間と値の波形
+fn effect_path(core: &Core, name: &str) -> Option<Preview> {
+    let fx: Vec<&Effect> = core.project.effects.iter().filter(|e| e.name == name).collect();
+    let first = *fx.first()?;
+    let val = |e: &Effect, t: f64| -> f32 {
+        let p = t + e.phase as f64 / 360.0;
+        let w = e.wave.eval(p.rem_euclid(1.0) as f32, p.floor() as i64 as u64, 1);
+        (e.min + (e.max - e.min) * w) / 255.0
+    };
+    let now_t = if first.beats > 0.0 { core.rt.beat / first.beats as f64 } else { (core.rt.t0.elapsed().as_secs_f64()) * first.rate_hz as f64 };
+    let pan = fx.iter().find(|e| e.attr == "pan");
+    let tilt = fx.iter().find(|e| e.attr == "tilt");
+    const N: usize = 48;
+    let preview = match (pan, tilt) {
+        (Some(p), Some(t)) => {
+            let at = |s: f64| [val(p, s), 1.0 - val(t, s)];
+            Preview::Path { pts: (0..=N).map(|i| at(i as f64 / N as f64)).collect(), now: at(now_t.rem_euclid(1.0)) }
+        }
+        _ => {
+            let at = |s: f64| [s as f32, 1.0 - val(first, s)];
+            let f = now_t.rem_euclid(1.0);
+            Preview::Path { pts: (0..=N).map(|i| at(i as f64 / N as f64)).collect(), now: [f as f32, 1.0 - val(first, f)] }
+        }
+    };
+    Some(preview)
+}
+
 /// 図に描く1コントロール分の情報
 struct Info {
     tag: String,
@@ -230,6 +266,7 @@ struct Info {
     /// 実際の色(色を指定するパッドなど)
     rgb: Option<[f32; 3]>,
     readout: Readout,
+    preview: Preview,
 }
 
 /// 配置メニューで選ばれたこと(Coreを借りている間は実行できないものは、借り終えてから実行する)
@@ -298,7 +335,7 @@ impl App {
             let info = |ctl: Ctl| -> Info {
                 let hits: Vec<&Binding> = bindings.iter().filter(|b| b.on_page(page) && b.trigger.is_some_and(|t| ctl.matches(&t))).collect();
                 let Some(first) = hits.first() else {
-                    return Info { tag: String::new(), title: String::new(), tip: format!("{}\n割り当てなし", ctl.label()), count: 0, color: None, active: false, rgb: None, readout: Readout::Raw };
+                    return Info { tag: String::new(), title: String::new(), tip: format!("{}\n割り当てなし", ctl.label()), count: 0, color: None, active: false, rgb: None, readout: Readout::Raw, preview: Preview::None };
                 };
                 let (tag, title) = pad_text(&first.action, &meta, core_ref);
                 // フェーダーとチャンネル値は、名前を付けてあればその名前のほうが分かりやすい(「LEDバー 明るさ」「ストロボ」など)
@@ -322,6 +359,13 @@ impl App {
                     active: hits.iter().any(|b| crate::led::is_active(core_ref, &b.action)),
                     rgb: if matches!(ctl, Ctl::Pad(_)) { crate::led::action_rgb(core_ref, &first.action, &look_rgb) } else { None },
                     readout: readout(&first.action),
+                    preview: match &first.action {
+                        Action::Effect { name, .. } if matches!(ctl, Ctl::Pad(_)) => match core_ref.project.pixel_fx.iter().find(|f| f.name == *name) {
+                            Some(f) => Preview::Face(core_ref.face_preview(f, 8, 30)),
+                            None => effect_path(core_ref, name).unwrap_or(Preview::None),
+                        },
+                        _ => Preview::None,
+                    },
                 }
             };
 
@@ -642,8 +686,19 @@ fn button_cell(ui: &mut egui::Ui, rect: Rect, ctl: Ctl, info: &Info, down: bool,
         p.rect_filled(rect.expand(3.0), radius + 3.0, alpha(accent, 0.30));
     }
     p.rect_filled(rect, radius, fill);
+    // プレビュー(LEDバーの模様 / エフェクトの軌跡)
+    let has_preview = !small && !matches!(info.preview, Preview::None);
+    if has_preview {
+        draw_preview(p, rect, &info.preview, info.active, accent);
+        if resp.hovered() {
+            // マウスを乗せている間は、なめらかに動かす
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(66));
+        }
+    }
     // 種類の色の細い線(実機のLEDの代わり)。実際の色のパッドは全体が色なので付けない
-    if info.rgb.is_none() && !small {
+    if has_preview {
+        p.rect_stroke(rect, radius, Stroke::new(1.5, alpha(accent, if info.active { 1.0 } else { 0.55 })), StrokeKind::Inside);
+    } else if info.rgb.is_none() && !small {
         let strip = Rect::from_min_size(rect.min + vec2(7.0, 5.0), vec2(rect.width() - 14.0, 3.0));
         p.rect_filled(strip, 1.5, if info.active { alpha(Color32::WHITE, 0.85) } else { accent });
     }
@@ -669,7 +724,9 @@ fn button_cell(ui: &mut egui::Ui, rect: Rect, ctl: Ctl, info: &Info, down: bool,
     }
     let title = clip.layout(info.title.clone(), theme::bold(title_size), fg, inner_w);
     let tag_h = 24.0;
-    if small || title.size().y > rect.height() - tag_h - 4.0 {
+    if has_preview {
+        // プレビューが名前の代わり(名前はマウスを乗せると出る)
+    } else if small || title.size().y > rect.height() - tag_h - 4.0 {
         // 狭いボタンや、名前が2行になって見出しと重なるときは、名前だけを真ん中に
         clip.galley(pos2(rect.min.x + 7.0, rect.center().y - title.size().y / 2.0 + if small { 0.0 } else { 3.0 }), title, fg);
     } else {
@@ -969,5 +1026,45 @@ mod tests {
             assert!((hue_of(crate::color::hsv(h, 1.0, 1.0)) - h).abs() < 0.5, "{h}");
         }
         assert_eq!(hue_of([1.0, 1.0, 1.0]), 0.0);
+    }
+}
+
+/// パッドの中のプレビューを描く
+fn draw_preview(p: &egui::Painter, rect: Rect, preview: &Preview, active: bool, accent: Color32) {
+    let area = rect.shrink(4.0);
+    match preview {
+        Preview::None => {}
+        Preview::Face(rows) => {
+            let level = if active { 1.0 } else { 0.55 };
+            let n = rows.len().max(1);
+            let gap = 1.0;
+            let rh = ((area.height() - gap * (n as f32 - 1.0)) / n as f32).max(1.0);
+            for (r, row) in rows.iter().enumerate() {
+                let cols = row.len().max(1);
+                let cw = area.width() / cols as f32;
+                let y = area.min.y + r as f32 * (rh + gap);
+                for (c, col) in row.iter().enumerate() {
+                    let cell = Rect::from_min_size(pos2(area.min.x + c as f32 * cw, y), vec2(cw + 0.4, rh));
+                    p.rect_filled(cell, 0.0, rgb32(*col, level));
+                }
+            }
+        }
+        Preview::Path { pts, now } => {
+            // 枠いっぱいに描く(動く範囲を拡大)
+            let area = area.shrink2(vec2(6.0, 5.0));
+            let (mut lo, mut hi) = ([f32::MAX; 2], [f32::MIN; 2]);
+            for q in pts.iter().chain(std::iter::once(now)) {
+                for d in 0..2 {
+                    lo[d] = lo[d].min(q[d]);
+                    hi[d] = hi[d].max(q[d]);
+                }
+            }
+            let norm = |v: f32, d: usize| if hi[d] - lo[d] < 1e-4 { 0.5 } else { (v - lo[d]) / (hi[d] - lo[d]) };
+            let to = |q: &[f32; 2]| pos2(area.min.x + norm(q[0], 0) * area.width(), area.min.y + norm(q[1], 1) * area.height());
+            let line: Vec<egui::Pos2> = pts.iter().map(to).collect();
+            p.add(egui::Shape::line(line, Stroke::new(1.5, alpha(accent, if active { 0.95 } else { 0.6 }))));
+            let dot = Rect::from_center_size(to(now), vec2(6.0, 6.0));
+            p.rect_filled(dot, 1.0, if active { Color32::WHITE } else { alpha(Color32::WHITE, 0.7) });
+        }
     }
 }

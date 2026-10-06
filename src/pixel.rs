@@ -468,6 +468,43 @@ pub fn speed_label(s: f32) -> String {
     if s < 1.0 { format!("×1/{}", (1.0 / s).round() as i32) } else { format!("×{}", s.round() as i32) }
 }
 
+/// 面の中のピクセルの位置
+#[derive(Debug, Clone, Copy)]
+pub struct FacePos {
+    /// 何本目のバーか / バーの本数
+    pub bar: usize,
+    pub bars: usize,
+    /// バーの中の何番目のピクセルか / バーのピクセル数
+    pub k: usize,
+    pub len: usize,
+    /// 「複数台を1本につなげる」ときの、このバーの先頭の通し番号 / 全バーのピクセル数
+    pub offset: usize,
+    pub total: usize,
+}
+
+/// 面の1ピクセルの色。`phase`=経過した周期、`skew`=斜めのずれ(フェーダーの分も足したもの)
+pub fn face_color(fx: &PixelFx, skew: f32, phase: f64, at: FacePos, a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    let FacePos { bar, bars, k, len, offset, total } = at;
+    // g=模様の中での位置 / n=模様の長さ / across=もう一方の向きでの位置(0〜1、斜めのずれ用)
+    let (g, n, across) = match fx.axis {
+        PixelAxis::Along if fx.span => (offset + k, total, bar as f64 / bars as f64),
+        PixelAxis::Along => (k, len, bar as f64 / bars as f64),
+        PixelAxis::Across => (bar, bars, k as f64 / len as f64),
+    };
+    let phase = phase + skew as f64 * across;
+    let g = if fx.reverse { n - 1 - g } else { g };
+    // 中央から左右対称: 中央=0、端=半分の長さ-1 として、半分の長さで模様を作る
+    let (g, n2) = if fx.mirror {
+        let half = n.div_ceil(2);
+        (half - 1 - g.min(n - 1 - g), half)
+    } else {
+        (g, n)
+    };
+    // きらめきは、バーごとに別の場所で光らせる(同じ位置だと縦線に見える)
+    let g = if fx.kind == PixelKind::Sparkle && fx.axis == PixelAxis::Along && !fx.span { g + bar * 1009 } else { g };
+    pixel_color(fx.kind, g, n2, phase, fx.width, a, b)
+}
+
 /// プリセット(先頭から`count`個)を、まだ無ければプロジェクトに足す。戻り値=追加した数
 pub fn add_presets(p: &mut crate::project::Project, count: usize) -> usize {
     let mut added = 0;
@@ -537,6 +574,28 @@ impl Core {
         self.dirty = true;
     }
 
+    /// 模様のプレビュー(パッド用): rows本 × cols点 の色。実際のバーの本数・ピクセル数で計算して間引く
+    pub fn face_preview(&self, fx: &PixelFx, rows: usize, cols: usize) -> Vec<Vec<[f32; 3]>> {
+        let (a, b) = (self.pixel_rgb_of(fx.a), self.pixel_rgb_of(fx.b));
+        let phase = if fx.beats > 0.0 { self.pixel_beat() / fx.beats as f64 } else { 0.0 };
+        let skew = fx.skew + self.rt.px_skew;
+        // 実際のバーの数とピクセル数(無ければ8本×90ピクセルとして描く)
+        let lens: Vec<usize> = self.project.fixtures.iter().filter_map(|f| self.lib.info(&f.profile, f.mode)).map(|i| i.pixels.len()).filter(|n| *n > 0).collect();
+        let len = lens.first().copied().unwrap_or(90);
+        let bars = if lens.is_empty() { rows } else { lens.len() };
+        let total = len * bars;
+        (0..rows.min(bars))
+            .map(|bar| {
+                (0..cols)
+                    .map(|c| {
+                        let k = ((c as f32 + 0.5) * len as f32 / cols as f32) as usize;
+                        face_color(fx, skew, phase, FacePos { bar, bars, k: k.min(len - 1), len, offset: bar * len, total }, a, b)
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
     /// ピクセルエフェクトの拍の位置(速さの倍率を掛けたもの)
     pub fn pixel_beat(&self) -> f64 {
         self.rt.beat * self.rt.px_speed as f64 + self.rt.px_offset
@@ -552,7 +611,7 @@ impl Core {
         self.rt.px_speed = s;
     }
 
-    fn pixel_rgb_of(&self, c: PixelColor) -> [f32; 3] {
+    pub fn pixel_rgb_of(&self, c: PixelColor) -> [f32; 3] {
         match c {
             PixelColor::Main => self.role_rgb(ColorRole::Main).unwrap_or([1.0; 3]),
             PixelColor::Sub => self.role_rgb(ColorRole::Sub).unwrap_or([0.0; 3]),
@@ -587,25 +646,8 @@ impl Core {
             for (bar, (i, _, info)) in targets.iter().enumerate() {
                 let px = &info.pixels;
                 for (k, p) in px.iter().enumerate() {
-                    // g=模様の中での位置 / n=模様の長さ / across=もう一方の向きでの位置(0〜1、斜めのずれ用)
-                    let (g, n, across) = match fx.axis {
-                        PixelAxis::Along if fx.span => (offset + k, total, bar as f64 / bars as f64),
-                        PixelAxis::Along => (k, px.len(), bar as f64 / bars as f64),
-                        PixelAxis::Across => (bar, bars, k as f64 / px.len() as f64),
-                    };
-                    let phase = phase + skew as f64 * across;
-                    let g = if fx.reverse { n - 1 - g } else { g };
-                    // 中央から左右対称: 中央=0、端=半分の長さ-1 として、半分の長さで模様を作る
-                    let (g, n2) = if fx.mirror {
-                        let half = n.div_ceil(2);
-                        (half - 1 - g.min(n - 1 - g), half)
-                    } else {
-                        (g, n)
-                    };
-                    // きらめきは、バーごとに別の場所で光らせる(同じ位置だと縦線に見える)
-                    let g = if fx.kind == PixelKind::Sparkle && fx.axis == PixelAxis::Along && !fx.span { g + bar * 1009 } else { g };
-                    let rgb = pixel_color(fx.kind, g, n2, phase, fx.width, a, b);
-                    info.set_pixel(&mut vals[*i], p, rgb);
+                    let at = FacePos { bar, bars, k, len: px.len(), offset, total };
+                    info.set_pixel(&mut vals[*i], p, face_color(fx, skew, phase, at, a, b));
                 }
                 offset += px.len();
             }
