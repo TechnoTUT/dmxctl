@@ -785,20 +785,42 @@ fn stage_panel(ui: &mut egui::Ui, core: &mut Core) {
         ui.add_space(6.0);
     }
 
-    // メイン/サブ色
+    // メイン/サブ色: 色見本と、色相フェーダーと同じ並びの色相の帯(目印=フェーダーの位置)
     theme::card().show(ui, |ui| {
         ui.set_width(ui.available_width());
-        let main = core.role_rgb(crate::color::ColorRole::Main).unwrap_or([1.0; 3]);
-        let sub = core.role_rgb(crate::color::ColorRole::Sub).unwrap_or([0.0; 3]);
-        ui.horizontal(|ui| {
-            for (label, c) in [("メイン", main), ("サブ", sub)] {
-                let (r, _) = ui.allocate_exact_size(vec2(30.0, 22.0), Sense::hover());
-                ui.painter().rect_filled(r, 6.0, rgb32(c, 1.0));
-                ui.painter().rect_stroke(r, 6.0, Stroke::new(1.0, alpha(Color32::WHITE, 0.15)), StrokeKind::Inside);
-                ui.label(RichText::new(label).small());
-                ui.add_space(6.0);
-            }
-        });
+        for (label, role, target) in [("メイン", crate::color::ColorRole::Main, crate::color::ColorTarget::Main), ("サブ", crate::color::ColorRole::Sub, crate::color::ColorTarget::Sub)] {
+            let c = core.role_rgb(role).unwrap_or([0.0; 3]);
+            // この色の色相フェーダー(割り当てがあれば、その実機の位置)
+            let fader = core.project.bindings.iter().find_map(|b| match (&b.action, b.trigger) {
+                (Action::Color { color: None, target: t }, Some(tr)) if *t == target && tr.kind == TriggerKind::Cc => Some(tr.number),
+                _ => None,
+            });
+            let pos = fader.and_then(|n| core.rt.cc_value[n as usize]).map(|v| v as f32 / 127.0);
+            ui.horizontal(|ui| {
+                ui.add_sized([44.0, 18.0], egui::Label::new(RichText::new(label).small().color(theme::TEXT_DIM)));
+                let (r, _) = ui.allocate_exact_size(vec2(26.0, 18.0), Sense::hover());
+                ui.painter().rect_filled(r, 4.0, rgb32(c, 1.0));
+                ui.painter().rect_stroke(r, 4.0, Stroke::new(1.0, alpha(Color32::WHITE, 0.15)), StrokeKind::Inside);
+                let w = ui.available_width() - 4.0;
+                let (bar, resp) = ui.allocate_exact_size(vec2(w, 18.0), Sense::hover());
+                hue_bar(ui.painter(), bar);
+                // 目印: フェーダーの位置(まだ動かしていなければ、今の色の色相)
+                let (t, known) = match pos {
+                    Some(t) => (t, true),
+                    None => (hue_of(c) / 360.0, false),
+                };
+                let x = bar.min.x + bar.width() * t.clamp(0.0, 1.0);
+                let mark = Rect::from_center_size(pos2(x, bar.center().y), vec2(6.0, bar.height() + 6.0));
+                ui.painter().rect_filled(mark, 1.5, if known { Color32::WHITE } else { alpha(Color32::WHITE, 0.55) });
+                ui.painter().rect_stroke(mark, 1.5, Stroke::new(1.0, Color32::BLACK), StrokeKind::Outside);
+                let tip = match (fader, pos) {
+                    (Some(n), Some(t)) => format!("{label}の色相フェーダー(CC {n}): {:.0}°", t * 360.0),
+                    (Some(n), None) => format!("{label}の色相フェーダー(CC {n})はまだ動かしていません。目印は今の色の色相"),
+                    (None, _) => format!("{label}の色相フェーダーは割り当てがありません。目印は今の色の色相"),
+                };
+                resp.on_hover_text(tip);
+            });
+        }
         if core.project.palette.auto || core.palette_swapped() {
             ui.horizontal(|ui| {
                 if core.palette_swapped() {
@@ -880,33 +902,9 @@ fn tempo_card(ui: &mut egui::Ui, core: &mut Core) {
     let (src, peers, clock_ok) = (core.project.tempo_source, core.rt.link_peers, core.clock_alive(now));
     theme::card().show(ui, |ui| {
         ui.set_width(ui.available_width());
+        // 1行目: 見出し・同期の状態・TAP・頭出し
         ui.horizontal(|ui| {
-            // MIDIクロック中は、BPMはクロックで決まる
-            let by_clock = src == TempoSource::MidiClock && clock_ok;
-            let mut bpm = core.project.bpm;
-            ui.vertical(|ui| {
-                ui.label(RichText::new("BPM").small().color(theme::TEXT_FAINT));
-                // 数字は大きく
-                ui.style_mut().override_font_id = Some(theme::bold(24.0));
-                let drag = egui::DragValue::new(&mut bpm).range(BPM_MIN..=BPM_MAX).speed(0.2).fixed_decimals(1).update_while_editing(false);
-                let resp = ui.add_enabled(!by_clock, drag);
-                if resp.on_hover_text("ドラッグかダブルクリックで変更").changed() {
-                    core.set_bpm(bpm);
-                }
-            });
-            ui.add_space(6.0);
-            // 拍の位置(1拍目はアンバー)
-            let in_bar = (core.rt.beat.floor() as i64).rem_euclid(BEATS_PER_BAR);
-            let (rect, _) = ui.allocate_exact_size(vec2(BEATS_PER_BAR as f32 * 20.0, 34.0), Sense::hover());
-            for b in 0..BEATS_PER_BAR {
-                let r = Rect::from_center_size(pos2(rect.min.x + 10.0 + b as f32 * 20.0, rect.center().y), vec2(14.0, 14.0));
-                let color = match (b == in_bar, b) {
-                    (true, 0) => theme::WARN,
-                    (true, _) => theme::ACCENT,
-                    _ => theme::WIDGET_ACTIVE,
-                };
-                ui.painter().rect_filled(r, 2.0, color);
-            }
+            ui.label(RichText::new("BPM").small().color(theme::TEXT_FAINT));
             match src {
                 TempoSource::Link => {
                     ui.label(RichText::new(format!("Link {peers}")).small().strong().color(if peers > 0 { theme::OK } else { theme::TEXT_DIM })).on_hover_text(format!("Ableton Link: 接続中のアプリ {peers} 個"));
@@ -920,10 +918,83 @@ fn tempo_card(ui: &mut egui::Ui, core: &mut Core) {
                 if ui.button("頭出し").on_hover_text("拍の位置を小節の頭に戻します(R)").clicked() {
                     core.resync();
                 }
-                if ui.add(egui::Button::new(RichText::new("TAP").font(theme::bold(14.0))).min_size(vec2(64.0, 30.0))).on_hover_text("リズムに合わせて叩くとBPMが決まり、拍の位置も合います(Space)").clicked() {
+                if ui.add(egui::Button::new(RichText::new("TAP").font(theme::bold(13.0))).min_size(vec2(56.0, 0.0))).on_hover_text("リズムに合わせて叩くとBPMが決まり、拍の位置も合います(Space)").clicked() {
                     core.tap();
                 }
             });
         });
+        // 2行目: BPMの数字と、拍の位置(四角は数字の欄と同じ大きさ。1拍目はアンバー)
+        ui.horizontal(|ui| {
+            // MIDIクロック中は、BPMはクロックで決まる
+            let by_clock = src == TempoSource::MidiClock && clock_ok;
+            let mut bpm = core.project.bpm;
+            let resp = ui
+                .scope(|ui| {
+                    ui.style_mut().override_font_id = Some(theme::bold(24.0));
+                    let drag = egui::DragValue::new(&mut bpm).range(BPM_MIN..=BPM_MAX).speed(0.2).fixed_decimals(1).update_while_editing(false);
+                    ui.add_enabled(!by_clock, drag)
+                })
+                .inner;
+            let box_rect = resp.rect;
+            if resp.on_hover_text("ドラッグかダブルクリックで変更").changed() {
+                core.set_bpm(bpm);
+            }
+            ui.add_space(4.0);
+            let side = box_rect.height();
+            let gap = (side * 0.2).max(4.0);
+            let in_bar = (core.rt.beat.floor() as i64).rem_euclid(BEATS_PER_BAR);
+            let (rect, _) = ui.allocate_exact_size(vec2(BEATS_PER_BAR as f32 * (side + gap), side), Sense::hover());
+            for b in 0..BEATS_PER_BAR {
+                let r = Rect::from_min_size(pos2(rect.min.x + b as f32 * (side + gap), rect.min.y), vec2(side, side));
+                let color = match (b == in_bar, b) {
+                    (true, 0) => theme::WARN,
+                    (true, _) => theme::ACCENT,
+                    _ => theme::WIDGET_ACTIVE,
+                };
+                ui.painter().rect_filled(r, 4.0, color);
+            }
+        });
     });
+}
+
+/// 色相の帯(左=0° 赤 → 右=360° 赤。色相フェーダーの下端→上端と同じ)
+fn hue_bar(p: &egui::Painter, rect: Rect) {
+    let n = 72;
+    let w = rect.width() / n as f32;
+    for k in 0..n {
+        let [r, g, b] = crate::color::hsv((k as f32 + 0.5) / n as f32 * 360.0, 1.0, 1.0);
+        let seg = Rect::from_min_size(pos2(rect.min.x + k as f32 * w, rect.min.y), vec2(w + 0.6, rect.height()));
+        p.rect_filled(seg, 0.0, Color32::from_rgb((r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8));
+    }
+    p.rect_stroke(rect, 2.0, Stroke::new(1.0, alpha(Color32::WHITE, 0.12)), StrokeKind::Inside);
+}
+
+/// RGB(0〜1)の色相(0〜360度)
+fn hue_of(c: [f32; 3]) -> f32 {
+    let (max, min) = (c[0].max(c[1]).max(c[2]), c[0].min(c[1]).min(c[2]));
+    let d = max - min;
+    if d <= 1e-6 {
+        return 0.0;
+    }
+    let h = if max == c[0] {
+        60.0 * ((c[1] - c[2]) / d).rem_euclid(6.0)
+    } else if max == c[1] {
+        60.0 * ((c[2] - c[0]) / d + 2.0)
+    } else {
+        60.0 * ((c[0] - c[1]) / d + 4.0)
+    };
+    h.rem_euclid(360.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::hue_of;
+
+    #[test]
+    fn hue_matches_the_hue_fader() {
+        for h in [0.0, 30.0, 120.0, 200.0, 300.0] {
+            assert!((hue_of(crate::color::hsv(h, 1.0, 1.0)) - h).abs() < 0.5, "{h}");
+        }
+        assert_eq!(hue_of([1.0, 1.0, 1.0]), 0.0);
+    }
 }
