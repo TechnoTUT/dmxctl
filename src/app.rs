@@ -387,8 +387,8 @@ fn brand(ui: &mut egui::Ui) {
     let p = ui.painter();
     let c = rect.center();
     // 3色の光が重なるマーク
-    for (dx, dy, color) in [(-3.5, -2.0, Color32::from_rgb(255, 70, 110)), (3.5, -2.0, Color32::from_rgb(70, 140, 255)), (0.0, 3.8, theme::ACCENT)] {
-        p.circle_filled(c + egui::vec2(dx, dy), 5.5, theme::alpha(color, 0.85));
+    for (dx, dy, color) in [(-3.5, -2.5, Color32::from_rgb(255, 70, 110)), (3.5, -2.5, Color32::from_rgb(70, 140, 255)), (0.0, 3.5, theme::ACCENT)] {
+        p.rect_filled(egui::Rect::from_center_size(c + egui::vec2(dx, dy), egui::vec2(9.5, 9.5)), 2.0, theme::alpha(color, 0.85));
     }
     ui.label(RichText::new("DMX").font(theme::bold(15.0)).color(theme::TEXT));
 }

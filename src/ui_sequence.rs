@@ -3,7 +3,7 @@
 use crate::app::{App, WARN};
 use crate::engine::lock;
 use crate::project::*;
-use eframe::egui::{self, vec2, Color32, RichText, Sense};
+use eframe::egui::{self, vec2, Color32, RichText};
 
 enum StepOp {
     Up(usize, usize),
@@ -27,52 +27,6 @@ impl App {
             let mut pct = lock(&self.core).rt.master * 100.0;
             if ui.add(egui::Slider::new(&mut pct, 0.0..=100.0).fixed_decimals(0).suffix("%")).on_hover_text("全体光量(すべての機材の明るさに掛かります)").changed() {
                 lock(&self.core).rt.master = pct / 100.0;
-            }
-            ui.add_space(6.0);
-            ui.separator();
-            ui.add_space(6.0);
-
-            // テンポ
-            let (mut bpm, beat, src, peers, clock_ok) = {
-                let c = lock(&self.core);
-                (c.project.bpm, c.rt.beat, c.project.tempo_source, c.rt.link_peers, c.clock_alive(std::time::Instant::now()))
-            };
-            caption(ui, "BPM");
-            // MIDIクロック中は、BPMはクロックで決まる
-            let by_clock = src == TempoSource::MidiClock && clock_ok;
-            let drag = egui::DragValue::new(&mut bpm).range(BPM_MIN..=BPM_MAX).speed(0.2).fixed_decimals(1);
-            if ui.add_enabled(!by_clock, drag).on_hover_text("ドラッグかダブルクリックで変更").changed() {
-                lock(&self.core).set_bpm(bpm);
-            }
-            match src {
-                TempoSource::Link => {
-                    let text = RichText::new(format!("Link {peers}")).small().strong().color(if peers > 0 { theme::OK } else { theme::TEXT_DIM });
-                    ui.label(text).on_hover_text(format!("Ableton Link: 接続中のアプリ {peers} 個"));
-                }
-                TempoSource::MidiClock => {
-                    let text = RichText::new("CLK").small().strong().color(if clock_ok { theme::OK } else { WARN });
-                    ui.label(text).on_hover_text(if clock_ok { "MIDIクロックを受信中" } else { "MIDIクロックが来ていません(内部のテンポで走っています)" });
-                }
-                TempoSource::Internal => {}
-            }
-            if ui.button("TAP").on_hover_text("リズムに合わせて叩くとBPMが決まり、拍の位置も合います(Space)").clicked() {
-                lock(&self.core).tap();
-            }
-            if ui.button("頭出し").on_hover_text("拍の位置を小節の頭に戻します(R)").clicked() {
-                lock(&self.core).resync();
-            }
-            // 拍の表示(1拍目はアンバー)
-            ui.add_space(2.0);
-            let in_bar = (beat.floor() as i64).rem_euclid(BEATS_PER_BAR);
-            for b in 0..BEATS_PER_BAR {
-                let (rect, _) = ui.allocate_exact_size(vec2(14.0, 18.0), Sense::hover());
-                let lit = b == in_bar;
-                let color = match (lit, b) {
-                    (true, 0) => theme::WARN,
-                    (true, _) => theme::ACCENT,
-                    _ => theme::WIDGET_ACTIVE,
-                };
-                ui.painter().circle_filled(rect.center(), if lit { 5.5 } else { 3.5 }, color);
             }
             ui.add_space(6.0);
             ui.separator();

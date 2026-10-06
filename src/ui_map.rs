@@ -724,12 +724,15 @@ fn fader_cell(ui: &mut egui::Ui, rect: Rect, ctl: Ctl, info: &Info, value: Optio
 }
 
 /// 右のパネル(何も選んでいないとき): LEDバーの今の模様、メイン/サブ色、機材ごとの色
-fn stage_panel(ui: &mut egui::Ui, core: &Core) {
+fn stage_panel(ui: &mut egui::Ui, core: &mut Core) {
     use crate::look::Look;
-    let looks = crate::look::looks(core);
-    let bars: Vec<&crate::look::FixtureLook> = looks.iter().filter(|l| matches!(l.look, Look::Strip(_))).collect();
     theme::heading(ui, "ステージ");
     ui.add_space(2.0);
+    tempo_card(ui, core);
+    ui.add_space(6.0);
+    let core: &Core = core;
+    let looks = crate::look::looks(core);
+    let bars: Vec<&crate::look::FixtureLook> = looks.iter().filter(|l| matches!(l.look, Look::Strip(_))).collect();
 
     if !bars.is_empty() {
         theme::card().show(ui, |ui| {
@@ -869,4 +872,58 @@ fn stage_panel(ui: &mut egui::Ui, core: &Core) {
         ui.label(RichText::new(format!("この図に載らない割り当てが {stray} 件あります(未設定、または別のMIDI機器/チャンネル)。「MIDI設定」タブで確認できます。")).small().color(theme::WARN));
     }
     ui.label(RichText::new("図のパッド・ボタン・フェーダーをクリックすると、ここで割り当てを編集できます").small().color(theme::TEXT_FAINT));
+}
+
+/// テンポ: BPM・拍の位置・TAP・頭出し
+fn tempo_card(ui: &mut egui::Ui, core: &mut Core) {
+    let now = std::time::Instant::now();
+    let (src, peers, clock_ok) = (core.project.tempo_source, core.rt.link_peers, core.clock_alive(now));
+    theme::card().show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        ui.horizontal(|ui| {
+            // MIDIクロック中は、BPMはクロックで決まる
+            let by_clock = src == TempoSource::MidiClock && clock_ok;
+            let mut bpm = core.project.bpm;
+            ui.vertical(|ui| {
+                ui.label(RichText::new("BPM").small().color(theme::TEXT_FAINT));
+                // 数字は大きく
+                ui.style_mut().override_font_id = Some(theme::bold(24.0));
+                let drag = egui::DragValue::new(&mut bpm).range(BPM_MIN..=BPM_MAX).speed(0.2).fixed_decimals(1).update_while_editing(false);
+                let resp = ui.add_enabled(!by_clock, drag);
+                if resp.on_hover_text("ドラッグかダブルクリックで変更").changed() {
+                    core.set_bpm(bpm);
+                }
+            });
+            ui.add_space(6.0);
+            // 拍の位置(1拍目はアンバー)
+            let in_bar = (core.rt.beat.floor() as i64).rem_euclid(BEATS_PER_BAR);
+            let (rect, _) = ui.allocate_exact_size(vec2(BEATS_PER_BAR as f32 * 20.0, 34.0), Sense::hover());
+            for b in 0..BEATS_PER_BAR {
+                let r = Rect::from_center_size(pos2(rect.min.x + 10.0 + b as f32 * 20.0, rect.center().y), vec2(14.0, 14.0));
+                let color = match (b == in_bar, b) {
+                    (true, 0) => theme::WARN,
+                    (true, _) => theme::ACCENT,
+                    _ => theme::WIDGET_ACTIVE,
+                };
+                ui.painter().rect_filled(r, 2.0, color);
+            }
+            match src {
+                TempoSource::Link => {
+                    ui.label(RichText::new(format!("Link {peers}")).small().strong().color(if peers > 0 { theme::OK } else { theme::TEXT_DIM })).on_hover_text(format!("Ableton Link: 接続中のアプリ {peers} 個"));
+                }
+                TempoSource::MidiClock => {
+                    ui.label(RichText::new("CLK").small().strong().color(if clock_ok { theme::OK } else { theme::WARN })).on_hover_text(if clock_ok { "MIDIクロックを受信中" } else { "MIDIクロックが来ていません(内部のテンポで走っています)" });
+                }
+                TempoSource::Internal => {}
+            }
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                if ui.button("頭出し").on_hover_text("拍の位置を小節の頭に戻します(R)").clicked() {
+                    core.resync();
+                }
+                if ui.add(egui::Button::new(RichText::new("TAP").font(theme::bold(14.0))).min_size(vec2(64.0, 30.0))).on_hover_text("リズムに合わせて叩くとBPMが決まり、拍の位置も合います(Space)").clicked() {
+                    core.tap();
+                }
+            });
+        });
+    });
 }

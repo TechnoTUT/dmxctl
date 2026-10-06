@@ -65,15 +65,15 @@ pub fn help(ui: &mut egui::Ui, text: &str) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), egui::Sense::hover());
     let hovered = resp.hovered();
     let p = ui.painter();
-    p.circle_stroke(rect.center(), 7.5, Stroke::new(1.2, if hovered { ACCENT } else { TEXT_FAINT }));
+    p.rect_stroke(egui::Rect::from_center_size(rect.center(), egui::vec2(15.0, 15.0)), 3.0, Stroke::new(1.2, if hovered { ACCENT } else { TEXT_FAINT }), egui::StrokeKind::Inside);
     p.text(rect.center(), egui::Align2::CENTER_CENTER, "?", bold(11.0), if hovered { ACCENT } else { TEXT_DIM });
     resp.on_hover_text(text)
 }
 
-/// 状態を表す小さな丸
+/// 状態を表す小さな四角
 pub fn dot(ui: &mut egui::Ui, color: Color32) {
     let (rect, _) = ui.allocate_exact_size(egui::vec2(10.0, 16.0), egui::Sense::hover());
-    ui.painter().circle_filled(rect.center(), 4.0, color);
+    ui.painter().rect_filled(egui::Rect::from_center_size(rect.center(), egui::vec2(7.0, 7.0)), 1.5, color);
 }
 
 /// 日本語フォント(OS標準)を読み込む。太字は見出しとパッドの文字に使う
