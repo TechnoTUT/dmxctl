@@ -806,10 +806,11 @@ fn stage_panel(ui: &mut egui::Ui, core: &mut Core) {
                 let y = rect.min.y + 5.0 + b as f32 * (row_h + row_gap);
                 let x0 = rect.min.x + 8.0;
                 let cw = (w - 16.0) / n as f32;
+                let mut mesh = egui::Mesh::default();
                 for (k, c) in px.iter().enumerate() {
-                    let r = Rect::from_min_size(pos2(x0 + k as f32 * cw, y), vec2(cw.max(1.0) + 0.3, row_h));
-                    p.rect_filled(r, 0.0, rgb32(*c, 1.0));
+                    mesh.add_colored_rect(Rect::from_min_size(pos2(x0 + k as f32 * cw, y), vec2(cw.max(1.0) + 0.3, row_h)), rgb32(*c, 1.0));
                 }
+                p.add(egui::Shape::mesh(mesh));
                 if l.note == Some("MUTE") {
                     p.text(pos2(rect.max.x - 10.0, y + row_h / 2.0), Align2::RIGHT_CENTER, "MUTE", FontId::proportional(9.0), theme::DANGER);
                 }
@@ -1039,15 +1040,17 @@ fn draw_preview(p: &egui::Painter, rect: Rect, preview: &Preview, active: bool, 
             let n = rows.len().max(1);
             let gap = 1.0;
             let rh = ((area.height() - gap * (n as f32 - 1.0)) / n as f32).max(1.0);
+            // 点の数が多いので、四角を1つずつ描かずに1つのメッシュにまとめる(描画が軽い)
+            let mut mesh = egui::Mesh::default();
             for (r, row) in rows.iter().enumerate() {
                 let cols = row.len().max(1);
                 let cw = area.width() / cols as f32;
                 let y = area.min.y + r as f32 * (rh + gap);
                 for (c, col) in row.iter().enumerate() {
-                    let cell = Rect::from_min_size(pos2(area.min.x + c as f32 * cw, y), vec2(cw + 0.4, rh));
-                    p.rect_filled(cell, 0.0, rgb32(*col, level));
+                    mesh.add_colored_rect(Rect::from_min_size(pos2(area.min.x + c as f32 * cw, y), vec2(cw + 0.4, rh)), rgb32(*col, level));
                 }
             }
+            p.add(egui::Shape::mesh(mesh));
         }
         Preview::Path { pts, now } => {
             // 枠いっぱいに描く(動く範囲を拡大)

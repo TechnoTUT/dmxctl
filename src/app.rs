@@ -91,6 +91,8 @@ pub struct App {
 struct Perf {
     frames: u32,
     ui_time: Duration,
+    /// 前のフレームのCPU時間(図形の変換・描画の準備を含む)の合計
+    frame_cpu: f32,
     since: Instant,
     text: String,
 }
@@ -159,7 +161,7 @@ impl App {
             color_edit: crate::color::ColorTarget::Scope,
             key_flash: false,
             ctx: cc.egui_ctx.clone(),
-            perf: std::env::var_os("DMXCTL_PERF").map(|_| Perf { frames: 0, ui_time: Duration::ZERO, since: Instant::now(), text: String::new() }),
+            perf: std::env::var_os("DMXCTL_PERF").map(|_| Perf { frames: 0, ui_time: Duration::ZERO, frame_cpu: 0.0, since: Instant::now(), text: String::new() }),
             shot: crate::shot::Shot::from_env(),
         };
         // 確認用: DMXCTL_TAB=タブ名 で開くタブ、DMXCTL_UNIVERSE=番号 でモニターのユニバースを選ぶ
@@ -422,9 +424,12 @@ impl App {
             p.ui_time += t_frame.elapsed();
             let secs = p.since.elapsed().as_secs_f64();
             if secs >= 2.0 {
-                p.text = format!("描画 {:.1}回/秒, ui() {:.2}ms/回", p.frames as f64 / secs, p.ui_time.as_secs_f64() * 1000.0 / p.frames.max(1) as f64);
+                let n = p.frames.max(1) as f64;
+                p.text = format!("描画 {:.1}回/秒, ui() {:.2}ms/回, フレーム全体 {:.2}ms/回", p.frames as f64 / secs, p.ui_time.as_secs_f64() * 1000.0 / n, p.frame_cpu as f64 * 1000.0 / n);
+                eprintln!("{}", p.text);
                 p.frames = 0;
                 p.ui_time = Duration::ZERO;
+                p.frame_cpu = 0.0;
                 p.since = Instant::now();
             }
         }
@@ -523,9 +528,10 @@ impl App {
         // 他のアプリ(映像など)を前に出して使っているとき(このウィンドウが前面でないとき)は、表示の更新をさらに減らす
         let focused = ui.input(|i| i.focused);
         let mut idle = if focused { Duration::from_millis(500).min(Duration::from_secs_f64(to_beat.max(0.0) + 0.01)) } else { Duration::from_millis(1000) };
-        // マップ(操作画面)は、エフェクトなどで色が動いている間は4fpsで「今の色」を追従する
+        // MIDI画面は、エフェクトなどで色が動いている間は8fpsで「今の色」とパッドのプレビューを追従する
+        // (プレビューはメッシュでまとめて描くので、1回の描画は他のタブと大きく変わらない)
         if focused && animated && self.tab == Tab::Map {
-            idle = idle.min(Duration::from_millis(250));
+            idle = idle.min(Duration::from_millis(125));
         }
         // モニター表示中/フェード中は10fps。描画1回ぶんのCPUは内容によらず約12〜16msかかるので、回数を減らすのが一番効く
         // (DMXの出力は画面と別スレッドで40Hz固定なので、画面の更新頻度は出力に影響しない)
@@ -552,7 +558,10 @@ impl App {
 }
 
 impl eframe::App for App {
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        if let (Some(p), Some(cpu)) = (self.perf.as_mut(), frame.info().cpu_usage) {
+            p.frame_cpu += cpu;
+        }
         self.ui_timed(ui);
         if let Some(s) = self.shot.as_mut() {
             s.tick(ui.ctx());
