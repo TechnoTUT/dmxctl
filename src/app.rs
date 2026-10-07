@@ -72,6 +72,8 @@ pub struct App {
     pub scene_skip_cats: HashSet<String>,
     pub pe: crate::ui_profile::ProfileEd,
     pub osc: Option<crate::osc::OscServer>,
+    /// NDIの受信(設定で有効にしている間だけ動かす)
+    ndi: Option<crate::ndi::NdiService>,
     /// OSCの受信ポートの編集中の値(「適用」で反映)
     pub osc_port_edit: u16,
     /// 位置プリセットの保存欄
@@ -155,6 +157,7 @@ impl App {
             scene_skip_cats: HashSet::new(),
             pe: Default::default(),
             osc: None,
+            ndi: None,
             osc_port_edit: 9000,
             pos_name: String::new(),
             pos_fade: 0.5,
@@ -172,6 +175,9 @@ impl App {
         }
         if let Some(u) = std::env::var("DMXCTL_UNIVERSE").ok().and_then(|v| v.parse::<usize>().ok()) {
             app.monitor_universe = u.clamp(1, NUM_UNIVERSES) - 1;
+        }
+        if let Some(p) = std::env::var("DMXCTL_PAGE").ok().and_then(|v| v.parse::<u8>().ok()) {
+            lock(&app.core).rt.page = p.clamp(1, PAGES) - 1;
         }
         // 前回のMIDI機器、なければAPC mini が見つかれば自動接続。
         // 環境変数 DMXCTL_NO_MIDI=1 なら自動接続しない(本番のアプリが使っているコントローラーを、2つ目のアプリが奪わないように)
@@ -196,11 +202,14 @@ impl App {
 
     /// 設定に合わせて、Ableton Link・OSC受信・MIDIクロック用の入力を開始/停止する
     pub fn apply_services(&mut self) {
-        let (osc_on, port, src, clock_port) = {
+        let (osc_on, port, src, clock_port, ndi_on) = {
             let mut c = lock(&self.core);
             c.ensure_link();
-            (c.project.osc_enabled, c.project.osc_port, c.project.tempo_source, c.project.clock_input.clone())
+            (c.project.osc_enabled, c.project.osc_port, c.project.tempo_source, c.project.clock_input.clone(), c.project.ndi.enabled)
         };
+        if ndi_on != self.ndi.is_some() {
+            self.ndi = ndi_on.then(|| crate::ndi::NdiService::start(self.core.clone(), Some(self.ctx.clone())));
+        }
         self.osc_port_edit = port;
         let want = osc_on.then_some(port);
         if self.osc.as_ref().map(|s| s.port) != want {
@@ -538,6 +547,11 @@ impl App {
         ui.ctx().request_repaint_after(if busy { Duration::from_millis(if focused { 100 } else { 250 }) } else { idle });
         self.shortcuts(ui, focused);
         self.autosave();
+        // NDIの受信は、設定(パッド・画面)でONにしている間だけ動かす
+        let ndi_on = lock(&self.core).project.ndi.enabled;
+        if ndi_on != self.ndi.is_some() {
+            self.ndi = ndi_on.then(|| crate::ndi::NdiService::start(self.core.clone(), Some(self.ctx.clone())));
+        }
 
         egui::Panel::top("top").show(ui, |ui| self.top_bar(ui));
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
@@ -577,6 +591,7 @@ impl eframe::App for App {
         }
         std::thread::sleep(Duration::from_millis(200));
         self.osc = None;
+        self.ndi = None;
         lock(&self.core).rt.link = None;
         self.midi.disconnect_clock();
         self.midi.disconnect();

@@ -22,6 +22,10 @@
 	<true/>
 	<!-- Art-Net・Ableton Link・OSC で同じネットワークの機器と通信するため(macOS 15 以降は確認が出る) -->
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Art-Netで照明に出力し、Ableton Link・OSCで映像ソフトとテンポや操作を共有するために使います。</string>
+	<string>Art-Netで照明に出力し、Ableton Link・OSCで映像ソフトとテンポや操作を共有し、NDIで映像・音を受け取るために使います。</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_ndi._tcp</string>
+	</array>
 </dict>
 </plist>

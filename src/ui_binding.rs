@@ -78,6 +78,7 @@ pub fn summary(a: &Action, meta: &SelMeta) -> String {
             TempoOp::Resync => "頭出し\nテンポ".into(),
             TempoOp::Set { .. } => "BPM\n連続".into(),
             TempoOp::Nudge { delta } => format!("BPM\n{delta:+}"),
+            TempoOp::Link => "Ableton Link\nON/OFF".into(),
         },
         Action::Chase { name, mode } => format!("チェイス\n{name} {}", if *mode == PadMode::Toggle { "切替" } else { "押中" }),
         Action::Pair { name, op, .. } => format!("ペア\n{name} {}", if *op == PairOp::Link { "連動" } else { "反転" }),
@@ -110,6 +111,10 @@ pub fn summary(a: &Action, meta: &SelMeta) -> String {
             crate::pixel::PixelParam::Speed => "LEDバー\n速さ".into(),
             crate::pixel::PixelParam::Skew => "LEDバー\n斜め".into(),
         },
+        Action::Role { sel, op } => format!("色の系統\n{} {}", target_short(sel, meta), op.label()),
+        Action::Arm { sel, .. } => format!("ARM\n{}", target_short(sel, meta)),
+        Action::LiveColor { role, source } => format!("NDI {}\n{}", role.label(), source.label()),
+        Action::SwapBeats { beats } => format!("入れ替え\n{beats}拍ごと"),
     }
 }
 
@@ -232,6 +237,7 @@ pub fn binding_editor(ui: &mut egui::Ui, i: usize, b: &mut Binding, learn: Learn
                             TempoOp::Resync,
                             TempoOp::Set { min: 60.0, max: 180.0 },
                             TempoOp::Nudge { delta: 1.0 },
+                            TempoOp::Link,
                         ];
                         for c in choices {
                             let same = std::mem::discriminant(op) == std::mem::discriminant(&c);
@@ -370,6 +376,34 @@ pub fn binding_editor(ui: &mut egui::Ui, i: usize, b: &mut Binding, learn: Learn
                     });
                     ui.label(RichText::new("動いているLEDバーの模様すべてに掛かります(フェーダー用)").weak());
                 }
+                Action::Role { sel, op } => {
+                    out.changed |= selector_combo(ui, &format!("brole{i}"), sel, cx.meta);
+                    egui::ComboBox::from_id_salt(format!("broleop{i}")).selected_text(op.label()).width(180.0).show_ui(ui, |ui| {
+                        for o in RoleOp::ALL {
+                            out.changed |= ui.selectable_value(op, o, o.label()).changed();
+                        }
+                    });
+                }
+                Action::Arm { sel, mode } => {
+                    out.changed |= selector_combo(ui, &format!("barm{i}"), sel, cx.meta);
+                    out.changed |= pad_mode_combo(ui, &format!("barmm{i}"), mode, false);
+                    ui.label(RichText::new("レーザーなど、ARMが必要な機材の出力を許可します").weak());
+                }
+                Action::LiveColor { role, source } => {
+                    use crate::color::ColorRole;
+                    egui::ComboBox::from_id_salt(format!("blcr{i}")).selected_text(role.label()).width(80.0).show_ui(ui, |ui| {
+                        out.changed |= ui.selectable_value(role, ColorRole::Main, ColorRole::Main.label()).changed();
+                        out.changed |= ui.selectable_value(role, ColorRole::Sub, ColorRole::Sub.label()).changed();
+                    });
+                    egui::ComboBox::from_id_salt(format!("blcs{i}")).selected_text(source.label()).width(170.0).show_ui(ui, |ui| {
+                        for s in [crate::ndi::LiveSource::Video, crate::ndi::LiveSource::Audio, crate::ndi::LiveSource::Off] {
+                            out.changed |= ui.selectable_value(source, s, s.label()).changed();
+                        }
+                    });
+                }
+                Action::SwapBeats { beats } => {
+                    out.changed |= ui.add(egui::DragValue::new(beats).range(0.25..=64.0).speed(0.05).suffix(" 拍ごと")).changed();
+                }
                 Action::Master { mode, on, off } => {
                     out.changed |= pad_mode_combo(ui, &format!("bmm{i}"), mode, true);
                     let (a, c) = if *mode == PadMode::Continuous { ("最大", "最小") } else { ("ON時", "OFF時") };
@@ -390,6 +424,7 @@ fn tempo_label(op: &TempoOp) -> &'static str {
         TempoOp::Resync => "頭出し(小節の頭へ)",
         TempoOp::Set { .. } => "BPM調整(フェーダー)",
         TempoOp::Nudge { .. } => "BPM ± (ボタン)",
+        TempoOp::Link => "Ableton Link ON/OFF",
     }
 }
 
@@ -460,6 +495,22 @@ fn action_kind_combo(ui: &mut egui::Ui, i: usize, action: &mut Action, cx: &Edit
         }
         if ui.selectable_label(is(action, "LEDバー調整"), "LEDバー調整(速さ・斜め)").clicked() && !is(action, "LEDバー調整") {
             *action = Action::Pixel { param: crate::pixel::PixelParam::Speed };
+            changed = true;
+        }
+        if ui.selectable_label(is(action, "色の系統"), "色の系統(メイン/サブ)").clicked() && !is(action, "色の系統") {
+            *action = Action::Role { sel: Selector::All, op: RoleOp::Toggle };
+            changed = true;
+        }
+        if ui.selectable_label(is(action, "ARM"), "ARM(レーザーなど)").clicked() && !is(action, "ARM") {
+            *action = Action::Arm { sel: Selector::All, mode: PadMode::Toggle };
+            changed = true;
+        }
+        if ui.selectable_label(is(action, "NDIの色"), "NDIの色(映像・音)").clicked() && !is(action, "NDIの色") {
+            *action = Action::LiveColor { role: crate::color::ColorRole::Main, source: crate::ndi::LiveSource::Video };
+            changed = true;
+        }
+        if ui.selectable_label(is(action, "入れ替えの間隔"), "メイン⇄サブ 入れ替えの間隔").clicked() && !is(action, "入れ替えの間隔") {
+            *action = Action::SwapBeats { beats: 4.0 };
             changed = true;
         }
         if ui.selectable_label(is(action, "暗転フェード"), "暗転フェード").clicked() && !is(action, "暗転フェード") {

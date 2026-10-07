@@ -294,6 +294,8 @@ pub enum TempoOp {
     Set { min: f32, max: f32 },
     /// 押すたびにBPMを delta だけ増減
     Nudge { delta: f32 },
+    /// テンポの元を 内部 ⇄ Ableton Link で切り替える
+    Link,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -363,6 +365,37 @@ pub enum Action {
     Mute { sel: Selector, mode: PadMode },
     /// LEDバー(ピクセルエフェクト)全体の速さ・斜めを、フェーダーで変える
     Pixel { param: crate::pixel::PixelParam },
+    /// 機材がメイン色/サブ色のどちらで光るかを決める
+    Role { sel: Selector, op: RoleOp },
+    /// ARM(レーザーなど、許可するまで安全値を出し続ける機材の出力を許可する)
+    Arm { sel: Selector, mode: PadMode },
+    /// NDI(映像の平均色・音の色)をメイン色/サブ色に使う。同じものをもう一度押すと使わない
+    LiveColor { role: crate::color::ColorRole, source: crate::ndi::LiveSource },
+    /// メイン⇄サブの自動入れ替えの間隔(拍)。押すと自動入れ替えもONにする
+    SwapBeats { beats: f32 },
+}
+
+/// 色の系統の決め方
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum RoleOp {
+    /// 押すたびに メイン ⇄ サブ
+    Toggle,
+    Main,
+    Sub,
+    /// 1台おきに メイン/サブ(対象の順番で)
+    Alternate,
+}
+
+impl RoleOp {
+    pub const ALL: [RoleOp; 4] = [RoleOp::Toggle, RoleOp::Main, RoleOp::Sub, RoleOp::Alternate];
+    pub fn label(self) -> &'static str {
+        match self {
+            RoleOp::Toggle => "押すたびに メイン⇄サブ",
+            RoleOp::Main => "メインにする",
+            RoleOp::Sub => "サブにする",
+            RoleOp::Alternate => "1台おきに メイン/サブ",
+        }
+    }
 }
 
 /// パッドのページ数
@@ -433,6 +466,10 @@ impl Action {
             Action::Level { .. } => "明るさ(機材ごと)",
             Action::Mute { .. } => "ミュート",
             Action::Pixel { .. } => "LEDバー調整",
+            Action::Role { .. } => "色の系統",
+            Action::Arm { .. } => "ARM",
+            Action::LiveColor { .. } => "NDIの色",
+            Action::SwapBeats { .. } => "入れ替えの間隔",
         }
     }
 }
@@ -521,6 +558,8 @@ pub struct Project {
     pub fade_secs: f32,
     /// 色を指定するパッドを、APC mini mk2 のフルカラー(SysEx)で実際の色に光らせる
     pub led_true_color: bool,
+    /// NDI(映像の平均色・音の色)をメイン色/サブ色に使う設定
+    pub ndi: crate::ndi::NdiCfg,
 }
 
 impl Default for Project {
@@ -549,6 +588,7 @@ impl Default for Project {
             pixel_fx: Vec::new(),
             fade_secs: 3.0,
             led_true_color: true,
+            ndi: crate::ndi::NdiCfg::default(),
         }
     }
 }

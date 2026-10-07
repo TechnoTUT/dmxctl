@@ -60,6 +60,10 @@ impl Kind {
 
 /// APC mini mk2 の割り当てを、おすすめの配置に置き換える(APC以外のMIDI機器やOSCだけの割り当ては残す)。
 /// LEDバーの模様・ムービング用のエフェクトは、無ければ足す
+/// 1ページ目(演出)と2ページ目(設定)
+const P1: Option<u8> = Some(0);
+const P2: Option<u8> = Some(1);
+
 pub fn apply(p: &mut Project, lib: &Library) -> Report {
     let mut r = Report { presets: crate::pixel::add_face_presets(p), ..Report::default() };
 
@@ -187,9 +191,10 @@ pub fn apply(p: &mut Project, lib: &Library) -> Report {
     p.bindings.retain(|b| !b.trigger.is_some_and(|t| Ctl::from_trigger(t.kind, t.number).is_some_and(|c| c.matches(&t))));
     r.removed = before - p.bindings.len();
 
-    let mut put = |p: &mut Project, ctl: Ctl, name: String, action: Action| {
+    // page: None=全ページ共通 / Some(0)=1ページ目(演出) / Some(1)=2ページ目(設定)
+    let mut put = |p: &mut Project, page: Option<u8>, ctl: Ctl, name: String, action: Action| {
         let (kind, number) = ctl.trigger();
-        p.bindings.push(Binding { name, trigger: Some(MidiTrigger { kind, channel: None, number }), action, page: None, osc: None });
+        p.bindings.push(Binding { name, trigger: Some(MidiTrigger { kind, channel: None, number }), action, page, osc: None });
         r.bindings += 1;
     };
 
@@ -197,14 +202,14 @@ pub fn apply(p: &mut Project, lib: &Library) -> Report {
     if bar_sel.is_some() {
         for (row, set) in FACE_SETS.iter().enumerate() {
             for (col, fx) in set.presets.iter().enumerate() {
-                put(p, Ctl::Pad(pad_note(row as u8, col as u8)), fx.name.to_string(), Action::Effect { name: fx.name.into(), mode: PadMode::Toggle });
+                put(p, P1, Ctl::Pad(pad_note(row as u8, col as u8)), fx.name.to_string(), Action::Effect { name: fx.name.into(), mode: PadMode::Toggle });
             }
         }
     }
 
     for (k, row) in rows.into_iter().enumerate() {
         for (col, (name, action)) in row.into_iter().take(8).enumerate() {
-            put(p, Ctl::Pad(pad_note(4 + k as u8, col as u8)), name, action);
+            put(p, P1, Ctl::Pad(pad_note(4 + k as u8, col as u8)), name, action);
         }
     }
 
@@ -220,7 +225,7 @@ pub fn apply(p: &mut Project, lib: &Library) -> Report {
     accents.push(("入れ替え(押中)", Action::Palette { op: PaletteOp::HoldSwap }));
     accents.push(("消灯(押中)", Action::Blackout { mode: PadMode::Momentary }));
     for (col, (name, action)) in accents.into_iter().enumerate() {
-        put(p, Ctl::Pad(pad_note(7, col as u8)), name.into(), action);
+        put(p, None, Ctl::Pad(pad_note(7, col as u8)), name.into(), action);
     }
 
     // 右の列(シーンボタン)
@@ -233,14 +238,14 @@ pub fn apply(p: &mut Project, lib: &Library) -> Report {
         (6, "暗転フェード", Action::Fade { secs: fade, mode: PadMode::Toggle }),
         (7, "BLACKOUT", Action::Blackout { mode: PadMode::Toggle }),
     ] {
-        put(p, Ctl::Scene(i), name.into(), action);
+        put(p, None, Ctl::Scene(i), name.into(), action);
     }
 
     // 下の列(トラックボタン): 機種ごとの消灯(LEDバーはまとめて1つ)
     let mut mutes: Vec<(String, Selector)> = bar_sel.iter().map(|sel| ("ミュート:LEDバー".to_string(), sel.clone())).collect();
     mutes.extend(kinds.iter().chain(armed.iter()).map(|k| (format!("ミュート:{}", k.name), k.sel())));
     for (i, (name, sel)) in mutes.into_iter().take(8).enumerate() {
-        put(p, Ctl::Track(i as u8), name, Action::Mute { sel, mode: PadMode::Toggle });
+        put(p, None, Ctl::Track(i as u8), name, Action::Mute { sel, mode: PadMode::Toggle });
     }
 
     // フェーダー
@@ -257,12 +262,93 @@ pub fn apply(p: &mut Project, lib: &Library) -> Report {
         faders.push((format!("{} 明るさ", k.name), action));
     }
     for (i, (name, action)) in faders.into_iter().enumerate() {
-        put(p, Ctl::Fader(i as u8), name, action);
+        put(p, P1, Ctl::Fader(i as u8), name, action);
     }
-    put(p, Ctl::Fader(6), "メイン 色相".into(), Action::Color { color: None, target: ColorTarget::Main });
-    put(p, Ctl::Fader(7), "サブ 色相".into(), Action::Color { color: None, target: ColorTarget::Sub });
-    put(p, Ctl::Fader(8), "全体光量".into(), Action::Master { mode: PadMode::Continuous, on: 100.0, off: 0.0 });
+    put(p, None, Ctl::Fader(6), "メイン 色相".into(), Action::Color { color: None, target: ColorTarget::Main });
+    put(p, None, Ctl::Fader(7), "サブ 色相".into(), Action::Color { color: None, target: ColorTarget::Sub });
+    put(p, None, Ctl::Fader(8), "全体光量".into(), Action::Master { mode: PadMode::Continuous, on: 100.0, off: 0.0 });
     p.master_seeded = true;
+
+    // ---- 2ページ目: 設定(右の列の5番目で 1ページ目 ⇄ 2ページ目) ----
+    put(p, P1, Ctl::Scene(4), "設定ページへ".into(), Action::Page { op: PageOp::Go(1) });
+    put(p, P2, Ctl::Scene(4), "演出ページへ".into(), Action::Page { op: PageOp::Go(0) });
+    // 色を出せる機材(LEDバーを先に)
+    let colored = |f: &FixtureInstance| lib.mode(&f.profile, f.mode).is_some_and(|m| m.find_attr("red").is_some() || m.find_attr("color").is_some());
+    let mut all_fixtures: Vec<(u32, String)> = bars.clone();
+    all_fixtures.extend(p.fixtures.iter().filter(|f| colored(f) && !bars.iter().any(|(id, _)| *id == f.id)).map(|f| (f.id, f.name.clone())));
+    // 1段目: 機種ごとに メイン⇄サブ、1本おき、全部メイン/サブ
+    let mut row0: Vec<(String, Action)> = Vec::new();
+    if let Some(sel) = &bar_sel {
+        row0.push(("系統:LEDバー".into(), Action::Role { sel: sel.clone(), op: RoleOp::Toggle }));
+    }
+    for k in kinds.iter().chain(armed.iter()) {
+        row0.push((format!("系統:{}", k.name), Action::Role { sel: k.sel(), op: RoleOp::Toggle }));
+    }
+    if let Some(sel) = &bar_sel {
+        row0.push(("系統:LEDバー1本おき".into(), Action::Role { sel: sel.clone(), op: RoleOp::Alternate }));
+    }
+    row0.push(("系統:全部メイン".into(), Action::Role { sel: Selector::All, op: RoleOp::Main }));
+    row0.push(("系統:全部サブ".into(), Action::Role { sel: Selector::All, op: RoleOp::Sub }));
+    // 2〜4段目: 1台ずつ メイン⇄サブ
+    let singles: Vec<(String, Action)> = all_fixtures.iter().map(|(id, name)| (format!("系統:{name}"), Action::Role { sel: Selector::Fixture(*id), op: RoleOp::Toggle })).collect();
+    // 5段目: レーザーのARM(1台ずつと、まとめて)
+    let mut arms: Vec<(String, Action)> = Vec::new();
+    for f in p.fixtures.iter().filter(|f| lib.get(&f.profile).is_some_and(|x| x.needs_arm)) {
+        arms.push((format!("ARM:{}", f.name), Action::Arm { sel: Selector::Fixture(f.id), mode: PadMode::Toggle }));
+    }
+    for k in &armed {
+        arms.push((format!("ARM:{} 全部", k.name), Action::Arm { sel: k.sel(), mode: PadMode::Toggle }));
+    }
+    // 6段目: NDIの色とテンポ
+    use crate::color::ColorRole;
+    use crate::ndi::LiveSource;
+    let sync: Vec<(String, Action)> = vec![
+        ("NDI:メイン=映像".into(), Action::LiveColor { role: ColorRole::Main, source: LiveSource::Video }),
+        ("NDI:メイン=音".into(), Action::LiveColor { role: ColorRole::Main, source: LiveSource::Audio }),
+        ("NDI:サブ=映像".into(), Action::LiveColor { role: ColorRole::Sub, source: LiveSource::Video }),
+        ("NDI:サブ=音".into(), Action::LiveColor { role: ColorRole::Sub, source: LiveSource::Audio }),
+        ("Ableton Link".into(), Action::Tempo { op: TempoOp::Link }),
+        ("BPM -1".into(), Action::Tempo { op: TempoOp::Nudge { delta: -1.0 } }),
+        ("BPM +1".into(), Action::Tempo { op: TempoOp::Nudge { delta: 1.0 } }),
+    ];
+    // 7段目: メイン⇄サブの自動入れ替えの間隔
+    let swaps: Vec<(String, Action)> = [1.0, 2.0, 4.0, 8.0, 16.0].iter().map(|&b| (format!("入れ替え {b}拍"), Action::SwapBeats { beats: b })).collect();
+    let mut rows2: Vec<Vec<(String, Action)>> = vec![row0];
+    rows2.extend(singles.chunks(8).map(|c| c.to_vec()));
+    rows2.push(arms);
+    rows2.push(sync);
+    rows2.push(swaps);
+    for (row, list) in rows2.into_iter().take(7).enumerate() {
+        for (col, (name, action)) in list.into_iter().take(8).enumerate() {
+            put(p, P2, Ctl::Pad(pad_note(row as u8, col as u8)), name, action);
+        }
+    }
+    // フェーダー: レーザーの位置(X/Y)・大きさ、ムービングの動きの速さ
+    let mut faders2: Vec<(String, Action)> = Vec::new();
+    let lasers: Vec<(u32, String, bool)> = p
+        .fixtures
+        .iter()
+        .filter(|f| lib.get(&f.profile).is_some_and(|x| x.needs_arm) && lib.mode(&f.profile, f.mode).is_some_and(|m| m.find_attr("pan").is_some()))
+        .map(|f| (f.id, f.name.clone(), lib.mode(&f.profile, f.mode).is_some_and(|m| m.find_attr("tilt").is_some())))
+        .collect();
+    for (id, name, tilt) in lasers.iter().take(2) {
+        // 位置は 0〜127(それより上はパンの動きのマクロ)
+        faders2.push((format!("{name} X"), Action::SetValue { sel: Selector::Fixture(*id), attr: "pan".into(), mode: PadMode::Continuous, on: 127.0, off: 0.0 }));
+        if *tilt {
+            faders2.push((format!("{name} Y"), Action::SetValue { sel: Selector::Fixture(*id), attr: "tilt".into(), mode: PadMode::Continuous, on: 127.0, off: 0.0 }));
+        }
+    }
+    if let Some(k) = armed.iter().find(|k| k.attr("size")) {
+        // 上げるほど大きく(0=100% / 127=5%)
+        faders2.push((format!("{} 大きさ", k.name), Action::SetValue { sel: k.sel(), attr: "size".into(), mode: PadMode::Continuous, on: 0.0, off: 127.0 }));
+    }
+    if let Some(k) = kinds.iter().find(|k| k.attr("pt_speed")) {
+        // 上げるほど速く(0=最速)
+        faders2.push((format!("{} 動きの速さ", k.name), Action::SetValue { sel: k.sel(), attr: "pt_speed".into(), mode: PadMode::Continuous, on: 0.0, off: 255.0 }));
+    }
+    for (i, (name, action)) in faders2.into_iter().take(6).enumerate() {
+        put(p, P2, Ctl::Fader(i as u8), name, action);
+    }
 
     // 以前の「LEDバーの模様を配置」で入れた模様のうち、どこからも使われなくなったものは片付ける
     let used = |p: &Project, name: &str| p.bindings.iter().any(|b| matches!(&b.action, Action::Effect { name: n, .. } if n == name));

@@ -56,8 +56,13 @@ fn bar_ids(c: &Core) -> Vec<u32> {
     c.project.fixtures.iter().filter(|f| f.profile == BAR).map(|f| f.id).collect()
 }
 
+/// 1ページ目(演出)で効く割り当て
 fn binding_at(c: &Core, ctl: Ctl) -> Option<&Binding> {
-    let hits: Vec<&Binding> = c.project.bindings.iter().filter(|b| b.trigger.is_some_and(|t| ctl.matches(&t))).collect();
+    binding_on(c, ctl, 0)
+}
+
+fn binding_on(c: &Core, ctl: Ctl, page: u8) -> Option<&Binding> {
+    let hits: Vec<&Binding> = c.project.bindings.iter().filter(|b| b.on_page(page) && b.trigger.is_some_and(|t| ctl.matches(&t))).collect();
     assert!(hits.len() <= 1, "{ctl:?} に割り当てが {} 件", hits.len());
     hits.first().copied()
 }
@@ -102,11 +107,13 @@ fn recommended_layout_fills_the_controller_without_conflicts() {
     assert_eq!(r.presets, 32);
     assert!(r.effects >= 4, "{r:?}");
 
-    // 1つのコントロールに1つの割り当て
-    let mut seen = HashSet::new();
-    for b in &c.project.bindings {
-        let t = b.trigger.unwrap();
-        assert!(seen.insert((t.kind == TriggerKind::Cc, t.number)), "重複: {}", b.name);
+    // どのページでも、1つのコントロールに1つの割り当て
+    for page in 0..2u8 {
+        let mut seen = HashSet::new();
+        for b in c.project.bindings.iter().filter(|b| b.on_page(page)) {
+            let t = b.trigger.unwrap();
+            assert!(seen.insert((t.kind == TriggerKind::Cc, t.number)), "ページ{} で重複: {}", page + 1, b.name);
+        }
     }
     // 1〜4段は模様のセット、6・7段はメイン色・サブ色
     for (row, set) in FACE_SETS.iter().enumerate() {
@@ -155,7 +162,13 @@ fn recommended_layout_fills_the_controller_without_conflicts() {
             assert_ne!(p, "stage-evolution/laserscan300", "{}", b.name);
         }
     }
-    let laser: Vec<&str> = c.project.bindings.iter().filter(|b| matches!(&b.action, Action::SetValue { sel: Selector::Profile(p), .. } if p == "stage-evolution/laserscan300")).map(|b| b.name.as_str()).collect();
+    let laser: Vec<&str> = c
+        .project
+        .bindings
+        .iter()
+        .filter(|b| b.page == Some(0) && matches!(&b.action, Action::SetValue { sel: Selector::Profile(p), .. } if p == "stage-evolution/laserscan300"))
+        .map(|b| b.name.as_str())
+        .collect();
     assert_eq!(laser, ["オートショー", "回転", "ズーム", "描画"], "7段目の残り(8個まで)");
 }
 
@@ -354,4 +367,52 @@ fn preset_sheet() {
         }
         crate::shot::save_png(&dir.join(format!("presets_{si}.png")), &img).unwrap();
     }
+}
+
+#[test]
+fn settings_page_switches_roles_arm_and_ndi() {
+    let mut c = rig();
+    let lib = c.lib.clone();
+    crate::layout::apply(&mut c.project, &lib);
+    // 右の列の5番目で 2ページ目へ、もう一度で戻る
+    press(&mut c, Ctl::Scene(4));
+    assert_eq!(c.rt.page, 1);
+    // 1段目の先頭 = LEDバーの系統の切り替え(全部メイン → 全部サブ)
+    let bars = bar_ids(&c);
+    let role = |c: &Core, id: u32| c.project.fixtures[c.project.fixture_index(id).unwrap()].color_role;
+    assert!(bars.iter().all(|&id| role(&c, id) == crate::color::ColorRole::Main));
+    press(&mut c, Ctl::Pad(pad_note(0, 0)));
+    assert!(bars.iter().all(|&id| role(&c, id) == crate::color::ColorRole::Sub));
+    // 2段目 = LEDバー1本ずつ
+    press(&mut c, Ctl::Pad(pad_note(1, 0)));
+    assert_eq!(role(&c, bars[0]), crate::color::ColorRole::Main);
+    assert_eq!(role(&c, bars[1]), crate::color::ColorRole::Sub);
+    // レーザーのARM(5段目)
+    let lasers: Vec<usize> = c.project.fixtures.iter().enumerate().filter(|(_, f)| f.profile == "stage-evolution/laserscan300").map(|(i, _)| i).collect();
+    assert!(matches!(binding_on(&c, Ctl::Pad(pad_note(4, 0)), 1).unwrap().action, Action::Arm { .. }));
+    press(&mut c, Ctl::Pad(pad_note(4, 0)));
+    assert!(c.project.fixtures[lasers[0]].armed && !c.project.fixtures[lasers[1]].armed);
+    // NDI(6段目): メイン=映像 を押すと受信がONになり、もう一度で使わない
+    press(&mut c, Ctl::Pad(pad_note(5, 0)));
+    assert!(c.project.ndi.enabled && c.project.ndi.main == crate::ndi::LiveSource::Video);
+    c.rt.ndi.video = Some([0.0, 1.0, 0.0]);
+    c.render();
+    assert_eq!(c.role_rgb(crate::color::ColorRole::Main), Some([0.0, 1.0, 0.0]), "映像の色がメイン色に");
+    press(&mut c, Ctl::Pad(pad_note(5, 0)));
+    assert_eq!(c.project.ndi.main, crate::ndi::LiveSource::Off);
+    c.render();
+    assert_ne!(c.role_rgb(crate::color::ColorRole::Main), Some([0.0, 1.0, 0.0]));
+    // Link(6段目の5番目)
+    press(&mut c, Ctl::Pad(pad_note(5, 4)));
+    assert_eq!(c.project.tempo_source, TempoSource::Link);
+    press(&mut c, Ctl::Pad(pad_note(5, 4)));
+    assert_eq!(c.project.tempo_source, TempoSource::Internal);
+    // フェーダー1 = レーザー1のX
+    fader(&mut c, 0, 127);
+    let f = &c.project.fixtures[lasers[0]];
+    let m = c.lib.mode(&f.profile, f.mode).unwrap();
+    assert_eq!(f.values[m.find_attr("pan").unwrap()], 127);
+    // 戻る
+    press(&mut c, Ctl::Scene(4));
+    assert_eq!(c.rt.page, 0);
 }

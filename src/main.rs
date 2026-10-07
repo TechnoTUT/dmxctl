@@ -34,6 +34,7 @@ mod palette_tests;
 #[cfg(test)]
 mod sync_tests;
 mod midi;
+mod ndi;
 mod opendmx;
 mod osc;
 mod output;

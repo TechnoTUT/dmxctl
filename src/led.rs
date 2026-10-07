@@ -89,6 +89,13 @@ pub fn action_rgb(core: &Core, action: &Action, looks: &HashMap<u32, [f32; 3]>) 
         Action::Select { fixture, .. } => looks.get(fixture).copied(),
         // 入れ替えのパッドは、今メインの機材に出ている色
         Action::Palette { .. } => core.role_rgb(crate::color::ColorRole::Main),
+        // 色の系統のパッドは、その機材が今使っている系統の色(メイン色かサブ色)
+        Action::Role { sel, op } if *op == RoleOp::Toggle => core.resolve(sel).first().and_then(|&i| core.role_rgb(core.project.fixtures[i].color_role)),
+        Action::Role { op: RoleOp::Main, .. } => core.role_rgb(crate::color::ColorRole::Main),
+        Action::Role { op: RoleOp::Sub, .. } => core.role_rgb(crate::color::ColorRole::Sub),
+        // NDIの色のパッドは、今受け取っている色
+        Action::LiveColor { source: crate::ndi::LiveSource::Video, .. } => core.rt.ndi.video,
+        Action::LiveColor { source: crate::ndi::LiveSource::Audio, .. } => core.rt.ndi.audio,
         _ => None,
     }
 }
@@ -166,6 +173,10 @@ fn base_color(core: &Core, action: &Action) -> u8 {
         Action::Level { .. } => C_ORANGE,
         Action::Mute { .. } => C_RED,
         Action::Pixel { .. } => C_VIOLET,
+        Action::Role { .. } => C_WHITE,
+        Action::Arm { .. } => C_RED,
+        Action::LiveColor { .. } => C_LIGHT_BLUE,
+        Action::SwapBeats { .. } => C_MAGENTA,
     }
 }
 
@@ -241,6 +252,26 @@ pub fn is_active(core: &Core, action: &Action) -> bool {
             let ids: Vec<u32> = core.resolve(sel).into_iter().map(|i| core.project.fixtures[i].id).collect();
             !ids.is_empty() && ids.iter().all(|id| core.rt.muted.contains(id))
         }
+        Action::Tempo { op: TempoOp::Link } => core.project.tempo_source == TempoSource::Link,
+        // 系統の切り替えは、実際の色で光らせる(いつも明るく)
+        Action::Role { op, sel } => match op {
+            RoleOp::Toggle => true,
+            RoleOp::Main | RoleOp::Sub => {
+                let want = if *op == RoleOp::Main { crate::color::ColorRole::Main } else { crate::color::ColorRole::Sub };
+                let idx = core.resolve(sel);
+                !idx.is_empty() && idx.iter().all(|&i| core.project.fixtures[i].color_role == want)
+            }
+            RoleOp::Alternate => false,
+        },
+        Action::Arm { sel, .. } => {
+            let idx = core.resolve(sel);
+            !idx.is_empty() && idx.iter().all(|&i| core.project.fixtures[i].armed)
+        }
+        Action::LiveColor { role, source } => {
+            let cfg = &core.project.ndi;
+            cfg.enabled && *source == if *role == crate::color::ColorRole::Sub { cfg.sub } else { cfg.main }
+        }
+        Action::SwapBeats { beats } => core.project.palette.auto && (core.project.palette.auto_beats - beats).abs() < 1e-3,
         Action::Color { color: None, .. } | Action::Tempo { .. } | Action::Master { .. } | Action::Level { .. } | Action::Pixel { .. } => false,
     }
 }

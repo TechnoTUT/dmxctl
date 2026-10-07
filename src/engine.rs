@@ -137,6 +137,11 @@ pub struct Runtime {
     pub px_offset: f64,
     /// ピクセルエフェクトに足す斜めのずれ(周)
     pub px_skew: f32,
+    /// NDIの受信結果(映像の平均色・音の色)
+    pub ndi: crate::ndi::NdiState,
+    /// NDIから作った、今のメイン色/サブ色(NDIを使っていなければNone)。保存しない
+    pub live_main: Option<[f32; 3]>,
+    pub live_sub: Option<[f32; 3]>,
 }
 
 impl Runtime {
@@ -186,6 +191,9 @@ impl Runtime {
             px_speed: 1.0,
             px_offset: 0.0,
             px_skew: 0.0,
+            ndi: crate::ndi::NdiState::default(),
+            live_main: None,
+            live_sub: None,
         }
     }
 }
@@ -275,7 +283,35 @@ impl Core {
             ColorRole::Sub => false,
             ColorRole::Off => return None,
         };
-        Some(if main_side != self.palette_swapped() { p.main } else { p.sub })
+        // NDI(映像・音)を使っている系統は、その色
+        let main = self.rt.live_main.unwrap_or(p.main);
+        let sub = self.rt.live_sub.unwrap_or(p.sub);
+        Some(if main_side != self.palette_swapped() { main } else { sub })
+    }
+
+    /// NDIの色をメイン色/サブ色に反映する(変わったときだけ機材に出し直す。保存のきっかけにはしない)
+    fn run_live_colors(&mut self) {
+        use crate::ndi::LiveSource;
+        let pick = |s: LiveSource, st: &crate::ndi::NdiState| match s {
+            LiveSource::Off => None,
+            LiveSource::Audio => st.audio,
+            LiveSource::Video => st.video,
+        };
+        let cfg = &self.project.ndi;
+        let (main, sub) = if cfg.enabled { (pick(cfg.main, &self.rt.ndi), pick(cfg.sub, &self.rt.ndi)) } else { (None, None) };
+        let near = |a: Option<[f32; 3]>, b: Option<[f32; 3]>| match (a, b) {
+            (Some(a), Some(b)) => (0..3).all(|k| (a[k] - b[k]).abs() < 1.0 / 255.0),
+            (None, None) => true,
+            _ => false,
+        };
+        if near(main, self.rt.live_main) && near(sub, self.rt.live_sub) {
+            return;
+        }
+        self.rt.live_main = main;
+        self.rt.live_sub = sub;
+        let was = self.dirty;
+        self.apply_palette();
+        self.dirty = was;
     }
 
     /// メイン/サブに割り当てた機材に、今の色を出す
@@ -832,6 +868,7 @@ impl Core {
         self.rt.last_beat_t = Some(now);
         self.sync_beat(now, dt);
         self.run_palette_auto();
+        self.run_live_colors();
         self.step_dim(dt);
         self.run_chases();
         self.advance_fades(now);
@@ -1191,6 +1228,12 @@ impl Core {
                         self.set_bpm(self.project.bpm + delta);
                     }
                 }
+                TempoOp::Link => {
+                    if rising {
+                        let to = if self.project.tempo_source == TempoSource::Link { TempoSource::Internal } else { TempoSource::Link };
+                        self.set_tempo_source(to);
+                    }
+                }
             },
             Action::Chase { name, mode } => {
                 let cur = self.project.chases.iter().find(|c| c.name == name).map(|c| c.enabled);
@@ -1295,6 +1338,53 @@ impl Core {
                 crate::pixel::PixelParam::Speed => self.set_pixel_speed(crate::pixel::speed_step(v)),
                 crate::pixel::PixelParam::Skew => self.rt.px_skew = v * crate::pixel::SKEW_FADER_MAX,
             },
+            Action::Role { sel, op } => {
+                if rising {
+                    let ids: Vec<u32> = self.resolve(&sel).into_iter().map(|i| self.project.fixtures[i].id).collect();
+                    let all_main = ids.iter().all(|id| self.project.fixture_index(*id).is_some_and(|i| self.project.fixtures[i].color_role == ColorRole::Main));
+                    for (n, id) in ids.into_iter().enumerate() {
+                        let role = match op {
+                            RoleOp::Main => ColorRole::Main,
+                            RoleOp::Sub => ColorRole::Sub,
+                            // まとめて切り替え: 全部メインならサブへ、そうでなければメインへ
+                            RoleOp::Toggle => if all_main { ColorRole::Sub } else { ColorRole::Main },
+                            RoleOp::Alternate => if n % 2 == 0 { ColorRole::Main } else { ColorRole::Sub },
+                        };
+                        self.set_color_role(id, role);
+                    }
+                }
+            }
+            Action::Arm { sel, mode } => {
+                let idx: Vec<usize> = self.resolve(&sel);
+                let all = !idx.is_empty() && idx.iter().all(|&i| self.project.fixtures[i].armed);
+                let new = match mode {
+                    PadMode::Toggle => rising.then_some(!all),
+                    PadMode::Trigger => rising.then_some(true),
+                    _ => (rising || falling).then_some(pressed),
+                };
+                if let Some(a) = new {
+                    for i in idx {
+                        self.project.fixtures[i].armed = a;
+                    }
+                }
+            }
+            Action::LiveColor { role, source } => {
+                if rising {
+                    let cfg = &mut self.project.ndi;
+                    let slot = if role == ColorRole::Sub { &mut cfg.sub } else { &mut cfg.main };
+                    *slot = if *slot == source { crate::ndi::LiveSource::Off } else { source };
+                    if source != crate::ndi::LiveSource::Off {
+                        cfg.enabled = true;
+                    }
+                    self.dirty = true;
+                }
+            }
+            Action::SwapBeats { beats } => {
+                if rising {
+                    self.project.palette.auto_beats = beats.max(0.25);
+                    self.set_palette_auto(true);
+                }
+            }
             Action::Blackout { mode } => {
                 let cur = self.rt.blackout;
                 let new = match mode {
