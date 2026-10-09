@@ -455,7 +455,9 @@ fn real_moves_demo() {
     let p = Project::load(&default_project_path()).unwrap();
     let mut c = Core::new(p, Arc::new(lib));
     let mut out = crate::output::create(&OutputCfg { enabled: true, universe: 0, kind: OutputKind::OpenDmxSerial { port } });
-    let names = ["円運動", "8の字", "パン揺れ", "チルト揺れ", "ワイパー", "クロス", "バラバラ", "高速円"];
+    // DMXCTL_FX=高速円,クロス のように選べる(無ければ全部)
+    let pick = std::env::var("DMXCTL_FX").unwrap_or_default();
+    let names: Vec<&str> = ["円運動", "8の字", "パン揺れ", "チルト揺れ", "ワイパー", "クロス", "バラバラ", "高速円"].into_iter().filter(|n| pick.is_empty() || pick.split(',').any(|p| p == *n)).collect();
     for f in c.project.pixel_fx.iter_mut() {
         f.enabled = false;
     }

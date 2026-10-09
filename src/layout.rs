@@ -138,8 +138,9 @@ pub fn apply(p: &mut Project, lib: &Library) -> Report {
             fx(&sel, "クロス", "tilt", Wave::Sine, 40.0, 216.0, 4.0, 90.0, 180.0),
             fx(&sel, "バラバラ", "pan", Wave::Random, 40.0, 216.0, 2.0, 0.0, 0.0),
             fx(&sel, "バラバラ", "tilt", Wave::Random, 24.0, 232.0, 2.0, 0.0, 0.0),
-            fx(&sel, "高速円", "pan", Wave::Sine, 88.0, 168.0, 1.0, 0.0, 0.0),
-            fx(&sel, "高速円", "tilt", Wave::Sine, 56.0, 200.0, 1.0, 90.0, 0.0),
+            // 速い円は、機械が追いつけるよう半径を小さく、1周2拍に
+            fx(&sel, "高速円", "pan", Wave::Sine, 100.0, 156.0, 2.0, 0.0, 0.0),
+            fx(&sel, "高速円", "tilt", Wave::Sine, 80.0, 176.0, 2.0, 90.0, 0.0),
         ];
         // 動きのプリセットは、前の版の同じ名前のものを置き換える(幅を広げた版にする)
         let names: Vec<String> = moves.iter().map(|e| e.name.clone()).collect();
