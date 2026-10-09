@@ -368,6 +368,60 @@ mod hw_tests {
         println!("COMポート: {n}フレーム / {:.2}秒 = {:.1}fps(送り切りまで +{:.1}ms)", t.as_secs_f64(), n as f64 / t.as_secs_f64(), t1.elapsed().as_secs_f64() * 1000.0);
     }
 
+    /// ムービング(MINI SPOT 30 ×4、アドレス1/10/19/28)の動作確認。3つの段階で12秒ずつ:
+    /// A=9chモードのつもりでパンを左右いっぱいに / B=11chモードのつもりで同じ / C=本体の内蔵プログラム
+    #[test]
+    #[ignore]
+    fn hw_spot_sweep() {
+        let port = std::env::var("DMXCTL_TEST_PORT").expect("DMXCTL_TEST_PORT");
+        let mut link = SerialLink::open(&port).unwrap();
+        let addrs = [1usize, 10, 19, 28];
+        let start = Instant::now();
+        let mut phase = 99;
+        while start.elapsed().as_secs_f64() < 36.0 {
+            let t = start.elapsed().as_secs_f64();
+            let ph = (t / 12.0) as usize;
+            if ph != phase {
+                phase = ph;
+                println!("{:>4.1}秒: 段階{}", t, ["A(9ch)", "B(11ch)", "C(内蔵プログラム)"][ph.min(2)]);
+            }
+            let local = t % 12.0;
+            // 0→255→0 を6秒で1往復
+            let tri = 1.0 - ((local / 6.0).fract() * 2.0 - 1.0).abs();
+            let pan = (tri * 255.0) as u8;
+            let mut d = vec![0u8; 89];
+            for &a in &addrs {
+                let ch = |n: usize| a + n - 1; // n=1始まりのチャンネル → スタートコードを含む配列の位置
+                match ph {
+                    0 => {
+                        d[ch(1)] = pan;
+                        d[ch(2)] = 128;
+                        d[ch(6)] = 255; // dimmer
+                    }
+                    1 => {
+                        d[ch(1)] = pan;
+                        d[ch(3)] = 128;
+                        d[ch(8)] = 255; // dimmer(11ch)
+                    }
+                    _ => {
+                        d[ch(6)] = 255;
+                        d[ch(8)] = 100; // 9ch: auto=内蔵プログラム / 11ch: dimmer
+                        d[ch(10)] = 100; // 11ch: auto
+                    }
+                }
+            }
+            let t0 = Instant::now();
+            link.send(&d).unwrap();
+            if let Some(rest) = FRAME_PERIOD.checked_sub(t0.elapsed()) {
+                std::thread::sleep(rest);
+            }
+        }
+        // 最後は全部0(消灯)
+        link.send(&vec![0u8; 89]).unwrap();
+        link.0.flush().unwrap();
+        println!("終了");
+    }
+
     #[test]
     #[ignore]
     fn hw_d2xx() {

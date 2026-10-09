@@ -416,3 +416,63 @@ fn settings_page_switches_roles_arm_and_ndi() {
     press(&mut c, Ctl::Scene(4));
     assert_eq!(c.rt.page, 0);
 }
+
+/// 実際の設定での確認用(普段は実行しない)。保存してあるプロジェクトを読み(書き込まない)、エフェクトを1つONにして出力を見る。
+/// 実行: DMXCTL_FX=円運動 cargo test --release real_effect_output -- --ignored --nocapture
+#[test]
+#[ignore]
+fn real_effect_output() {
+    let (lib, _) = Library::load(&config_dir().join("fixtures"));
+    let p = Project::load(&default_project_path()).unwrap();
+    let mut c = Core::new(p, Arc::new(lib));
+    let name = std::env::var("DMXCTL_FX").unwrap_or_else(|_| "円運動".into());
+    for e in c.project.effects.iter_mut() {
+        e.enabled = e.name == name;
+    }
+    for f in c.project.pixel_fx.iter_mut() {
+        f.enabled = false;
+    }
+    let spot = c.project.fixtures.iter().find(|f| f.profile == "stage-evolution/minispot30").unwrap().clone();
+    let m = c.lib.mode(&spot.profile, spot.mode).unwrap().clone();
+    println!("{} mode={} addr={} effects: {:?}", spot.name, m.name, spot.address, c.project.effects.iter().filter(|e| e.name == name).map(|e| (&e.attr, e.min, e.max, e.beats, &e.sel)).collect::<Vec<_>>());
+    for beat in [0.0, 1.0, 2.0, 3.0, 4.0, 6.0] {
+        c.rt.beat = beat;
+        c.rt.last_beat_t = None;
+        c.render();
+        let base = spot.address as usize - 1;
+        let vals: Vec<String> = m.channels.iter().enumerate().map(|(k, ch)| format!("{}={}", ch.attr, c.rt.frames[spot.universe][base + k])).collect();
+        println!("拍{beat}: {}", vals.join(" "));
+    }
+}
+
+/// 実機での確認用(普段は実行しない)。保存してあるプロジェクトのムービングの動きを、1つ6秒ずつ実機に流す(プロジェクトは書き換えない)。
+/// 実行: DMXCTL_TEST_PORT=/dev/cu.usbserial-XXXX cargo test --release real_moves_demo -- --ignored --nocapture
+#[test]
+#[ignore]
+fn real_moves_demo() {
+    let port = std::env::var("DMXCTL_TEST_PORT").expect("DMXCTL_TEST_PORT");
+    let (lib, _) = Library::load(&config_dir().join("fixtures"));
+    let p = Project::load(&default_project_path()).unwrap();
+    let mut c = Core::new(p, Arc::new(lib));
+    let mut out = crate::output::create(&OutputCfg { enabled: true, universe: 0, kind: OutputKind::OpenDmxSerial { port } });
+    let names = ["円運動", "8の字", "パン揺れ", "チルト揺れ", "ワイパー", "クロス", "バラバラ", "高速円"];
+    for f in c.project.pixel_fx.iter_mut() {
+        f.enabled = false;
+    }
+    for name in names {
+        for e in c.project.effects.iter_mut() {
+            e.enabled = e.name == name;
+        }
+        println!("{name}");
+        let t0 = std::time::Instant::now();
+        while t0.elapsed().as_secs_f64() < 6.0 {
+            c.render();
+            out.send(&c.rt.frames[0], c.rt.used_len[0]);
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+    }
+    // 最後は全部0
+    out.send(&[0u8; 512], 512);
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    println!("終了");
+}

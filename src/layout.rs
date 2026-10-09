@@ -123,21 +123,32 @@ pub fn apply(p: &mut Project, lib: &Library) -> Report {
     if let Some(m) = kinds.iter().find(|k| k.attr("pan") && k.attr("tilt")) {
         let sel = m.sel();
         // 動き(Pan/Tilt)
+        // チルトは128が真上。真上だけを照らし続けないよう、どの動きもチルトを大きく(上下に)振る
         let moves = vec![
-            fx(&sel, "円運動", "pan", Wave::Sine, 96.0, 160.0, 8.0, 0.0, 0.0),
-            fx(&sel, "円運動", "tilt", Wave::Sine, 96.0, 160.0, 8.0, 90.0, 0.0),
-            fx(&sel, "8の字", "pan", Wave::Sine, 96.0, 160.0, 8.0, 0.0, 0.0),
-            fx(&sel, "8の字", "tilt", Wave::Sine, 100.0, 156.0, 4.0, 90.0, 0.0),
-            fx(&sel, "パン揺れ", "pan", Wave::Sine, 80.0, 176.0, 4.0, 0.0, 90.0),
-            fx(&sel, "チルト揺れ", "tilt", Wave::Sine, 90.0, 150.0, 4.0, 0.0, 90.0),
-            fx(&sel, "ワイパー", "pan", Wave::Triangle, 60.0, 196.0, 4.0, 0.0, 0.0),
-            fx(&sel, "クロス", "pan", Wave::Sine, 80.0, 176.0, 4.0, 0.0, 180.0),
-            fx(&sel, "バラバラ", "pan", Wave::Random, 70.0, 186.0, 2.0, 0.0, 0.0),
-            fx(&sel, "バラバラ", "tilt", Wave::Random, 90.0, 160.0, 2.0, 0.0, 0.0),
-            fx(&sel, "高速円", "pan", Wave::Sine, 108.0, 148.0, 1.0, 0.0, 0.0),
-            fx(&sel, "高速円", "tilt", Wave::Sine, 108.0, 148.0, 1.0, 90.0, 0.0),
+            fx(&sel, "円運動", "pan", Wave::Sine, 64.0, 192.0, 8.0, 0.0, 0.0),
+            fx(&sel, "円運動", "tilt", Wave::Sine, 40.0, 216.0, 8.0, 90.0, 0.0),
+            fx(&sel, "8の字", "pan", Wave::Sine, 64.0, 192.0, 8.0, 0.0, 0.0),
+            fx(&sel, "8の字", "tilt", Wave::Sine, 40.0, 216.0, 4.0, 90.0, 0.0),
+            fx(&sel, "パン揺れ", "pan", Wave::Sine, 40.0, 216.0, 4.0, 0.0, 90.0),
+            fx(&sel, "パン揺れ", "tilt", Wave::Sine, 56.0, 200.0, 8.0, 0.0, 90.0),
+            fx(&sel, "チルト揺れ", "tilt", Wave::Sine, 24.0, 232.0, 4.0, 0.0, 90.0),
+            fx(&sel, "ワイパー", "pan", Wave::Triangle, 40.0, 216.0, 4.0, 0.0, 0.0),
+            fx(&sel, "ワイパー", "tilt", Wave::Triangle, 48.0, 208.0, 2.0, 0.0, 0.0),
+            fx(&sel, "クロス", "pan", Wave::Sine, 56.0, 200.0, 4.0, 0.0, 180.0),
+            fx(&sel, "クロス", "tilt", Wave::Sine, 40.0, 216.0, 4.0, 90.0, 180.0),
+            fx(&sel, "バラバラ", "pan", Wave::Random, 40.0, 216.0, 2.0, 0.0, 0.0),
+            fx(&sel, "バラバラ", "tilt", Wave::Random, 24.0, 232.0, 2.0, 0.0, 0.0),
+            fx(&sel, "高速円", "pan", Wave::Sine, 88.0, 168.0, 1.0, 0.0, 0.0),
+            fx(&sel, "高速円", "tilt", Wave::Sine, 56.0, 200.0, 1.0, 90.0, 0.0),
         ];
+        // 動きのプリセットは、前の版の同じ名前のものを置き換える(幅を広げた版にする)
+        let names: Vec<String> = moves.iter().map(|e| e.name.clone()).collect();
+        let had = p.effects.len();
+        p.effects.retain(|e| !names.contains(&e.name));
+        let replaced = had - p.effects.len();
         rows[0] = add_fx(p, &mut r, moves).into_iter().map(effect).collect();
+        // 置き換えたぶんは「追加」に数えない
+        r.effects = r.effects.saturating_sub(replaced);
         // 見た目(明るさ・ゴボ・カラーホイール)
         let mut looks = Vec::new();
         if m.attr("dimmer") {
