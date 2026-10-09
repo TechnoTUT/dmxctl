@@ -19,6 +19,11 @@ fn ch(name: &str, attr: &str) -> ChannelDef {
 
 /// ユーザーの構成に近いもの: スポット4・Twinkle Ball・RGBの灯具2・レーザー2・90ピクセルRGBWのバー8本
 fn rig() -> Core {
+    rig_with(8)
+}
+
+/// LEDバーの本数を変えた構成
+fn rig_with(bar_count: usize) -> Core {
     let (mut lib, _) = Library::load(Path::new("none"));
     lib.add(Profile { id: BAR.into(), name: "LEDバー 90px RGBW".into(), manufacturer: String::new(), needs_arm: false, modes: vec![Mode { name: "360ch".into(), channels: fixture::pixel_channels(1, 90, "RGBW") }] });
     let tw = ["dimmer", "strobe", "red", "green", "blue", "rotation", "program", "program_speed"];
@@ -44,7 +49,7 @@ fn rig() -> Core {
     add(&mut p, PAR, 0);
     add(&mut p, "stage-evolution/laserscan300", 0);
     add(&mut p, "stage-evolution/laserscan300", 0);
-    for u in 1..=8 {
+    for u in 1..=bar_count {
         let id = add(&mut p, BAR, u);
         let i = p.fixture_index(id).unwrap();
         p.fixtures[i].address = 1;
@@ -549,4 +554,38 @@ fn gradient_moves_between_main_and_sub_over_the_interval() {
     // 自動入れ替えを入れるとグラデーションは止まる
     press(&mut c, Ctl::Scene(3));
     assert!(c.project.palette.auto && !c.project.palette.fade);
+}
+
+#[test]
+fn sixteen_bars_make_one_face() {
+    let mut c = rig_with(16);
+    let lib = c.lib.clone();
+    crate::layout::apply(&mut c.project, &lib);
+    assert_eq!(bar_ids(&c).len(), 16);
+    // 縦スキャン(バーをまたいで流れる)は16本を順に進む
+    press(&mut c, Ctl::Pad(pad_note(1, 2)));
+    c.set_palette_color(crate::color::ColorRole::Main, [1.0, 0.0, 0.0]);
+    c.set_palette_color(crate::color::ColorRole::Sub, [0.0, 0.0, 1.0]);
+    for step in [0usize, 5, 15] {
+        c.rt.beat = step as f64 * 4.0 / 16.0 + 0.01;
+        c.render();
+        let red: Vec<usize> = bars_out(&c).iter().enumerate().filter(|(_, b)| b[0][0] > 0).map(|(i, _)| i).collect();
+        assert_eq!(red, vec![step], "拍 {}", c.rt.beat);
+    }
+    // ユニバース2〜17(アプリ内の番号)に1本ずつ
+    for (k, id) in bar_ids(&c).into_iter().enumerate() {
+        assert_eq!(c.project.fixtures[c.project.fixture_index(id).unwrap()].universe, k + 1);
+        assert_eq!(c.rt.used_len[k + 1], 360);
+    }
+    // LEDバーの消灯ボタンは16本まとめて消える
+    press(&mut c, Ctl::Track(0));
+    c.render();
+    assert!(bars_out(&c).iter().flatten().all(|p| *p == [0, 0, 0, 0]));
+    // 2ページ目: 1本ずつの色の系統は2段(16本)、その下にほかの機材の段
+    press(&mut c, Ctl::Track(0));
+    assert!(matches!(binding_on(&c, Ctl::Pad(pad_note(1, 0)), 1).unwrap().action, Action::Role { sel: Selector::Fixture(id), .. } if id == bar_ids(&c)[0]));
+    assert!(matches!(&binding_on(&c, Ctl::Pad(pad_note(3, 0)), 1).unwrap().action, Action::Role { sel: Selector::Fixture(id), .. } if c.project.fixtures[c.project.fixture_index(*id).unwrap()].profile == "stage-evolution/minispot30"));
+    assert!(matches!(binding_on(&c, Ctl::Pad(pad_note(2, 7)), 1).unwrap().action, Action::Role { sel: Selector::Fixture(id), .. } if id == bar_ids(&c)[15]));
+    assert!(matches!(binding_on(&c, Ctl::Pad(pad_note(4, 0)), 1).unwrap().action, Action::Arm { .. }), "ARMの段は残る");
+    assert!(matches!(binding_on(&c, Ctl::Pad(pad_note(6, 0)), 1).unwrap().action, Action::SwapBeats { .. }), "入れ替え間隔の段も残る");
 }

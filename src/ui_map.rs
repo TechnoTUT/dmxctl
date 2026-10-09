@@ -396,7 +396,7 @@ impl App {
                     readout: readout(&first.action),
                     preview: match &first.action {
                         Action::Effect { name, .. } if matches!(ctl, Ctl::Pad(_)) => match core_ref.project.pixel_fx.iter().find(|f| f.name == *name) {
-                            Some(f) => Preview::Face(core_ref.face_preview(f, 8, 30)),
+                            Some(f) => Preview::Face(core_ref.face_preview(f, 16, 30)),
                             None => effect_path(core_ref, name).unwrap_or(Preview::None),
                         },
                         _ => Preview::None,
@@ -834,7 +834,8 @@ fn stage_panel(ui: &mut egui::Ui, core: &mut Core) {
             ui.set_width(ui.available_width());
             // 8本 × ピクセル の面のプレビュー(実際の出力の色)
             let w = ui.available_width();
-            let (row_h, row_gap) = (9.0, 4.0);
+            // 本数が多いときは1本を細く
+            let (row_h, row_gap) = if bars.len() > 8 { (6.0, 2.0) } else { (9.0, 4.0) };
             let (rect, _) = ui.allocate_exact_size(vec2(w, bars.len() as f32 * (row_h + row_gap) + 10.0), Sense::hover());
             let p = ui.painter();
             p.rect_filled(rect, 8.0, Color32::from_rgb(0x07, 0x08, 0x0B));

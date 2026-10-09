@@ -5,7 +5,7 @@ use crate::fixture::Library;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-pub const NUM_UNIVERSES: usize = 16;
+pub const NUM_UNIVERSES: usize = 32;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FixtureInstance {

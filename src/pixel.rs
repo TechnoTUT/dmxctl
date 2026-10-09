@@ -582,7 +582,7 @@ impl Core {
         // 実際のバーの数とピクセル数(無ければ8本×90ピクセルとして描く)
         let lens: Vec<usize> = self.project.fixtures.iter().filter_map(|f| self.lib.info(&f.profile, f.mode)).map(|i| i.pixels.len()).filter(|n| *n > 0).collect();
         let len = lens.first().copied().unwrap_or(90);
-        let bars = if lens.is_empty() { rows } else { lens.len() };
+        let bars = if lens.is_empty() { rows.min(8) } else { lens.len() };
         let total = len * bars;
         (0..rows.min(bars))
             .map(|bar| {

@@ -183,7 +183,11 @@ impl App {
             theme::help(ui, "実際に出力されている値です(全体光量・ブラックアウト・ARM・エフェクト適用後)。バーにマウスを乗せると、チャンネル番号と値が出ます");
             ui.add_space(10.0);
             ui.label(RichText::new("ユニバース").small().color(theme::TEXT_DIM));
+            // 使っているユニバースだけを並べる(32個あるので)
             for (k, used) in in_use.iter().enumerate() {
+                if !*used && k != u {
+                    continue;
+                }
                 let text = RichText::new((k + 1).to_string()).color(if *used || k == u { theme::TEXT } else { theme::TEXT_FAINT });
                 ui.selectable_value(&mut self.monitor_universe, k, text);
             }

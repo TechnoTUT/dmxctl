@@ -326,8 +326,15 @@ pub fn apply(p: &mut Project, lib: &Library) -> Report {
     ];
     // 7段目: メイン⇄サブの自動入れ替えの間隔
     let swaps: Vec<(String, Action)> = [1.0, 2.0, 4.0, 8.0, 16.0].iter().map(|&b| (format!("入れ替え {b}拍"), Action::SwapBeats { beats: b })).collect();
+    // 1台ずつの段は3段まで: LEDバー(8本なら1段、16本なら2段)と、それ以外の機材を1段
+    let bar_ids: Vec<u32> = bars.iter().map(|(id, _)| *id).collect();
+    let is_bar = |a: &Action| matches!(a, Action::Role { sel: Selector::Fixture(id), .. } if bar_ids.contains(id));
+    let (bar_singles, other_singles): (Vec<(String, Action)>, Vec<(String, Action)>) = singles.into_iter().partition(|(_, a)| is_bar(a));
     let mut rows2: Vec<Vec<(String, Action)>> = vec![row0];
-    rows2.extend(singles.chunks(8).map(|c| c.to_vec()));
+    let bar_rows: Vec<Vec<(String, Action)>> = bar_singles.chunks(8).map(|c| c.to_vec()).take(2).collect();
+    let room = 3 - bar_rows.len();
+    rows2.extend(bar_rows);
+    rows2.extend(other_singles.chunks(8).map(|c| c.to_vec()).take(room));
     rows2.push(arms);
     rows2.push(sync);
     rows2.push(swaps);
