@@ -192,7 +192,7 @@ fn set_value_range(core: &Core, sel: &Selector, attr: &str, on: f32) -> Option<c
 }
 
 /// 対象の機材の現在値が、この割り当ての「ON値」になっているか(色選択・トグルの表示用)
-fn set_value_active(core: &Core, sel: &Selector, attr: &str, on: f32) -> bool {
+pub fn set_value_active(core: &Core, sel: &Selector, attr: &str, on: f32) -> bool {
     let mut any = false;
     for i in core.resolve(sel) {
         let fx = &core.project.fixtures[i];
@@ -240,6 +240,7 @@ pub fn is_active(core: &Core, action: &Action) -> bool {
             None => core.rt.last_color == Some(*c),
         },
         Action::Palette { op: crate::color::PaletteOp::Auto } => core.project.palette.auto,
+        Action::Palette { op: crate::color::PaletteOp::Fade } => core.project.palette.fade,
         Action::Palette { .. } => core.rt.color_swapped,
         Action::Flash { .. } => core.rt.flash.is_some(),
         Action::Fade { .. } => core.rt.dim_target < 0.5,

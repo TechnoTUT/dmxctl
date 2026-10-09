@@ -248,11 +248,13 @@ pub struct Palette {
     pub auto: bool,
     /// 自動入れ替えの間隔(拍)
     pub auto_beats: f32,
+    /// メイン色⇄サブ色を、間隔の拍数をかけて少しずつ行き来する(グラデーション)。自動入れ替えとはどちらか一方
+    pub fade: bool,
 }
 
 impl Default for Palette {
     fn default() -> Self {
-        Palette { main: NamedColor::White.rgb(), sub: NamedColor::Blue.rgb(), auto: false, auto_beats: 4.0 }
+        Palette { main: NamedColor::White.rgb(), sub: NamedColor::Blue.rgb(), auto: false, auto_beats: 4.0, fade: false }
     }
 }
 
@@ -265,15 +267,18 @@ pub enum PaletteOp {
     HoldSwap,
     /// 拍に合わせた自動入れ替えのON/OFF
     Auto,
+    /// メイン⇄サブを少しずつ行き来する(グラデーション)のON/OFF
+    Fade,
 }
 
 impl PaletteOp {
-    pub const ALL: [PaletteOp; 3] = [PaletteOp::Swap, PaletteOp::HoldSwap, PaletteOp::Auto];
+    pub const ALL: [PaletteOp; 4] = [PaletteOp::Swap, PaletteOp::HoldSwap, PaletteOp::Auto, PaletteOp::Fade];
     pub fn label(self) -> &'static str {
         match self {
             PaletteOp::Swap => "押すたびに メイン⇄サブ入れ替え",
             PaletteOp::HoldSwap => "押している間だけ 入れ替え",
             PaletteOp::Auto => "拍で自動入れ替え ON/OFF",
+            PaletteOp::Fade => "グラデーションで行き来 ON/OFF",
         }
     }
 }

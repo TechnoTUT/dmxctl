@@ -500,3 +500,53 @@ fn moving_head_effects_are_one_at_a_time() {
     press(&mut c, Ctl::Pad(pad_note(4, 3)));
     assert_eq!(on(&c), ["点灯チェイス"]);
 }
+
+#[test]
+fn gobo_buttons_pick_one_at_a_time() {
+    let mut c = rig();
+    let lib = c.lib.clone();
+    crate::layout::apply(&mut c.project, &lib);
+    let spot = c.project.fixtures.iter().position(|f| f.profile == "stage-evolution/minispot30").unwrap();
+    let m = c.lib.mode("stage-evolution/minispot30", 0).unwrap().clone();
+    let gobo = m.find_attr("gobo").unwrap();
+    let label = |c: &Core| m.channels[gobo].range_of(c.project.fixtures[spot].values[gobo]).map(|r| r.label.clone()).unwrap_or_default();
+    let col = |name: &str, c: &Core| (0..8u8).find(|&k| binding_at(c, Ctl::Pad(pad_note(5, k))).is_some_and(|b| b.name == name)).unwrap();
+    let (rot, shake, change) = (col("ゴボ回転", &c), col("ゴボシェイク", &c), col("ゴボ切替", &c));
+    press(&mut c, Ctl::Pad(pad_note(5, rot)));
+    assert!(label(&c).contains("回転"), "{}", label(&c));
+    // 別のゴボのボタン: 1回で切り替わる(前のボタンを消してから押し直さなくてよい)
+    press(&mut c, Ctl::Pad(pad_note(5, shake)));
+    assert!(label(&c).contains("シェイク"), "{}", label(&c));
+    // ゴボ切替(エフェクト)を入れると、ボタンの選択は初期値に戻る
+    press(&mut c, Ctl::Pad(pad_note(5, change)));
+    assert!(c.project.effects.iter().any(|e| e.name == "ゴボ切替" && e.enabled));
+    assert_eq!(label(&c), "オープン");
+    // ボタンを押すと、ゴボ切替は止まる
+    press(&mut c, Ctl::Pad(pad_note(5, rot)));
+    assert!(!c.project.effects.iter().any(|e| e.name == "ゴボ切替" && e.enabled));
+    assert!(label(&c).contains("回転"));
+}
+
+#[test]
+fn gradient_moves_between_main_and_sub_over_the_interval() {
+    let mut c = rig();
+    let lib = c.lib.clone();
+    crate::layout::apply(&mut c.project, &lib);
+    c.set_palette_color(crate::color::ColorRole::Main, [1.0, 0.0, 0.0]);
+    c.set_palette_color(crate::color::ColorRole::Sub, [0.0, 0.0, 1.0]);
+    c.project.palette.auto_beats = 4.0;
+    press(&mut c, Ctl::Scene(5)); // グラデーション
+    assert!(c.project.palette.fade && !c.project.palette.auto);
+    let main_at = |c: &mut Core, beat: f64| {
+        c.rt.beat = beat;
+        c.role_rgb(crate::color::ColorRole::Main).unwrap()
+    };
+    assert_eq!(main_at(&mut c, 0.0), [1.0, 0.0, 0.0]);
+    let mid = main_at(&mut c, 2.0);
+    assert!((mid[0] - 0.5).abs() < 0.01 && (mid[2] - 0.5).abs() < 0.01, "途中は混ざった色 {mid:?}");
+    assert_eq!(main_at(&mut c, 4.0).map(|x| (x * 100.0).round()), [0.0, 0.0, 100.0], "4拍でサブ色に");
+    assert_eq!(main_at(&mut c, 8.0).map(|x| (x * 100.0).round()), [100.0, 0.0, 0.0], "8拍でメイン色に戻る");
+    // 自動入れ替えを入れるとグラデーションは止まる
+    press(&mut c, Ctl::Scene(3));
+    assert!(c.project.palette.auto && !c.project.palette.fade);
+}

@@ -286,7 +286,13 @@ impl Core {
         // NDI(映像・音)を使っている系統は、その色
         let main = self.rt.live_main.unwrap_or(p.main);
         let sub = self.rt.live_sub.unwrap_or(p.sub);
-        Some(if main_side != self.palette_swapped() { main } else { sub })
+        let (a, b) = if main_side != self.palette_swapped() { (main, sub) } else { (sub, main) };
+        if p.fade {
+            // 間隔の拍数でもう一方の色へ、同じ拍数で戻る(なめらかに)
+            let t = (0.5 - 0.5 * (std::f64::consts::PI * self.rt.beat / p.auto_beats.max(0.25) as f64).cos()) as f32;
+            return Some([0, 1, 2].map(|k| a[k] + (b[k] - a[k]) * t));
+        }
+        Some(a)
     }
 
     /// NDIの色をメイン色/サブ色に反映する(変わったときだけ機材に出し直す。保存のきっかけにはしない)
@@ -377,7 +383,20 @@ impl Core {
         self.apply_palette();
     }
 
+    /// グラデーション(メイン⇄サブを少しずつ行き来)のON/OFF。自動入れ替えとはどちらか一方
+    pub fn set_palette_fade(&mut self, on: bool) {
+        self.project.palette.fade = on;
+        if on {
+            self.project.palette.auto = false;
+        }
+        self.dirty = true;
+        self.apply_palette();
+    }
+
     pub fn set_palette_auto(&mut self, on: bool) {
+        if on {
+            self.project.palette.fade = false;
+        }
         self.project.palette.auto = on;
         self.dirty = true;
         self.apply_palette();
@@ -385,6 +404,13 @@ impl Core {
 
     /// 自動入れ替え中は、拍の区切りで色を出し直す
     fn run_palette_auto(&mut self) {
+        // グラデーション中は、毎回の出力で色を出し直す(保存のきっかけにはしない)
+        if self.project.palette.fade {
+            let was = self.dirty;
+            self.apply_palette();
+            self.dirty = was;
+            return;
+        }
         if !self.project.palette.auto || self.rt.palette_shown == Some(self.palette_swapped()) {
             return;
         }
@@ -1074,6 +1100,21 @@ impl Core {
         }
     }
 
+    /// この対象・機能を動かしているエフェクトを止める(ボタンで選んだ値が、エフェクトに上書きされないように)
+    pub fn stop_effects_on(&mut self, sel: &Selector, attr: &str) {
+        let targets: HashSet<usize> = self.resolve(sel).into_iter().collect();
+        let names: Vec<String> = self
+            .project
+            .effects
+            .iter()
+            .filter(|e| e.enabled && e.attr == attr && self.resolve(&e.sel).into_iter().any(|i| targets.contains(&i)))
+            .map(|e| e.name.clone())
+            .collect();
+        for e in self.project.effects.iter_mut().filter(|e| names.contains(&e.name)) {
+            e.enabled = false;
+        }
+    }
+
     /// エフェクトをON/OFFする。ONにしたときは、同じ機材の同じチャンネルを動かしている他のエフェクトをOFFにする
     /// (ムービングの動きは1つずつ。後のものが上書きして混ざらないように)
     pub fn set_effect(&mut self, name: &str, on: bool) {
@@ -1094,6 +1135,23 @@ impl Core {
                 .collect();
             for e in self.project.effects.iter_mut().filter(|e| others.contains(&e.name)) {
                 e.enabled = false;
+            }
+            // ゴボ・カラーホイールのような選択式のチャンネルは、ボタンで選んでいた値を初期値に戻す
+            // (エフェクトを止めたときに前の選択が残らず、ボタンの点灯も消える)
+            let lib = self.lib.clone();
+            let mut reset: Vec<(u32, String, f32)> = Vec::new();
+            for (i, attr) in &mine {
+                let f = &self.project.fixtures[*i];
+                if let Some(m) = lib.mode(&f.profile, f.mode) {
+                    if let Some(ch) = m.find_attr(attr).map(|c| &m.channels[c]) {
+                        if !ch.ranges.is_empty() {
+                            reset.push((f.id, attr.clone(), ch.default as f32));
+                        }
+                    }
+                }
+            }
+            for (id, attr, v) in reset {
+                self.set_attr(&Selector::Fixture(id), &attr, v);
             }
         }
         for e in self.project.effects.iter_mut().filter(|e| e.name == name) {
@@ -1122,10 +1180,13 @@ impl Core {
                 }
                 PadMode::Toggle => {
                     if rising {
-                        let s = self.rt.toggle_state.entry(idx).or_insert(false);
-                        *s = !*s;
-                        let v = if *s { on } else { off };
-                        self.set_attr(&sel, &attr, v);
+                        // 今の値で判断する(同じチャンネルの別のボタンで変わっていても、押したほうが選ばれる)
+                        let now_on = !crate::led::set_value_active(self, &sel, &attr, on);
+                        self.rt.toggle_state.insert(idx, now_on);
+                        if now_on {
+                            self.stop_effects_on(&sel, &attr);
+                        }
+                        self.set_attr(&sel, &attr, if now_on { on } else { off });
                     }
                 }
                 PadMode::Trigger => {
@@ -1324,6 +1385,11 @@ impl Core {
                 PaletteOp::Auto => {
                     if rising {
                         self.set_palette_auto(!self.project.palette.auto);
+                    }
+                }
+                PaletteOp::Fade => {
+                    if rising {
+                        self.set_palette_fade(!self.project.palette.fade);
                     }
                 }
             },

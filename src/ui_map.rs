@@ -149,6 +149,7 @@ fn pad_text(a: &Action, meta: &SelMeta, core: &Core) -> (String, String) {
             crate::color::PaletteOp::Swap => (s("色"), s("メイン⇄サブ")),
             crate::color::PaletteOp::HoldSwap => (s("押中"), s("メイン⇄サブ")),
             crate::color::PaletteOp::Auto => (s("拍で"), s("自動入れ替え")),
+            crate::color::PaletteOp::Fade => (s("ゆっくり"), s("グラデーション")),
         },
         Action::Mute { sel, .. } => (s("ミュート"), target_plain(sel, meta)),
         Action::Level { sel } => (s("明るさ"), target_plain(sel, meta)),

@@ -247,6 +247,7 @@ pub fn apply(p: &mut Project, lib: &Library) -> Report {
         (1, "頭出し", Action::Tempo { op: TempoOp::Resync }),
         (2, "メイン⇄サブ", Action::Palette { op: PaletteOp::Swap }),
         (3, "自動入れ替え", Action::Palette { op: PaletteOp::Auto }),
+        (5, "グラデーション", Action::Palette { op: PaletteOp::Fade }),
         (6, "暗転フェード", Action::Fade { secs: fade, mode: PadMode::Toggle }),
         (7, "BLACKOUT", Action::Blackout { mode: PadMode::Toggle }),
     ] {

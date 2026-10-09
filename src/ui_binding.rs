@@ -96,6 +96,7 @@ pub fn summary(a: &Action, meta: &SelMeta) -> String {
             PaletteOp::Swap => "メイン⇄サブ\n入れ替え".into(),
             PaletteOp::HoldSwap => "メイン⇄サブ\n押中".into(),
             PaletteOp::Auto => "メイン⇄サブ\n自動".into(),
+            PaletteOp::Fade => "メイン⇄サブ\nグラデーション".into(),
         },
         Action::ColorScope { op } => format!("色\n{}", match op { ScopeOp::Toggle => "全体/個別", ScopeOp::HoldIndividual => "押中=個別", ScopeOp::Global => "全体へ", ScopeOp::Individual => "個別へ" }),
         Action::Select { fixture, .. } => format!("選択\n{}", meta.fixtures.iter().find(|f| f.id == *fixture).map(|f| f.name.as_str()).unwrap_or("?")),
