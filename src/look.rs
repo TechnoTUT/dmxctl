@@ -24,7 +24,7 @@ pub struct FixtureLook {
 
 pub fn looks(core: &Core) -> Vec<FixtureLook> {
     let mut out = Vec::new();
-    for fx in &core.project.fixtures {
+    for fx in core.project.fixtures.iter().filter(|f| f.enabled) {
         let Some(profile) = core.lib.get(&fx.profile) else { continue };
         let Some(mode) = profile.modes.get(fx.mode) else { continue };
         let Some(frame) = core.rt.frames.get(fx.universe) else { continue };

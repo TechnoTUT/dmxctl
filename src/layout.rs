@@ -325,7 +325,12 @@ pub fn apply(p: &mut Project, lib: &Library) -> Report {
         ("BPM +1".into(), Action::Tempo { op: TempoOp::Nudge { delta: 1.0 } }),
     ];
     // 7段目: メイン⇄サブの自動入れ替えの間隔
-    let swaps: Vec<(String, Action)> = [1.0, 2.0, 4.0, 8.0, 16.0].iter().map(|&b| (format!("入れ替え {b}拍"), Action::SwapBeats { beats: b })).collect();
+    let mut swaps: Vec<(String, Action)> = [1.0, 2.0, 4.0, 8.0, 16.0].iter().map(|&b| (format!("入れ替え {b}拍"), Action::SwapBeats { beats: b })).collect();
+    // LEDバーが9本以上あれば、本数の切り替え(8本 / 全部)も同じ段に
+    if bars.len() > 8 {
+        swaps.push(("LEDバー 8本".into(), Action::BarCount { count: 8 }));
+        swaps.push((format!("LEDバー {}本", bars.len()), Action::BarCount { count: bars.len().min(255) as u8 }));
+    }
     // 1台ずつの段は3段まで: LEDバー(8本なら1段、16本なら2段)と、それ以外の機材を1段
     let bar_ids: Vec<u32> = bars.iter().map(|(id, _)| *id).collect();
     let is_bar = |a: &Action| matches!(a, Action::Role { sel: Selector::Fixture(id), .. } if bar_ids.contains(id));

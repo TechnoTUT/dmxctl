@@ -116,6 +116,7 @@ pub fn summary(a: &Action, meta: &SelMeta) -> String {
         Action::Arm { sel, .. } => format!("ARM\n{}", target_short(sel, meta)),
         Action::LiveColor { role, source } => format!("NDI {}\n{}", role.label(), source.label()),
         Action::SwapBeats { beats } => format!("入れ替え\n{beats}拍ごと"),
+        Action::BarCount { count } => format!("LEDバー\n{count}本"),
     }
 }
 
@@ -405,6 +406,10 @@ pub fn binding_editor(ui: &mut egui::Ui, i: usize, b: &mut Binding, learn: Learn
                 Action::SwapBeats { beats } => {
                     out.changed |= ui.add(egui::DragValue::new(beats).range(0.25..=64.0).speed(0.05).suffix(" 拍ごと")).changed();
                 }
+                Action::BarCount { count } => {
+                    out.changed |= ui.add(egui::DragValue::new(count).range(1..=32).suffix(" 本")).changed();
+                    ui.label(RichText::new("パッチの順に先頭から使います(残りは消える)").weak());
+                }
                 Action::Master { mode, on, off } => {
                     out.changed |= pad_mode_combo(ui, &format!("bmm{i}"), mode, true);
                     let (a, c) = if *mode == PadMode::Continuous { ("最大", "最小") } else { ("ON時", "OFF時") };
@@ -508,6 +513,10 @@ fn action_kind_combo(ui: &mut egui::Ui, i: usize, action: &mut Action, cx: &Edit
         }
         if ui.selectable_label(is(action, "NDIの色"), "NDIの色(映像・音)").clicked() && !is(action, "NDIの色") {
             *action = Action::LiveColor { role: crate::color::ColorRole::Main, source: crate::ndi::LiveSource::Video };
+            changed = true;
+        }
+        if ui.selectable_label(is(action, "LEDバーの本数"), "LEDバーの本数").clicked() && !is(action, "LEDバーの本数") {
+            *action = Action::BarCount { count: 8 };
             changed = true;
         }
         if ui.selectable_label(is(action, "入れ替えの間隔"), "メイン⇄サブ 入れ替えの間隔").clicked() && !is(action, "入れ替えの間隔") {

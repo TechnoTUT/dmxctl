@@ -87,6 +87,7 @@ fn action_color(a: &Action, p: &Project) -> Color32 {
         Action::Role { .. } | Action::LiveColor { .. } => COL_COLOR,
         Action::Arm { .. } => COL_DARK,
         Action::SwapBeats { .. } => COL_SWAP,
+        Action::BarCount { .. } => COL_PIXEL,
     }
 }
 
@@ -182,6 +183,7 @@ fn pad_text(a: &Action, meta: &SelMeta, core: &Core) -> (String, String) {
             crate::ndi::LiveSource::Off => "使わない",
         })),
         Action::SwapBeats { beats } => (s("入れ替え"), format!("{beats}拍ごと")),
+        Action::BarCount { count } => (s("LEDバー"), format!("{count}本")),
     }
 }
 
@@ -1129,6 +1131,24 @@ fn settings_panel(ui: &mut egui::Ui, core: &mut Core) -> bool {
             None => ui.painter().rect_stroke(r, 4.0, Stroke::new(1.0, theme::TEXT_FAINT), StrokeKind::Inside),
         };
     };
+
+    // LEDバーの本数(9本以上パッチしてあるとき)
+    let (using, patched) = core.bar_count();
+    if patched > 8 {
+        theme::card().show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("LEDバー").font(theme::bold(13.0)));
+                for n in [8, patched] {
+                    if ui.selectable_label(using == n, format!("{n}本")).clicked() && using != n {
+                        core.set_bar_count(n);
+                        changed = true;
+                    }
+                }
+            });
+        });
+        ui.add_space(6.0);
+    }
 
     // NDI
     theme::card().show(ui, |ui| {

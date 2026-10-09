@@ -589,3 +589,35 @@ fn sixteen_bars_make_one_face() {
     assert!(matches!(binding_on(&c, Ctl::Pad(pad_note(4, 0)), 1).unwrap().action, Action::Arm { .. }), "ARMの段は残る");
     assert!(matches!(binding_on(&c, Ctl::Pad(pad_note(6, 0)), 1).unwrap().action, Action::SwapBeats { .. }), "入れ替え間隔の段も残る");
 }
+
+#[test]
+fn switch_between_8_and_16_bars() {
+    let mut c = rig_with(16);
+    let lib = c.lib.clone();
+    crate::layout::apply(&mut c.project, &lib);
+    c.apply_named_color(crate::color::NamedColor::White, crate::color::ColorTarget::All);
+    let col = |c: &Core, name: &str| (0..8u8).find(|&k| binding_on(c, Ctl::Pad(pad_note(6, k)), 1).is_some_and(|b| b.name == name)).unwrap();
+    let (eight, sixteen) = (col(&c, "LEDバー 8本"), col(&c, "LEDバー 16本"));
+    press(&mut c, Ctl::Scene(4)); // 2ページ目へ
+    press(&mut c, Ctl::Pad(pad_note(6, eight)));
+    assert_eq!(c.bar_count(), (8, 16));
+    c.render();
+    let lit: Vec<bool> = bars_out(&c).iter().map(|b| b.iter().any(|p| p.iter().any(|&v| v > 0))).collect();
+    assert_eq!(lit, [vec![true; 8], vec![false; 8]].concat(), "9〜16本目は消える");
+    // 模様も8本の面になる(縦スキャンは8本で1周)
+    press(&mut c, Ctl::Scene(4));
+    press(&mut c, Ctl::Pad(pad_note(1, 2)));
+    c.rt.beat = 0.01 + 4.0 * 7.0 / 8.0;
+    c.render();
+    let out = bars_out(&c);
+    assert!(out[8..].iter().flatten().all(|p| *p == [0, 0, 0, 0]), "9〜16本目は消えたまま");
+    // 8本・4拍で1周なので、3.5拍目は8本目(添字7)だけがメイン色
+    let odd: Vec<usize> = (0..8).filter(|&i| out[i][0] != out[0][0]).collect();
+    assert_eq!(odd, vec![7], "{:?}", out.iter().take(8).map(|b| b[0]).collect::<Vec<_>>());
+    // 16本に戻すと全部光る
+    press(&mut c, Ctl::Scene(4));
+    press(&mut c, Ctl::Pad(pad_note(6, sixteen)));
+    assert_eq!(c.bar_count(), (16, 16));
+    c.render();
+    assert!(bars_out(&c).iter().all(|b| b.iter().any(|p| p.iter().any(|&v| v > 0))));
+}

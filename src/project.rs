@@ -25,6 +25,13 @@ pub struct FixtureInstance {
     /// メイン色/サブ色のどちらを出すか
     #[serde(default)]
     pub color_role: ColorRole,
+    /// 使う(false=出力しない。操作・エフェクトの対象からも外す)。LEDバーの本数の切り替えなどに使う
+    #[serde(default = "yes")]
+    pub enabled: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -373,6 +380,8 @@ pub enum Action {
     LiveColor { role: crate::color::ColorRole, source: crate::ndi::LiveSource },
     /// メイン⇄サブの自動入れ替えの間隔(拍)。押すと自動入れ替えもONにする
     SwapBeats { beats: f32 },
+    /// LEDバーを何本使うか(パッチの順に先頭から。残りは使わない)
+    BarCount { count: u8 },
 }
 
 /// 色の系統の決め方
@@ -470,6 +479,7 @@ impl Action {
             Action::Arm { .. } => "ARM",
             Action::LiveColor { .. } => "NDIの色",
             Action::SwapBeats { .. } => "入れ替えの間隔",
+            Action::BarCount { .. } => "LEDバーの本数",
         }
     }
 }
@@ -688,6 +698,7 @@ impl Project {
             values: mode.default_values(),
             armed: false,
             color_role: ColorRole::Main,
+            enabled: true,
         });
         Some(id)
     }

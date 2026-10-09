@@ -45,12 +45,13 @@ impl App {
         let mut remove: Option<usize> = None;
         egui::ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
             egui::Grid::new("patch").striped(true).spacing([12.0, 6.0]).show(ui, |ui| {
-                for h in ["名前", "機種", "モード", "ユニバース", "開始アドレス", "ch", "状態", ""] {
+                for h in ["使う", "名前", "機種", "モード", "ユニバース", "開始アドレス", "ch", "状態", ""] {
                     ui.label(RichText::new(h).strong());
                 }
                 ui.end_row();
 
                 for (i, fx) in core.project.fixtures.iter_mut().enumerate() {
+                    changed |= ui.checkbox(&mut fx.enabled, "").on_hover_text("OFFにすると出力しません(操作・エフェクトの対象からも外れます)").changed();
                     changed |= ui.add_sized([150.0, 24.0], egui::TextEdit::singleline(&mut fx.name)).changed();
                     let profile = lib.get(&fx.profile);
                     ui.label(profile.map(|p| p.name.as_str()).unwrap_or("(不明)"));

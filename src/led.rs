@@ -177,6 +177,7 @@ fn base_color(core: &Core, action: &Action) -> u8 {
         Action::Arm { .. } => C_RED,
         Action::LiveColor { .. } => C_LIGHT_BLUE,
         Action::SwapBeats { .. } => C_MAGENTA,
+        Action::BarCount { .. } => C_WHITE,
     }
 }
 
@@ -272,6 +273,7 @@ pub fn is_active(core: &Core, action: &Action) -> bool {
             let cfg = &core.project.ndi;
             cfg.enabled && *source == if *role == crate::color::ColorRole::Sub { cfg.sub } else { cfg.main }
         }
+        Action::BarCount { count } => core.bar_count().0 == *count as usize,
         Action::SwapBeats { beats } => core.project.palette.auto && (core.project.palette.auto_beats - beats).abs() < 1e-3,
         Action::Color { color: None, .. } | Action::Tempo { .. } | Action::Master { .. } | Action::Level { .. } | Action::Pixel { .. } => false,
     }

@@ -227,6 +227,8 @@ impl Core {
             .fixtures
             .iter()
             .enumerate()
+            // 使わない機材は、操作・エフェクトの対象にしない
+            .filter(|(_, f)| f.enabled)
             .filter(|(_, f)| match sel {
                 Selector::All => true,
                 Selector::Fixture(id) => f.id == *id,
@@ -975,6 +977,10 @@ impl Core {
         let mut used = vec![0usize; NUM_UNIVERSES];
 
         for (i, fx) in self.project.fixtures.iter().enumerate() {
+            // 使わない機材は出力しない(0のまま)
+            if !fx.enabled {
+                continue;
+            }
             let Some(profile) = lib.get(&fx.profile) else { continue };
             let Some(mode) = profile.modes.get(fx.mode) else { continue };
             let v = &mut vals[i];
@@ -1098,6 +1104,27 @@ impl Core {
         for i in hits {
             self.apply_binding(i, m.value as f32 / 127.0, pressed);
         }
+    }
+
+    /// LEDバー(ピクセルを持つ機材)を、パッチの順に先頭から`count`本だけ使う
+    pub fn set_bar_count(&mut self, count: usize) {
+        let lib = self.lib.clone();
+        let mut n = 0;
+        for f in self.project.fixtures.iter_mut() {
+            if lib.info(&f.profile, f.mode).is_some_and(|i| !i.pixels.is_empty()) {
+                f.enabled = n < count;
+                n += 1;
+            }
+        }
+        self.dirty = true;
+        // 使い始めた機材にも、今のメイン/サブ色を出す
+        self.apply_palette();
+    }
+
+    /// 使っているLEDバーの本数と、パッチしてある本数
+    pub fn bar_count(&self) -> (usize, usize) {
+        let bars: Vec<bool> = self.project.fixtures.iter().filter(|f| self.lib.info(&f.profile, f.mode).is_some_and(|i| !i.pixels.is_empty())).map(|f| f.enabled).collect();
+        (bars.iter().filter(|e| **e).count(), bars.len())
     }
 
     /// この対象・機能を動かしているエフェクトを止める(ボタンで選んだ値が、エフェクトに上書きされないように)
@@ -1469,6 +1496,11 @@ impl Core {
                         cfg.enabled = true;
                     }
                     self.dirty = true;
+                }
+            }
+            Action::BarCount { count } => {
+                if rising {
+                    self.set_bar_count(count as usize);
                 }
             }
             Action::SwapBeats { beats } => {

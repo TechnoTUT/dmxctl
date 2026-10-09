@@ -580,7 +580,7 @@ impl Core {
         let phase = if fx.beats > 0.0 { self.pixel_beat() / fx.beats as f64 } else { 0.0 };
         let skew = fx.skew + self.rt.px_skew;
         // 実際のバーの数とピクセル数(無ければ8本×90ピクセルとして描く)
-        let lens: Vec<usize> = self.project.fixtures.iter().filter_map(|f| self.lib.info(&f.profile, f.mode)).map(|i| i.pixels.len()).filter(|n| *n > 0).collect();
+        let lens: Vec<usize> = self.project.fixtures.iter().filter(|f| f.enabled).filter_map(|f| self.lib.info(&f.profile, f.mode)).map(|i| i.pixels.len()).filter(|n| *n > 0).collect();
         let len = lens.first().copied().unwrap_or(90);
         let bars = if lens.is_empty() { rows.min(8) } else { lens.len() };
         let total = len * bars;
