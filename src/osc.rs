@@ -273,9 +273,7 @@ impl Core {
                 let Some(name) = text else { return };
                 let on = num.is_none_or(|v| v >= 0.5);
                 if parts[0] == "effect" {
-                    for e in self.project.effects.iter_mut().filter(|e| e.name == name) {
-                        e.enabled = on;
-                    }
+                    self.set_effect(&name, on);
                     if self.project.pixel_fx.iter().any(|e| e.name == name) {
                         self.set_pixel_fx(&name, on);
                     }

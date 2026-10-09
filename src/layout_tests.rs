@@ -478,3 +478,25 @@ fn real_moves_demo() {
     std::thread::sleep(std::time::Duration::from_millis(300));
     println!("終了");
 }
+
+#[test]
+fn moving_head_effects_are_one_at_a_time() {
+    let mut c = rig();
+    let lib = c.lib.clone();
+    crate::layout::apply(&mut c.project, &lib);
+    let on = |c: &Core| {
+        let mut v: Vec<String> = c.project.effects.iter().filter(|e| e.enabled).map(|e| e.name.clone()).collect();
+        v.dedup();
+        v
+    };
+    press(&mut c, Ctl::Pad(pad_note(4, 0))); // 円運動
+    assert_eq!(on(&c), ["円運動"]);
+    press(&mut c, Ctl::Pad(pad_note(4, 3))); // チルト揺れ: 円運動はOFFに
+    assert_eq!(on(&c), ["チルト揺れ"]);
+    // 明るさの動き(点灯チェイス)は、動きと別のチャンネルなので一緒に使える
+    press(&mut c, Ctl::Pad(pad_note(5, 0)));
+    assert_eq!(on(&c), ["チルト揺れ", "点灯チェイス"]);
+    // 同じボタンをもう一度でOFF
+    press(&mut c, Ctl::Pad(pad_note(4, 3)));
+    assert_eq!(on(&c), ["点灯チェイス"]);
+}

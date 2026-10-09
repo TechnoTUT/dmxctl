@@ -1074,6 +1074,34 @@ impl Core {
         }
     }
 
+    /// エフェクトをON/OFFする。ONにしたときは、同じ機材の同じチャンネルを動かしている他のエフェクトをOFFにする
+    /// (ムービングの動きは1つずつ。後のものが上書きして混ざらないように)
+    pub fn set_effect(&mut self, name: &str, on: bool) {
+        if on {
+            let mine: HashSet<(usize, String)> = self
+                .project
+                .effects
+                .iter()
+                .filter(|e| e.name == name)
+                .flat_map(|e| self.resolve(&e.sel).into_iter().map(move |i| (i, e.attr.clone())))
+                .collect();
+            let others: Vec<String> = self
+                .project
+                .effects
+                .iter()
+                .filter(|e| e.enabled && e.name != name && self.resolve(&e.sel).into_iter().any(|i| mine.contains(&(i, e.attr.clone()))))
+                .map(|e| e.name.clone())
+                .collect();
+            for e in self.project.effects.iter_mut().filter(|e| others.contains(&e.name)) {
+                e.enabled = false;
+            }
+        }
+        for e in self.project.effects.iter_mut().filter(|e| e.name == name) {
+            e.enabled = on;
+        }
+        self.dirty = true;
+    }
+
     /// 割り当てを実行する。`v`=入力値(0.0〜1.0。フェーダー/ノブ用)、`pressed`=押されているか(ボタン用)
     pub fn apply_binding(&mut self, idx: usize, v: f32, pressed: bool) {
         let Some(action) = self.project.bindings.get(idx).map(|b| b.action.clone()) else { return };
@@ -1121,9 +1149,7 @@ impl Core {
                     (_, Some(_)) => (rising || falling).then_some(pressed),
                 };
                 if let Some(en) = new {
-                    for e in self.project.effects.iter_mut().filter(|e| e.name == name) {
-                        e.enabled = en;
-                    }
+                    self.set_effect(&name, en);
                     if self.project.pixel_fx.iter().any(|e| e.name == name) {
                         self.set_pixel_fx(&name, en);
                     }

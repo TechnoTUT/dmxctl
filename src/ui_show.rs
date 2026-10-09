@@ -174,11 +174,17 @@ impl App {
         if core.project.effects.is_empty() {
             ui.label(RichText::new("まだありません").small().color(crate::theme::TEXT_DIM));
         }
+        let mut turned_on: Option<String> = None;
         for (i, e) in core.project.effects.iter_mut().enumerate() {
             let id = ui.make_persistent_id(("fx_row", i));
             egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false)
                 .show_header(ui, |ui| {
-                    changed |= ui.checkbox(&mut e.enabled, "").on_hover_text("ON/OFF").changed();
+                    if ui.checkbox(&mut e.enabled, "").on_hover_text("ON/OFF(同じ機材の同じチャンネルを動かす他のエフェクトはOFFになります)").changed() {
+                        changed = true;
+                        if e.enabled {
+                            turned_on = Some(e.name.clone());
+                        }
+                    }
                     ui.label(RichText::new(&e.name).strong());
                     let speed = if e.beats > 0.0 { format!("{}拍", e.beats) } else { format!("{} Hz", e.rate_hz) };
                     ui.label(RichText::new(format!("{} ・ {} ・ {} ・ {speed}", meta.label(&e.sel), e.attr, e.wave.label())).small().color(crate::theme::TEXT_DIM));
@@ -256,6 +262,9 @@ impl App {
                     });
                     ui.add_space(4.0);
                 });
+        }
+        if let Some(name) = turned_on {
+            core.set_effect(&name, true);
         }
         if let Some(i) = remove {
             core.project.effects.remove(i);
