@@ -28,6 +28,8 @@ cargo run --release
 3. このフォルダをMacにコピーして、ターミナルで `./scripts/build-mac.sh`
 4. `dist/mac/DMX Controller.app` ができます(配布用の zip も同じ場所)
 
+**MacからWindows版を作る**: MinGW-w64 を入れて(`brew install mingw-w64`)、`bash ./scripts/build-windows-mingw.sh`。`dist/windows/dmxctl.exe`(単体で動く。追加のDLLは不要)と配布用のzipができます。
+
 **Macが手元に無い場合**: このフォルダを GitHub に置くと、`.github/workflows/build.yml` により Mac 用と Windows 用が自動でビルドされ、「Actions」のページからダウンロードできます。
 
 **Macでの違い・注意**

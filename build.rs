@@ -16,7 +16,13 @@ fn main() {
         .warnings(false);
     match os.as_str() {
         "windows" => {
-            b.define("LINK_PLATFORM_WINDOWS", "1").define("NOMINMAX", None).define("_WIN32_WINNT", "0x0A00").flag_if_supported("/std:c++17").flag_if_supported("/EHsc").flag_if_supported("/bigobj");
+            b.define("LINK_PLATFORM_WINDOWS", "1").define("NOMINMAX", None).define("_WIN32_WINNT", "0x0A00");
+            if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("gnu") {
+                // MinGW(MacからWindows版を作るとき)。libstdc++はDLLにせずexeに内蔵する(下で静的にリンク)
+                b.flag("-std=c++17").flag_if_supported("-Wa,-mbig-obj").cpp_link_stdlib(None);
+            } else {
+                b.flag_if_supported("/std:c++17").flag_if_supported("/EHsc").flag_if_supported("/bigobj");
+            }
         }
         "macos" => {
             b.define("LINK_PLATFORM_MACOSX", "1").flag("-std=c++17");
@@ -28,6 +34,17 @@ fn main() {
     b.compile("dmx_link");
     match os.as_str() {
         "windows" => {
+            if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("gnu") {
+                // MinGWのlibstdc++.aを静的にリンクする(別のPCでも libstdc++-6.dll 無しで動くように)
+                let cxx = std::env::var("CXX_x86_64_pc_windows_gnu").unwrap_or_else(|_| "x86_64-w64-mingw32-g++".into());
+                if let Ok(out) = std::process::Command::new(&cxx).arg("-print-file-name=libstdc++.a").output() {
+                    let path = std::path::PathBuf::from(String::from_utf8_lossy(&out.stdout).trim().to_string());
+                    if let Some(dir) = path.parent() {
+                        println!("cargo:rustc-link-search=native={}", dir.display());
+                    }
+                }
+                println!("cargo:rustc-link-lib=static=stdc++");
+            }
             println!("cargo:rustc-link-lib=iphlpapi");
             println!("cargo:rustc-link-lib=ws2_32");
         }

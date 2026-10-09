@@ -1,3 +1,9 @@
 # 別のPCでもVC++ランタイム無しで動くよう、Cランタイムをexeに内蔵する
 [target.'cfg(all(windows, target_env = "msvc"))']
 rustflags = ["-C", "target-feature=+crt-static"]
+
+# MacなどからMinGWでWindows版を作るとき(scripts/build-windows-mingw.sh)。
+# 別のPCでもDLL無しで動くよう、GCCのランタイム(libgcc・libstdc++・winpthread)もexeに内蔵する
+[target.x86_64-pc-windows-gnu]
+linker = "x86_64-w64-mingw32-gcc"
+rustflags = ["-C", "target-feature=+crt-static", "-C", "link-args=-static -static-libgcc -static-libstdc++"]
