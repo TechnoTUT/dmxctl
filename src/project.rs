@@ -303,6 +303,8 @@ pub enum TempoOp {
     Nudge { delta: f32 },
     /// テンポの元を 内部 ⇄ Ableton Link で切り替える
     Link,
+    /// テンポの元を 内部 ⇄ 音声からの自動検出 で切り替える
+    Audio,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -440,15 +442,18 @@ pub enum TempoSource {
     Link,
     /// 外部から来るMIDIクロック
     MidiClock,
+    /// 音声入力からBPMと拍のタイミングを自動で検出
+    Audio,
 }
 
 impl TempoSource {
-    pub const ALL: [TempoSource; 3] = [TempoSource::Internal, TempoSource::Link, TempoSource::MidiClock];
+    pub const ALL: [TempoSource; 4] = [TempoSource::Internal, TempoSource::Link, TempoSource::MidiClock, TempoSource::Audio];
     pub fn label(self) -> &'static str {
         match self {
             TempoSource::Internal => "内部(TAP・手入力)",
             TempoSource::Link => "Ableton Link",
             TempoSource::MidiClock => "MIDIクロック",
+            TempoSource::Audio => "音声から自動検出",
         }
     }
 }
@@ -558,6 +563,8 @@ pub struct Project {
     pub tempo_source: TempoSource,
     /// MIDIクロックを受け取るポート。空なら、メインのMIDI入力で受け取る
     pub clock_input: String,
+    /// 音声からBPMを検出する入力機器(空なら既定の入力)
+    pub audio_input: String,
     pub osc_enabled: bool,
     pub osc_port: u16,
     /// メイン色とサブ色
@@ -592,6 +599,7 @@ impl Default for Project {
             positions: Vec::new(),
             tempo_source: TempoSource::Internal,
             clock_input: String::new(),
+            audio_input: String::new(),
             osc_enabled: false,
             osc_port: 9000,
             palette: Palette::default(),

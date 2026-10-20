@@ -145,6 +145,7 @@ fn pad_text(a: &Action, meta: &SelMeta, core: &Core) -> (String, String) {
             TempoOp::Set { .. } => (s("テンポ"), s("BPM")),
             TempoOp::Nudge { delta } => (s("テンポ"), format!("BPM {delta:+}")),
             TempoOp::Link => (s("テンポ"), s("Link")),
+            TempoOp::Audio => (s("テンポ"), s("音声")),
         },
         Action::Palette { op } => match op {
             crate::color::PaletteOp::Swap => (s("色"), s("メイン⇄サブ")),
@@ -984,6 +985,10 @@ fn tempo_card(ui: &mut egui::Ui, core: &mut Core) {
                 TempoSource::MidiClock => {
                     ui.label(RichText::new("CLK").small().strong().color(if clock_ok { theme::OK } else { theme::WARN })).on_hover_text(if clock_ok { "MIDIクロックを受信中" } else { "MIDIクロックが来ていません(内部のテンポで走っています)" });
                 }
+                TempoSource::Audio => {
+                    let ok = core.rt.audio_seen.is_some_and(|t| now.duration_since(t) < std::time::Duration::from_secs(5));
+                    ui.label(RichText::new("音声").small().strong().color(if ok { theme::OK } else { theme::WARN })).on_hover_text(core.rt.audio_status.clone());
+                }
                 TempoSource::Internal => {}
             }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -1198,6 +1203,7 @@ fn settings_panel(ui: &mut egui::Ui, core: &mut Core) -> bool {
                     TempoSource::Internal => "内部",
                     TempoSource::Link => "Ableton Link",
                     TempoSource::MidiClock => "MIDIクロック",
+                    TempoSource::Audio => "音声",
                 };
                 if ui.selectable_label(core.project.tempo_source == s, label).clicked() && core.project.tempo_source != s {
                     core.set_tempo_source(s);
@@ -1209,6 +1215,10 @@ fn settings_panel(ui: &mut egui::Ui, core: &mut Core) -> bool {
             let peers = core.rt.link_peers;
             let (text, color) = if peers > 0 { (format!("Link 接続中のアプリ {peers}"), theme::OK) } else { ("Link: 相手が見つかりません(相手のLinkをONに)".to_string(), theme::WARN) };
             ui.label(RichText::new(text).small().color(color));
+        }
+        if core.project.tempo_source == TempoSource::Audio {
+            let ok = core.rt.audio_seen.is_some_and(|t| std::time::Instant::now().duration_since(t) < std::time::Duration::from_secs(5));
+            ui.label(RichText::new(core.rt.audio_status.clone()).small().color(if ok { theme::OK } else { theme::WARN }));
         }
     });
     ui.add_space(6.0);

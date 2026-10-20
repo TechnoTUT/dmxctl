@@ -255,6 +255,7 @@ pub fn is_active(core: &Core, action: &Action) -> bool {
             !ids.is_empty() && ids.iter().all(|id| core.rt.muted.contains(id))
         }
         Action::Tempo { op: TempoOp::Link } => core.project.tempo_source == TempoSource::Link,
+        Action::Tempo { op: TempoOp::Audio } => core.project.tempo_source == TempoSource::Audio,
         // 系統の切り替えは、実際の色で光らせる(いつも明るく)
         Action::Role { op, sel } => match op {
             RoleOp::Toggle => true,

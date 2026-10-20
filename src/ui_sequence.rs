@@ -122,6 +122,39 @@ impl App {
         match core.project.tempo_source {
             TempoSource::Internal => {
             }
+            TempoSource::Audio => {
+                ui.horizontal(|ui| {
+                    ui.label("音声の入力");
+                    let main = "(既定の入力)";
+                    let cur = if core.project.audio_input.is_empty() { main.to_string() } else { core.project.audio_input.clone() };
+                    egui::ComboBox::from_id_salt("audio_port").selected_text(cur).width(300.0).show_ui(ui, |ui| {
+                        if ui.selectable_label(core.project.audio_input.is_empty(), main).clicked() {
+                            core.project.audio_input.clear();
+                            services = true;
+                        }
+                        for p in &self.audio_ports {
+                            if ui.selectable_label(core.project.audio_input == *p, p).clicked() {
+                                core.project.audio_input = p.clone();
+                                services = true;
+                            }
+                        }
+                    });
+                    if ui.button("一覧を更新").clicked() {
+                        self.audio_ports = crate::audio::input_devices();
+                    }
+                    if services {
+                        changed = true;
+                    }
+                });
+                let ok = core.rt.audio_seen.is_some_and(|t| std::time::Instant::now().duration_since(t) < std::time::Duration::from_secs(5));
+                ui.colored_label(if ok { Color32::from_rgb(80, 195, 115) } else { WARN }, core.rt.audio_status.clone());
+                crate::theme::help(
+                    ui,
+                    "DJミキサーのライン出力(オーディオインターフェース経由)かマイクの音から、BPMと拍のタイミングを自動で合わせます。曲が変わったり、4秒ほど聞くと追従します。\
+                     確度が低いとき(トーク・無音・ブレイク)は直前のテンポで走り続けます。外れたときはTAPで直せます(TAPは拍の位置も合わせます)。\
+                     Macでは初回にマイクの許可が出ます",
+                );
+            }
             TempoSource::Link => {
                 let peers = core.rt.link_peers;
                 let (text, color) = if core.rt.link.is_none() {

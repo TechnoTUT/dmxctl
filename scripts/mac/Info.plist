@@ -23,6 +23,9 @@
 	<!-- Art-Net・Ableton Link・OSC で同じネットワークの機器と通信するため(macOS 15 以降は確認が出る) -->
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Art-Netで照明に出力し、Ableton Link・OSCで映像ソフトとテンポや操作を共有し、NDIで映像・音を受け取るために使います。</string>
+	<!-- 音声からBPMを自動検出するため(マイク/ライン入力) -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>音声入力からBPMと拍のタイミングを自動で検出するために使います。</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_ndi._tcp</string>

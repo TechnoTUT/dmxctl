@@ -79,6 +79,7 @@ pub fn summary(a: &Action, meta: &SelMeta) -> String {
             TempoOp::Set { .. } => "BPM\n連続".into(),
             TempoOp::Nudge { delta } => format!("BPM\n{delta:+}"),
             TempoOp::Link => "Ableton Link\nON/OFF".into(),
+            TempoOp::Audio => "音声BPM\nON/OFF".into(),
         },
         Action::Chase { name, mode } => format!("チェイス\n{name} {}", if *mode == PadMode::Toggle { "切替" } else { "押中" }),
         Action::Pair { name, op, .. } => format!("ペア\n{name} {}", if *op == PairOp::Link { "連動" } else { "反転" }),
@@ -240,6 +241,7 @@ pub fn binding_editor(ui: &mut egui::Ui, i: usize, b: &mut Binding, learn: Learn
                             TempoOp::Set { min: 60.0, max: 180.0 },
                             TempoOp::Nudge { delta: 1.0 },
                             TempoOp::Link,
+                            TempoOp::Audio,
                         ];
                         for c in choices {
                             let same = std::mem::discriminant(op) == std::mem::discriminant(&c);
@@ -431,6 +433,7 @@ fn tempo_label(op: &TempoOp) -> &'static str {
         TempoOp::Set { .. } => "BPM調整(フェーダー)",
         TempoOp::Nudge { .. } => "BPM ± (ボタン)",
         TempoOp::Link => "Ableton Link ON/OFF",
+        TempoOp::Audio => "音声から自動BPM ON/OFF",
     }
 }
 

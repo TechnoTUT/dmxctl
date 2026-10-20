@@ -317,3 +317,27 @@ fn chase_steps_do_not_mark_the_project_dirty() {
     at_beat(&mut c, 2.0);
     assert!(!c.dirty, "動作中のチェイスのために、毎拍自動保存されてはいけない");
 }
+
+#[test]
+fn audio_source_follows_detected_tempo_and_phase() {
+    use crate::audio::Estimate;
+    let mut c = core();
+    let now = Instant::now();
+    // 音声以外のテンポの元では無視される
+    c.audio_report(Estimate { bpm: 140.0, phase: 0.0, confidence: 0.9 }, now);
+    assert_eq!(c.project.bpm, 120.0);
+    c.set_tempo_source(TempoSource::Audio);
+    // 確からしさが低いうちは変えない
+    c.audio_report(Estimate { bpm: 140.0, phase: 0.0, confidence: 0.1 }, now);
+    assert_eq!(c.project.bpm, 120.0);
+    // 最初は一気に合い、拍の端数も揃う
+    c.rt.beat = 3.3;
+    c.audio_report(Estimate { bpm: 140.0, phase: 0.1, confidence: 0.8 }, now);
+    assert!((c.project.bpm - 140.0).abs() < 0.11);
+    assert!((c.rt.beat.rem_euclid(1.0) - 0.1).abs() < 1e-6);
+    // 小さな揺れは無視、大きな食い違いは1回では従わない
+    c.audio_report(Estimate { bpm: 140.2, phase: 0.1, confidence: 0.8 }, now);
+    assert!((c.project.bpm - 140.0).abs() < 0.11);
+    c.audio_report(Estimate { bpm: 70.0, phase: 0.1, confidence: 0.8 }, now);
+    assert!((c.project.bpm - 140.0).abs() < 0.11);
+}

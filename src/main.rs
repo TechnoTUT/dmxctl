@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod apcmini;
+mod audio;
 mod app;
 mod color;
 mod engine;

@@ -321,6 +321,7 @@ pub fn apply(p: &mut Project, lib: &Library) -> Report {
         ("NDI:サブ=映像".into(), Action::LiveColor { role: ColorRole::Sub, source: LiveSource::Video }),
         ("NDI:サブ=音".into(), Action::LiveColor { role: ColorRole::Sub, source: LiveSource::Audio }),
         ("Ableton Link".into(), Action::Tempo { op: TempoOp::Link }),
+        ("音声BPM".into(), Action::Tempo { op: TempoOp::Audio }),
         ("BPM -1".into(), Action::Tempo { op: TempoOp::Nudge { delta: -1.0 } }),
         ("BPM +1".into(), Action::Tempo { op: TempoOp::Nudge { delta: 1.0 } }),
     ];

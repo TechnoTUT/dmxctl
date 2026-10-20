@@ -44,6 +44,8 @@ pub struct MidiMsg {
 /// MIDIクロック(0xF8)は1拍に24回
 pub const CLOCK_PPQ: f64 = 24.0;
 /// これ以上クロックが来なければ途切れたとみなし、内部のテンポで走り続ける
+/// 音声検出を採用する確からしさの下限
+pub const AUDIO_MIN_CONF: f32 = 0.25;
 pub const CLOCK_TIMEOUT: Duration = Duration::from_millis(500);
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -117,6 +119,11 @@ pub struct Runtime {
     pub osc_learn: Option<usize>,
     pub last_osc: String,
     pub osc_status: String,
+    pub audio_status: String,
+    /// 音声検出の確からしさ(0〜1)と、最後に採用した時刻
+    pub audio_conf: f32,
+    pub audio_pending: f32,
+    pub audio_seen: Option<Instant>,
     /// メイン色とサブ色を入れ替えているか(自動入れ替えとは別。保存しない)
     pub color_swapped: bool,
     /// 最後にメイン/サブの色を機材に出したときの「入れ替え」の状態。まだ一度も出していなければNone
@@ -180,6 +187,10 @@ impl Runtime {
             osc_learn: None,
             last_osc: String::new(),
             osc_status: "停止中".into(),
+            audio_status: "停止中".into(),
+            audio_conf: 0.0,
+            audio_pending: 0.0,
+            audio_seen: None,
             color_swapped: false,
             palette_shown: None,
             flash: None,
@@ -550,6 +561,7 @@ impl Core {
     pub fn set_tempo_source(&mut self, s: TempoSource) {
         if self.project.tempo_source != s {
             self.project.tempo_source = s;
+            self.rt.audio_seen = None;
             self.dirty = true;
         }
         self.ensure_link();
@@ -587,9 +599,48 @@ impl Core {
                     return;
                 }
             }
-            TempoSource::Internal => {}
+            TempoSource::Internal | TempoSource::Audio => {}
         }
         self.advance_beat(dt);
+    }
+
+    /// 音声検出の結果を受け取る。確からしいときだけ、BPMをなめらかに寄せ、拍のタイミングを少しずつ合わせる
+    pub fn audio_report(&mut self, est: crate::audio::Estimate, now: Instant) {
+        if self.project.tempo_source != TempoSource::Audio {
+            return;
+        }
+        self.rt.audio_conf = est.confidence;
+        if est.confidence < AUDIO_MIN_CONF {
+            self.rt.audio_status = format!("リズムを探しています(確度 {:.0}%)", est.confidence * 100.0);
+            return;
+        }
+        self.rt.audio_status = format!("検出中 {:.1} BPM(確度 {:.0}%)", est.bpm, est.confidence * 100.0);
+        let locked = self.rt.audio_seen.is_some_and(|t| now.duration_since(t) < Duration::from_secs(5));
+        let cur = self.project.bpm;
+        let new = est.bpm.clamp(BPM_MIN, BPM_MAX);
+        // 最初は一気に、以降は小さな揺れを無視してなめらかに寄せる(照明の動きが突然変わらないように)
+        let next = if !locked {
+            new
+        } else if (new - cur).abs() < 0.4 {
+            cur
+        } else if (new - cur).abs() > 8.0 {
+            // 大きく違うときは、2回続けて同じ値が出たときだけ従う
+            if (new - self.rt.audio_pending).abs() < 1.0 { new } else { cur }
+        } else {
+            cur + (new - cur) * 0.35
+        };
+        self.rt.audio_pending = new;
+        self.set_bpm((next * 10.0).round() / 10.0);
+        // 拍のタイミング: いまの拍の端数と、音の拍の端数の差を、少しずつ詰める
+        let mine = self.rt.beat.rem_euclid(1.0);
+        let mut err = est.phase as f64 - mine;
+        if err > 0.5 {
+            err -= 1.0;
+        } else if err < -0.5 {
+            err += 1.0;
+        }
+        self.rt.beat += if locked { err * 0.2 } else { err };
+        self.rt.audio_seen = Some(now);
     }
 
     /// MIDIクロックを受け取る(クロック中でなければ何もしない)
@@ -684,6 +735,7 @@ impl Core {
             }
             // 拍の位置はクロックが決める
             TempoSource::MidiClock => {}
+            TempoSource::Audio => self.rt.beat = rounded,
         }
     }
 
@@ -1340,6 +1392,12 @@ impl Core {
                 TempoOp::Nudge { delta } => {
                     if rising {
                         self.set_bpm(self.project.bpm + delta);
+                    }
+                }
+                TempoOp::Audio => {
+                    if rising {
+                        let to = if self.project.tempo_source == TempoSource::Audio { TempoSource::Internal } else { TempoSource::Audio };
+                        self.set_tempo_source(to);
                     }
                 }
                 TempoOp::Link => {

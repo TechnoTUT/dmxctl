@@ -74,6 +74,8 @@ pub struct App {
     pub osc: Option<crate::osc::OscServer>,
     /// NDIの受信(設定で有効にしている間だけ動かす)
     ndi: Option<crate::ndi::NdiService>,
+    audio: Option<crate::audio::AudioService>,
+    pub audio_ports: Vec<String>,
     /// OSCの受信ポートの編集中の値(「適用」で反映)
     pub osc_port_edit: u16,
     /// 位置プリセットの保存欄
@@ -158,6 +160,8 @@ impl App {
             pe: Default::default(),
             osc: None,
             ndi: None,
+            audio: None,
+            audio_ports: crate::audio::input_devices(),
             osc_port_edit: 9000,
             pos_name: String::new(),
             pos_fade: 0.5,
@@ -202,10 +206,10 @@ impl App {
 
     /// 設定に合わせて、Ableton Link・OSC受信・MIDIクロック用の入力を開始/停止する
     pub fn apply_services(&mut self) {
-        let (osc_on, port, src, clock_port, ndi_on) = {
+        let (osc_on, port, src, clock_port, ndi_on, audio_port) = {
             let mut c = lock(&self.core);
             c.ensure_link();
-            (c.project.osc_enabled, c.project.osc_port, c.project.tempo_source, c.project.clock_input.clone(), c.project.ndi.enabled)
+            (c.project.osc_enabled, c.project.osc_port, c.project.tempo_source, c.project.clock_input.clone(), c.project.ndi.enabled, c.project.audio_input.clone())
         };
         if ndi_on != self.ndi.is_some() {
             self.ndi = ndi_on.then(|| crate::ndi::NdiService::start(self.core.clone(), Some(self.ctx.clone())));
@@ -223,6 +227,15 @@ impl App {
                     }
                 },
                 None => lock(&self.core).rt.osc_status = "停止中".into(),
+            }
+        }
+        // 音声からのBPM検出(テンポの元が「音声」のときだけ入力を開く)
+        let want_audio = (src == TempoSource::Audio).then(|| audio_port.clone());
+        if self.audio.as_ref().map(|a| &a.device) != want_audio.as_ref() {
+            self.audio = None;
+            match want_audio {
+                Some(dev) => self.audio = Some(crate::audio::AudioService::start(self.core.clone(), &dev)),
+                None => lock(&self.core).rt.audio_status = "停止中".into(),
             }
         }
         // MIDIクロックを、メインの入力とは別のポートから受け取る
