@@ -72,7 +72,65 @@ pub enum DimFx {
 
 /// 動きの1周にかける拍数
 pub const RATES: [(f64, &str); 5] = [(16.0, "4小節"), (8.0, "2小節"), (4.0, "1小節"), (2.0, "2拍"), (1.0, "1拍")];
-pub const POSITION_NAMES: [&str; 3] = ["客席", "天井", "床"];
+/// 床に横一列で置いたときの基準の向き
+pub const POSITION_NAMES: [&str; 4] = ["真上", "扇形", "交差", "客席"];
+
+/// 床置き・横一列の4台の、基準の向き(傾き: [右, 前] 度。0,0 = 真上)
+pub fn base_lean(position: u8, i: usize) -> [f64; 2] {
+    // 列の中での位置: 左端 -1 … 右端 +1
+    let k = (i as f64 - 1.5) / 1.5;
+    match position % 4 {
+        0 => [0.0, 0.0],
+        1 => [k * 35.0, 10.0],
+        2 => [-k * 30.0, 10.0],
+        _ => [k * 12.0, 50.0],
+    }
+}
+
+/// 傾き(右, 前。度)を、Pan/Tiltの角度(度。Pan 0 = 正面、Tilt 0 = 真上)にする。
+/// 同じ向きになるPan/Tiltの組は2通り(Panを180°回してTiltを逆に)あるので、
+/// 今のPanに近いほうを選ぶ(真上を通る動きで、Panが急に半回転しないように)。
+/// `pan_lim` はPanの角度の範囲(本体は540°)
+pub fn aim(lean: [f64; 2], prev_pan: f64, pan_lim: (f64, f64)) -> (f64, f64) {
+    let [x, y] = lean;
+    let r = x.hypot(y).min(135.0);
+    if r < 1.0 {
+        // ほぼ真上: Panはそのままにして、Tiltだけで寄せる
+        let p = prev_pan.to_radians();
+        return (prev_pan, y * p.cos() + x * p.sin());
+    }
+    let phi = x.atan2(y).to_degrees();
+    let mut best: Option<(f64, f64, f64)> = None;
+    for (base, t) in [(phi, r), (phi + 180.0, -r)] {
+        for k in -2..=2 {
+            let p = base + 360.0 * k as f64;
+            if p < pan_lim.0 || p > pan_lim.1 {
+                continue;
+            }
+            let d = (p - prev_pan).abs();
+            if best.is_none_or(|b| d < b.2) {
+                best = Some((p, t, d));
+            }
+        }
+    }
+    best.map(|(p, t, _)| (p, t)).unwrap_or((prev_pan, 0.0))
+}
+
+/// Pan/Tiltの角度(度)から、ビームの向き [右, 上, 前(客席側)] の単位ベクトル
+pub fn direction(pan_deg: f64, tilt_deg: f64) -> [f64; 3] {
+    let (p, t) = (pan_deg.to_radians(), tilt_deg.to_radians());
+    [t.sin() * p.sin(), t.cos(), t.sin() * p.cos()]
+}
+
+/// 本体の調整用の表示
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Calib {
+    Off,
+    /// 全台を真上に
+    Up,
+    /// 全台を正面(前に45°)に
+    Front,
+}
 
 /// 照明の「見た目」一式。シーンにはこれを保存する
 #[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
@@ -105,7 +163,7 @@ impl Default for Look {
 }
 
 /// フェーダー(APC mini mk2 の9本と同じ並び)。すべて 0..1
-pub const FADER_NAMES: [&str; 9] = ["動きの大きさ", "Pan位置", "Tilt位置", "モーター速度", "効果の深さ", "ストロボ速度", "回転速度", "減衰", "マスター"];
+pub const FADER_NAMES: [&str; 9] = ["動きの大きさ", "左右の傾き", "前後の傾き", "モーター速度", "効果の深さ", "ストロボ速度", "回転速度", "減衰", "マスター"];
 pub const F_SIZE: usize = 0;
 pub const F_PAN: usize = 1;
 pub const F_TILT: usize = 2;
@@ -115,7 +173,7 @@ pub const F_STROBE: usize = 5;
 pub const F_WHEEL: usize = 6;
 pub const F_DECAY: usize = 7;
 pub const F_MASTER: usize = 8;
-pub const FADER_DEFAULTS: [f32; 9] = [0.5, 0.5, 0.5, 0.0, 1.0, 0.7, 0.3, 0.5, 1.0];
+pub const FADER_DEFAULTS: [f32; 9] = [0.5, 0.5, 0.5, 1.0, 1.0, 0.7, 0.3, 0.5, 1.0];
 
 /// 操作(APCのボタン・画面のボタン共通)
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -159,8 +217,10 @@ pub struct Setup {
     pub addresses: [u16; N],
     pub invert_pan: [bool; N],
     pub invert_tilt: [bool; N],
-    /// 客席/天井/床 の基準位置 (pan, tilt)
-    pub positions: [[f32; 2]; 3],
+    /// 客席(正面)を向くときのPanの値(0..1)。本体の置き方で決まる
+    pub pan_front: f32,
+    /// 真上を向くときのTiltの値(0..1)
+    pub tilt_up: f32,
     pub scenes: [Option<Look>; 8],
 }
 
@@ -171,7 +231,8 @@ impl Default for Setup {
             addresses: [1, 10, 19, 28],
             invert_pan: [false; N],
             invert_tilt: [false; N],
-            positions: [[0.5, 0.25], [0.5, 0.5], [0.5, 0.08]],
+            pan_front: 0.5,
+            tilt_up: 0.5,
             scenes: [None; 8],
         }
     }
@@ -193,6 +254,9 @@ pub struct State {
     pub setup: Setup,
     /// 直近に計算した出力
     pub heads: [Head; N],
+    /// 直近のPan/Tiltの角度(度)。プレビューと、次のフレームの向きの選び方に使う
+    pub angles: [[f64; 2]; N],
+    pub calib: Calib,
     pub beat: f64,
     phase: f64,
     last_t: Option<f64>,
@@ -219,6 +283,8 @@ impl State {
             clock: Clock::new(bpm),
             setup,
             heads: [Head::default(); N],
+            angles: [[0.0; 2]; N],
+            calib: Calib::Off,
             beat: 0.0,
             phase: 0.0,
             last_t: None,
@@ -272,7 +338,7 @@ impl State {
             Action::Spread(s) => l.spread = s,
             Action::Color(c) => l.color = c % 8,
             Action::ColorMode(m) => l.color_mode = m,
-            Action::Position(p) => l.position = p % 3,
+            Action::Position(p) => l.position = p % 4,
             Action::Gobo(g) => l.gobo = g % 8,
             Action::GoboMode(m) => l.gobo_mode = m,
             Action::Dim(d) => l.dim = d,
@@ -380,42 +446,77 @@ impl State {
         }
 
         for i in 0..N {
-            self.heads[i] = self.head(i, beat);
+            let (mut h, lean) = self.head(i, beat);
+            let lean = match self.calib {
+                Calib::Off => lean,
+                Calib::Up => [0.0, 0.0],
+                Calib::Front => [0.0, 45.0],
+            };
+            if self.calib != Calib::Off {
+                h = Head { color: COLORS[0].1, gobo: GOBOS[0], strobe: 0, dimmer: 1.0, ..h };
+            }
+            self.aim_head(i, lean, &mut h);
+            self.heads[i] = h;
         }
     }
 
-    fn head(&self, i: usize, beat: f64) -> Head {
+    /// 傾き(度)を、取り付けの向き(反転・正面のPan・真上のTilt)を考えてDMXのPan/Tiltにする
+    fn aim_head(&mut self, i: usize, lean: [f64; 2], h: &mut Head) {
+        let s = &self.setup;
+        let ps = if s.invert_pan[i] { -1.0 } else { 1.0 };
+        let ts = if s.invert_tilt[i] { -1.0 } else { 1.0 };
+        let front = s.pan_front as f64;
+        let up = s.tilt_up as f64;
+        // DMXの0..1に収まるPanの角度の範囲
+        let (a, b) = (-front * 540.0 * ps, (1.0 - front) * 540.0 * ps);
+        let (p, t) = aim(lean, self.angles[i][0], (a.min(b), a.max(b)));
+        let pan = (front + ps * p / 540.0).clamp(0.0, 1.0);
+        let tilt = (up + ts * t / 270.0).clamp(0.0, 1.0);
+        h.pan = pan as f32;
+        h.tilt = tilt as f32;
+        self.angles[i] = [(pan - front) * 540.0 * ps, (tilt - up) * 270.0 * ts];
+    }
+
+    /// 1台ぶんの出力(Pan/Tiltはまだ入れない)と、ビームの傾き [右, 前](度)
+    fn head(&self, i: usize, beat: f64) -> (Head, [f64; 2]) {
         let l = &self.look;
         let f = &self.faders;
-        let s = &self.setup;
 
-        // ---- 動き
+        // ---- 動き(床置きなので、真上からどちらへ何度傾けるかで考える)
         let fan = if l.spread == Spread::Fan { i as f64 / N as f64 } else { 0.0 };
         let p = self.phase + fan;
         let (sin, cos) = ((p * TAU).sin(), (p * TAU).cos());
+        let a = f[F_SIZE] as f64 * 45.0;
+        let base = base_lean(l.position, i);
+        let mut center = [base[0] + (f[F_PAN] as f64 - 0.5) * 90.0, base[1] + (f[F_TILT] as f64 - 0.5) * 120.0];
         let (mut x, y) = match l.motion {
             Motion::Still => (0.0, 0.0),
-            Motion::Circle => (cos, sin),
-            Motion::Eight => (sin, (2.0 * p * TAU).sin() * 0.6),
-            Motion::PanSweep => (sin, 0.0),
-            Motion::TiltSweep => (0.0, sin),
-            Motion::Cross => (sin, if i % 2 == 0 { sin } else { -sin }),
-            Motion::Random => (self.random_targets[i][0] as f64, self.random_targets[i][1] as f64),
-            Motion::Wave => ((i as f64 - 1.5) / 1.5, ((self.phase + i as f64 / N as f64) * TAU).sin()),
+            Motion::Circle => {
+                // 真上を囲む円は、Panが回り続けないと描けないので、円が真上にかからないところまで中心を倒す
+                let d = center[0].hypot(center[1]);
+                let need = a * 1.5;
+                if d < need {
+                    if d < 1e-6 {
+                        center = [0.0, need];
+                    } else {
+                        center = [center[0] * need / d, center[1] * need / d];
+                    }
+                }
+                (cos * a, sin * a)
+            }
+            Motion::Eight => (sin * a, (2.0 * p * TAU).sin() * a * 0.5),
+            Motion::PanSweep => (sin * a, 0.0),
+            Motion::TiltSweep => (0.0, sin * a),
+            // 隣どうしが逆に振れて、ビームがハサミのように交差する
+            Motion::Cross => (if i % 2 == 0 { sin } else { -sin } * a, 0.0),
+            Motion::Random => (self.random_targets[i][0] as f64 * a, self.random_targets[i][1] as f64 * a),
+            // 前後の波が、左の台から右の台へ伝わる
+            Motion::Wave => (0.0, ((self.phase + i as f64 / N as f64) * TAU).sin() * a),
         };
         if l.spread == Spread::Mirror && i >= N / 2 {
             x = -x;
         }
-        let base = s.positions[l.position as usize % 3];
-        let size = f[F_SIZE] as f64;
-        let mut pan = base[0] as f64 + (f[F_PAN] as f64 - 0.5) * 0.5 + x * size * 0.25;
-        let mut tilt = base[1] as f64 + (f[F_TILT] as f64 - 0.5) * 0.5 + y * size * 0.25;
-        if s.invert_pan[i] {
-            pan = 1.0 - pan;
-        }
-        if s.invert_tilt[i] {
-            tilt = 1.0 - tilt;
-        }
+        let lean = [center[0] + x, center[1] + y];
 
         // ---- 色: 「次の色」は拍数ぶん進める。Fan/Mirrorのときは台ごとにずらす
         let offset = if l.spread == Spread::Sync { 0 } else { i as i64 };
@@ -483,15 +584,17 @@ impl State {
             dimmer = 1.0;
         }
 
-        Head {
-            pan: pan as f32,
-            tilt: tilt as f32,
+        let h = Head {
+            pan: 0.5,
+            tilt: 0.5,
             color,
             gobo,
             strobe,
             dimmer: dimmer as f32,
-            pt_speed: (f[F_MOTOR].clamp(0.0, 1.0) * 255.0).round() as u8,
-        }
+            // フェーダーは上げるほど速い(本体のchは0が最速)
+            pt_speed: ((1.0 - f[F_MOTOR].clamp(0.0, 1.0)) * 255.0).round() as u8,
+        };
+        (h, lean)
     }
 }
 
@@ -532,25 +635,109 @@ mod tests {
         }
     }
 
+    /// 台 i のビームの向き [右, 上, 前]
+    fn dir(s: &State, i: usize) -> [f64; 3] {
+        direction(s.angles[i][0], s.angles[i][1])
+    }
+
+    fn close(a: [f64; 3], b: [f64; 3]) -> bool {
+        a.iter().zip(b).all(|(x, y)| (x - y).abs() < 0.02)
+    }
+
     #[test]
     fn fan_spreads_and_sync_aligns() {
         let mut s = state();
         run(&mut s, 0.0, 1.3);
-        assert_ne!(s.heads[0].pan, s.heads[1].pan);
+        assert!(!close(dir(&s, 0), dir(&s, 1)));
         s.press(Action::Spread(Spread::Sync), true, 1.3);
+        s.press(Action::Position(0), true, 1.3);
         s.tick(1.325);
-        assert!(s.heads.iter().all(|h| h.pan == s.heads[0].pan && h.tilt == s.heads[0].tilt));
+        assert!((1..N).all(|i| close(dir(&s, i), dir(&s, 0))));
     }
 
     #[test]
-    fn mirror_flips_pan_of_right_pair() {
+    fn mirror_flips_sideways_lean_of_right_pair() {
         let mut s = state();
         s.press(Action::Spread(Spread::Mirror), true, 0.0);
         s.press(Action::Motion(Motion::PanSweep), true, 0.0);
         run(&mut s, 0.0, 0.7);
-        let c = 0.5;
-        assert!((s.heads[0].pan - c) * (s.heads[3].pan - c) < 0.0);
-        assert!(((s.heads[0].pan - c) + (s.heads[3].pan - c)).abs() < 1e-5);
+        let (d0, d3) = (dir(&s, 0), dir(&s, 3));
+        assert!(d0[0].abs() > 0.1);
+        assert!((d0[0] + d3[0]).abs() < 0.02 && (d0[1] - d3[1]).abs() < 0.02);
+    }
+
+    #[test]
+    fn positions_point_where_named() {
+        let mut s = state();
+        s.press(Action::Motion(Motion::Still), true, 0.0);
+        s.press(Action::Position(0), true, 0.0);
+        s.tick(0.0);
+        assert!((0..N).all(|i| dir(&s, i)[1] > 0.999), "真上");
+        assert_eq!(s.heads[0].tilt, 0.5);
+        s.press(Action::Position(1), true, 0.0);
+        s.tick(0.1);
+        assert!(dir(&s, 0)[0] < -0.3 && dir(&s, 3)[0] > 0.3, "扇形は外向き");
+        s.press(Action::Position(2), true, 0.0);
+        s.tick(0.2);
+        assert!(dir(&s, 0)[0] > 0.3 && dir(&s, 3)[0] < -0.3, "交差は内向き");
+        s.press(Action::Position(3), true, 0.0);
+        s.tick(0.3);
+        assert!((0..N).all(|i| dir(&s, i)[2] > 0.6), "客席");
+    }
+
+    #[test]
+    fn aim_roundtrips_and_stays_near_previous_pan() {
+        for lean in [[0.0, 40.0], [30.0, 0.0], [-25.0, 10.0], [10.0, -60.0], [0.3, 0.2]] {
+            let (p, t) = aim(lean, 0.0, (-270.0, 270.0));
+            let d = direction(p, t);
+            let r = lean[0].hypot(lean[1]).to_radians();
+            assert!((d[1] - r.cos()).abs() < 0.02, "{lean:?}");
+            if lean[0].hypot(lean[1]) > 1.0 {
+                assert!((d[0] / r.sin() - lean[0].hypot(lean[1]).recip() * lean[0]).abs() < 0.02, "{lean:?}");
+            }
+        }
+        // 真上を横切る左右の振り: Panは止まったまま、Tiltの向きが変わるだけ
+        let mut prev = 0.0;
+        let mut pans = Vec::new();
+        for k in -10..=10 {
+            let (p, _) = aim([k as f64 * 3.0, 0.0], prev, (-270.0, 270.0));
+            pans.push(p);
+            prev = p;
+        }
+        assert!(pans.windows(2).all(|w| (w[0] - w[1]).abs() < 1.0), "{pans:?}");
+    }
+
+    #[test]
+    fn circle_never_jumps_pan() {
+        let mut s = state();
+        s.press(Action::Position(0), true, 0.0);
+        s.press(Action::Rate(2), true, 0.0);
+        s.faders[F_SIZE] = 1.0;
+        s.tick(0.0);
+        let mut prev = None;
+        let mut t = 0.025;
+        while t < 8.0 {
+            s.tick(t);
+            if let Some(p) = prev {
+                let d: f64 = s.angles[0][0] - p;
+                // 半回転(180°)の切り替えが起きていないこと
+                assert!(d.abs() < 30.0, "Panが{d}°跳んだ(t={t})");
+            }
+            prev = Some(s.angles[0][0]);
+            t += 0.025;
+        }
+    }
+
+    #[test]
+    fn calibration_overrides_look() {
+        let mut s = state();
+        s.press(Action::Blackout, true, 0.0);
+        s.calib = Calib::Up;
+        s.tick(0.0);
+        assert!((0..N).all(|i| dir(&s, i)[1] > 0.999 && s.heads[i].dimmer == 1.0 && s.heads[i].color == COLORS[0].1));
+        s.calib = Calib::Front;
+        s.tick(0.1);
+        assert!((0..N).all(|i| (dir(&s, i)[2] - 45f64.to_radians().sin()).abs() < 0.01));
     }
 
     #[test]
@@ -659,12 +846,19 @@ mod tests {
     }
 
     #[test]
-    fn invert_mirrors_axis() {
+    fn inverted_fixture_points_the_same_way() {
         let mut s = state();
         s.press(Action::Motion(Motion::Still), true, 0.0);
+        s.press(Action::Position(3), true, 0.0);
+        s.press(Action::Spread(Spread::Sync), true, 0.0);
         s.faders[F_PAN] = 0.8;
-        s.setup.invert_pan[2] = true;
         s.tick(0.0);
-        assert!((s.heads[0].pan + s.heads[2].pan - 1.0).abs() < 1e-6);
+        let normal = (s.heads[1], dir(&s, 1));
+        s.setup.invert_pan[1] = true;
+        s.setup.invert_tilt[1] = true;
+        s.tick(0.1);
+        // DMXの値は変わるが、ビームの向きは同じ
+        assert_ne!(s.heads[1].pan, normal.0.pan);
+        assert!(close(dir(&s, 1), normal.1));
     }
 }

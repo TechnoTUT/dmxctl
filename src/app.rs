@@ -295,28 +295,20 @@ impl App {
     // ------------------------------------------------------------ プレビュー
 
     fn preview(&mut self, ui: &mut egui::Ui) {
-        let (heads, enabled, mode, addrs, t) = {
+        let (heads, angles, enabled, mode, addrs, t) = {
             let s = lock(&self.shared.state);
-            (s.heads, s.enabled, s.setup.mode, s.setup.addresses, self.shared.now())
+            (s.heads, s.angles, s.enabled, s.setup.mode, s.setup.addresses, self.shared.now())
         };
-        ui.label(RichText::new("プレビュー(横=Pan / 縦=Tilt、丸の大きさ=明るさ)").size(12.0).color(Color32::GRAY));
-        egui::Grid::new("heads").num_columns(2).spacing([14.0, 10.0]).show(ui, |ui| {
-            for (i, h) in heads.iter().enumerate() {
-                ui.vertical(|ui| {
-                    ui.set_width(200.0);
-                    let (rect, _) = ui.allocate_exact_size(vec2(200.0, 130.0), Sense::hover());
-                    draw_head(ui, rect, h, enabled[i], t);
-                    ui.label(RichText::new(format!("{}台目  アドレス {}", i + 1, addrs[i])).strong());
-                    let mut ch = vec![0u8; mode.channels()];
-                    crate::fixture::encode(h, mode, &mut ch);
-                    let text = ch.iter().map(|v| format!("{v:>3}")).collect::<Vec<_>>().join(" ");
-                    ui.add(egui::Label::new(RichText::new(text).monospace().size(10.0).color(Color32::GRAY)).wrap());
-                });
-                if i % 2 == 1 {
-                    ui.end_row();
-                }
-            }
-        });
+        ui.label(RichText::new("プレビュー(客席から見た図。床に横一列、左から1〜4台目。手前に向くビームほど太く見える)").size(12.0).color(Color32::GRAY));
+        let (rect, _) = ui.allocate_exact_size(vec2(440.0, 270.0), Sense::hover());
+        draw_stage(ui, rect, &heads, &angles, &enabled, t);
+        ui.add_space(4.0);
+        for (i, h) in heads.iter().enumerate() {
+            let mut ch = vec![0u8; mode.channels()];
+            crate::fixture::encode(h, mode, &mut ch);
+            let text = ch.iter().map(|v| format!("{v:>3}")).collect::<Vec<_>>().join(" ");
+            ui.label(RichText::new(format!("{}台目 @{:<3} {text}", i + 1, addrs[i])).monospace().size(10.5).color(Color32::GRAY));
+        }
     }
 
     fn settings(&mut self, ui: &mut egui::Ui) {
@@ -350,15 +342,18 @@ impl App {
                 }
             }
             ui.add_space(4.0);
-            ui.label("位置ボタンの基準(Pan / Tilt)");
-            egui::Grid::new("positions").num_columns(3).show(ui, |ui| {
-                for (k, name) in POSITION_NAMES.iter().enumerate() {
-                    ui.label(*name);
-                    ui.add(egui::Slider::new(&mut setup.positions[k][0], 0.0..=1.0).text("Pan"));
-                    ui.add(egui::Slider::new(&mut setup.positions[k][1], 0.0..=1.0).text("Tilt"));
-                    ui.end_row();
-                }
+            ui.add_space(6.0);
+            ui.label(RichText::new("床置きの向き合わせ").strong());
+            ui.label(RichText::new("1.「真上」にして、ビームがまっすぐ上を向くまで「真上のTilt」を動かす\n2.「正面」にして、客席側へ45°倒れるまで「正面のPan」を動かす\n   後ろへ倒れる台は Tilt反転、左右が逆に動く台は Pan反転 にチェック").size(12.0).color(Color32::GRAY));
+            let mut calib = lock(&self.shared.state).calib;
+            ui.horizontal(|ui| {
+                ui.radio_value(&mut calib, Calib::Off, "演出");
+                ui.radio_value(&mut calib, Calib::Up, "真上(白・全灯)");
+                ui.radio_value(&mut calib, Calib::Front, "正面(白・全灯)");
             });
+            lock(&self.shared.state).calib = calib;
+            ui.add(egui::Slider::new(&mut setup.tilt_up, 0.0..=1.0).custom_formatter(|v, _| format!("{:.0}", v * 255.0)).text("真上のTilt"));
+            ui.add(egui::Slider::new(&mut setup.pan_front, 0.0..=1.0).custom_formatter(|v, _| format!("{:.0}", v * 255.0)).text("正面のPan"));
             if setup != before {
                 lock(&self.shared.state).setup = setup;
             }
@@ -378,7 +373,7 @@ impl App {
 
     fn help(&self, ui: &mut egui::Ui) {
         egui::CollapsingHeader::new("使い方").default_open(false).show(ui, |ui| {
-            ui.label("・上から: 動き / 速さ・揃え方 / 色 / 色の変え方・位置 / ゴボ / ゴボの変え方・停止・オート / 明るさの効果 / キメ・テンポ");
+            ui.label("・上から: 動き / 速さ・揃え方 / 色 / 色の変え方・向き / ゴボ / ゴボの変え方・客席・停止・オート / 明るさの効果 / キメ・テンポ");
             ui.label("・フラッシュ・ストロボは押している間だけ。ブラックアウト中でも光る");
             ui.label("・右の列(シーン): SHIFTを押しながらで今の見た目を保存、押すと呼び出し");
             ui.label("・下の段: 1〜4台目のオン/オフ。右端のトラックボタンは拍で点滅");
@@ -454,29 +449,45 @@ fn head_color(raw: u8, t: f64) -> Color32 {
     mix(rgb(a), rgb(b), 0.5)
 }
 
-fn draw_head(ui: &egui::Ui, rect: Rect, h: &Head, enabled: bool, t: f64) {
-    let p = ui.painter();
-    p.rect_filled(rect, 6.0, Color32::from_rgb(18, 19, 23));
-    p.rect_stroke(rect, 6.0, Stroke::new(1.0, Color32::from_gray(60)), StrokeKind::Inside);
-    let grid = Stroke::new(1.0, Color32::from_gray(40));
-    p.line_segment([rect.center_top(), rect.center_bottom()], grid);
-    p.line_segment([rect.left_center(), rect.right_center()], grid);
-    // ストロボ中は点滅させて見せる
-    let strobe_on = h.strobe == 0 || (t * (4.0 + h.strobe as f64 / 20.0)).fract() < 0.5;
-    let level = if strobe_on { h.dimmer } else { 0.0 };
-    let pos = Pos2::new(rect.left() + 8.0 + h.pan * (rect.width() - 16.0), rect.bottom() - 8.0 - h.tilt * (rect.height() - 16.0));
-    let c = head_color(h.color, t);
-    p.circle_filled(pos, 6.0 + 10.0 * level, mix(Color32::from_rgb(18, 19, 23), c, level));
-    p.circle_stroke(pos, 6.0, Stroke::new(1.0, Color32::from_gray(140)));
-    let gobo = match h.gobo {
-        0..=7 | 64..=71 => "オープン".to_string(),
-        8..=63 => format!("ゴボ{}", [8u8, 16, 25, 32, 40, 48, 56].iter().rposition(|&v| h.gobo >= v).unwrap_or(0) + 1),
-        72..=127 => "シェイク".into(),
-        _ => "回転".into(),
-    };
-    p.text(rect.left_top() + vec2(5.0, 4.0), Align2::LEFT_TOP, gobo, FontId::proportional(10.5), Color32::GRAY);
-    if !enabled {
-        p.text(rect.center(), Align2::CENTER_CENTER, "OFF", FontId::proportional(16.0), Color32::from_rgb(255, 80, 80));
+fn draw_stage(ui: &egui::Ui, rect: Rect, heads: &[Head; N], angles: &[[f64; 2]; N], enabled: &[bool; N], t: f64) {
+    let p = ui.painter().with_clip_rect(rect.shrink(1.0));
+    let bg = Color32::from_rgb(14, 15, 19);
+    p.rect_filled(rect, 6.0, bg);
+    p.rect_stroke(rect, 6.0, Stroke::new(1.0, Color32::from_gray(55)), StrokeKind::Inside);
+    let floor = rect.bottom() - 28.0;
+    p.line_segment([Pos2::new(rect.left() + 8.0, floor), Pos2::new(rect.right() - 8.0, floor)], Stroke::new(1.5, Color32::from_gray(70)));
+    let len = (floor - rect.top() - 12.0) as f64;
+    for i in 0..N {
+        let h = &heads[i];
+        let base = Pos2::new(rect.left() + rect.width() * (i as f32 + 0.5) / N as f32, floor - 10.0);
+        let d = direction(angles[i][0], angles[i][1]);
+        // ストロボ中は点滅させて見せる
+        let strobe_on = h.strobe == 0 || (t * (4.0 + h.strobe as f64 / 20.0)).fract() < 0.5;
+        let level = if strobe_on && enabled[i] { h.dimmer } else { 0.0 };
+        let c = head_color(h.color, t);
+        if level > 0.01 {
+            let end = base + vec2((d[0] * len) as f32, -(d[1] * len) as f32);
+            // 手前(客席側)へ向くほど太く・明るく、奥へ向くほど暗く
+            let z = d[2] as f32;
+            let width = 3.0 + 9.0 * z.max(0.0);
+            let k = level * (0.55 + 0.45 * z.max(-0.6));
+            p.line_segment([base, end], Stroke::new(width + 6.0, mix(bg, c, k * 0.25)));
+            p.line_segment([base, end], Stroke::new(width, mix(bg, c, k)));
+            if z > 0.3 {
+                p.circle_filled(end, width * 0.9, mix(bg, c, k));
+            }
+        }
+        p.rect_filled(Rect::from_center_size(base + vec2(0.0, 4.0), vec2(26.0, 14.0)), 3.0, Color32::from_gray(if enabled[i] { 90 } else { 45 }));
+        p.circle_filled(base, 6.0, mix(Color32::from_gray(50), c, level.max(0.15)));
+        let gobo = match h.gobo {
+            0..=7 | 64..=71 => "オープン".to_string(),
+            8..=63 => format!("ゴボ{}", [8u8, 16, 25, 32, 40, 48, 56].iter().rposition(|&v| h.gobo >= v).unwrap_or(0) + 1),
+            72..=127 => "シェイク".into(),
+            _ => "回転".into(),
+        };
+        let label = if enabled[i] { format!("{}  {gobo}", i + 1) } else { format!("{}  OFF", i + 1) };
+        let col = if enabled[i] { Color32::GRAY } else { Color32::from_rgb(255, 80, 80) };
+        p.text(Pos2::new(base.x, rect.bottom() - 8.0), Align2::CENTER_CENTER, label, FontId::proportional(11.0), col);
     }
 }
 

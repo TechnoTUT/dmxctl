@@ -45,7 +45,7 @@ pub fn pad(row: usize, col: usize) -> Option<Action> {
         (3, _) => Action::Position(c - 5),
         (4, _) => Action::Gobo(c),
         (5, 0..=4) => Action::GoboMode(GMODES[col]),
-        (5, 5) => return None,
+        (5, 5) => Action::Position(3),
         (5, 6) => Action::Freeze,
         (5, 7) => Action::Auto,
         (6, _) => Action::Dim(DIMS[col]),
@@ -115,7 +115,7 @@ pub fn label(a: Action) -> String {
             Motion::Circle => "円",
             Motion::Eight => "8の字",
             Motion::PanSweep => "左右",
-            Motion::TiltSweep => "上下",
+            Motion::TiltSweep => "前後",
             Motion::Cross => "クロス",
             Motion::Random => "ランダム",
             Motion::Wave => "ウェーブ",
@@ -137,7 +137,7 @@ pub fn label(a: Action) -> String {
             ColorMode::Rainbow => "レインボー",
         }
         .into(),
-        Action::Position(p) => POSITION_NAMES[p as usize % 3].into(),
+        Action::Position(p) => POSITION_NAMES[p as usize % 4].into(),
         Action::Gobo(0) => "オープン".into(),
         Action::Gobo(g) => format!("ゴボ{g}"),
         Action::GoboMode(m) => match m {
@@ -328,7 +328,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(seen.len(), 63);
+        assert_eq!(seen.len(), 64);
     }
 
     #[test]
