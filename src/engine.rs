@@ -247,6 +247,8 @@ pub struct Setup {
     pub spot_invert_tilt: [bool; N_SPOT],
     /// LAYOUTS の番号
     pub layout: u8,
+    /// LED(GLP)の最大の明るさ 0..1。フラッシュ・ストロボも含めて、これより明るくしない
+    pub par_max: f32,
     /// 客席(正面)を向くときのPanの値(0..1)。本体の置き方で決まる
     pub pan_front: f32,
     /// 真上を向くときのTiltの値(0..1)
@@ -270,6 +272,7 @@ impl Default for Setup {
             spot_invert_pan: [false; N_SPOT],
             spot_invert_tilt: [false; N_SPOT],
             layout: 0,
+            par_max: 1.0,
             pan_front: 0.5,
             tilt_up: 0.5,
             scenes: [None; 8],
@@ -603,7 +606,7 @@ impl State {
             Some(speed) => (t * (2.0 + speed as f64 * 11.0)).rem_euclid(1.0) < 0.4,
             None => true,
         };
-        let k = if on { level.dimmer as f32 } else { 0.0 };
+        let k = if on { level.dimmer as f32 } else { 0.0 } * self.setup.par_max.clamp(0.0, 1.0);
         base.map(|v| v * k)
     }
 
@@ -896,6 +899,18 @@ mod tests {
         s.press(Action::ColorMode(ColorMode::Rainbow), true, 0.0);
         s.tick(0.1);
         assert!(s.pars[0][..3].iter().any(|&v| v > 0.0) && s.pars[0][3] == 0.0);
+    }
+
+    #[test]
+    fn led_max_caps_everything() {
+        let mut s = state();
+        s.setup.par_max = 0.4;
+        s.tick(0.0);
+        assert!(s.pars.iter().all(|p| (p[3] - 0.4).abs() < 1e-6));
+        assert_eq!(s.heads[0].dimmer, 1.0, "ムービングは変わらない");
+        s.press(Action::Flash, true, 0.0);
+        s.tick(0.1);
+        assert!(s.pars.iter().all(|p| p.iter().all(|&v| v <= 0.4 + 1e-6)));
     }
 
     #[test]

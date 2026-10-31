@@ -359,6 +359,11 @@ impl App {
                     ui.end_row();
                 }
             });
+            ui.horizontal(|ui| {
+                ui.label("LED(GLP)の最大の明るさ");
+                ui.add(egui::Slider::new(&mut setup.par_max, 0.0..=1.0).custom_formatter(|v, _| format!("{:.0}%", v * 100.0)))
+                    .on_hover_text("フラッシュ・ストロボも含めて、LEDはこれより明るくならない。ムービングには効かない");
+            });
             ui.add_space(6.0);
             ui.label(RichText::new("ムービングの向き合わせ").strong());
             ui.label(RichText::new("1.「真上」にして、ビームがまっすぐ上を向くまで「真上のTilt」を動かす\n2.「正面」にして、客席側へ45°倒れるまで「正面のPan」を動かす\n   後ろへ倒れる台は Tilt反転、左右が逆に動く台は Pan反転 にチェック").size(12.0).color(Color32::GRAY));
