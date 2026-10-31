@@ -16,3 +16,10 @@ cp scripts/mac/Info.plist "$APP/Contents/Info.plist"
 # 開発者IDなしの簡易署名(Apple Silicon では署名が無いと起動できない)
 codesign --force --deep --sign - "$APP"
 echo "できました: $APP"
+# 「アプリケーション」フォルダに入れてあれば、そちらも新しくする(古い版を起動してしまわないように)
+if [ -d "/Applications/SPOT4.app" ]; then
+  osascript -e 'quit app "SPOT4"' 2>/dev/null || true
+  rm -rf "/Applications/SPOT4.app"
+  ditto "$APP" "/Applications/SPOT4.app"
+  echo "アプリケーションフォルダの SPOT4.app も更新しました"
+fi
