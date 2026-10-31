@@ -1,6 +1,6 @@
 # SPOT4
 
-SPOT4 is a DJ lighting controller for four STAGE EVOLUTION MINI SPOT 30 moving heads. You play it from an AKAI APC mini mk2, and it sends DMX through an FTDI-type USB-DMX interface (the Open DMX type).
+SPOT4 is a DJ lighting controller for two STAGE EVOLUTION MINI SPOT 30 moving heads and two RGBWA LED fixtures (GLP-185L, 5ch). You play it from an AKAI APC mini mk2, and it sends DMX through an FTDI-type USB-DMX interface (the Open DMX type).
 
 ## 起動
 
@@ -16,7 +16,9 @@ cargo test --release         # テスト
 
 ## 置き方
 
-床に横一列で、客席から見て左から 1〜4台目の順に並べます。各台とも、同じ向き(表示パネルを同じ側)にそろえます。
+床に横一列で並べます。並び方は「機材の設定」の「並び」で選べます(既定: LED・ムービング・ムービング・LED)。
+ムービングは2台とも同じ向き(表示パネルを同じ側)にそろえます。
+LED(RGBWA)は色・明るさの効果・ストロボ・フラッシュに合わせて光ります(ストロボchが無いので、明るさを点滅させます)。動き・ゴボはムービングだけです。
 動きは「真上からどちらへ何度傾けるか」で計算しているので、真上を通る動きでも Pan が急に半回転しません。円の動きは真上にかからないよう、少し客席側に倒して回ります。
 
 ### 向き合わせ(最初に1回)
@@ -32,8 +34,8 @@ cargo test --release         # テスト
 
 | メニュー | 設定 |
 |---|---|
-| Addr | A001 / A010 / A019 / A028(アプリの「機材の設定」と同じにする) |
-| CHnd | 9CH(11CHにした場合は、アプリ側も11chにする) |
+| Addr | ムービング A001 / A010、LED 45 / 50(アプリの「機材の設定」と同じにする) |
+| CHnd | ムービングは 9CH(11CHにした場合は、アプリ側も11chにする)。LEDは5ch(R/G/B/W/A) |
 | 動作 | DMXモード |
 
 ## APC mini mk2 の配置
@@ -52,7 +54,7 @@ cargo test --release         # テスト
 | 8 | フラッシュ / ストロボ / ストロボ速 (この3つは押している間だけ) / 暗転 / TAP / 1拍目 / BPM÷2 / BPM×2 |
 
 - 右の列(シーン1〜8): 押すと呼び出します。SHIFT を押しながら押すと、今の見た目を保存します。
-- 下の段(トラックボタン1〜4): 1〜4台目のオン/オフを切り替えます。トラックボタン8は拍に合わせて点滅します。
+- 下の段(トラックボタン1〜4): 並びの左から1台ずつ、オン/オフを切り替えます。トラックボタン8は拍に合わせて点滅します。
 - フェーダー: 動きの大きさ / 左右の傾き / 前後の傾き / モーター速度 / 効果の深さ / ストロボ速度 / 回転速度 / 減衰 / マスター
 - オート: 16小節ごとに見た目がランダムに変わります。
 - キーボード: Space = TAP、F = フラッシュ、S = ストロボ、B = 暗転

@@ -1,4 +1,4 @@
-//! STAGE EVOLUTION MINI SPOT 30 のDMXチャート(取扱説明書より)。
+//! STAGE EVOLUTION MINI SPOT 30 のDMXチャート(取扱説明書より)と、RGBWAのLED(GLP-185L)。
 //!
 //! 9chモード:  1 Pan / 2 Tilt / 3 カラー / 4 ゴボ / 5 ストロボ / 6 調光 / 7 Pan・Tiltスピード / 8 動作モード / 9 ムーブ・リセット
 //! 11chモード: 1 Pan / 2 Pan Fine / 3 Tilt / 4 Tilt Fine / 5〜11 は9chモードの3〜9と同じ
@@ -109,15 +109,47 @@ pub fn encode(h: &Head, mode: Mode, out: &mut [u8]) {
     rest[6] = 0; // ムーブ/リセット: なし
 }
 
-/// 4台ぶんを1ユニバースに書き込む。`addresses` は1始まり。範囲外の台は書かない
-pub fn write_universe(heads: &[Head; 4], mode: Mode, addresses: &[u16; 4], universe: &mut [u8; 512]) {
-    let n = mode.channels();
-    for (h, &a) in heads.iter().zip(addresses) {
-        let start = a as usize;
-        if start == 0 || start - 1 + n > 512 {
-            continue;
-        }
-        encode(h, mode, &mut universe[start - 1..start - 1 + n]);
+/// GLP-185L(RGBWA 5ch: 1 赤 / 2 緑 / 3 青 / 4 白 / 5 アンバー)。調光chは無いので、明るさは各色の値に掛ける
+pub const PAR_CHANNELS: usize = 5;
+
+/// COLORS と同じ並びの色を、RGBWAの混色で(各 0..1)
+pub const PAR_COLORS: [[f32; 5]; 8] = [
+    [0.0, 0.0, 0.0, 1.0, 0.0],   // 白
+    [1.0, 0.0, 0.0, 0.0, 0.0],   // 赤
+    [0.0, 1.0, 0.0, 0.0, 0.0],   // 緑
+    [0.0, 0.0, 1.0, 0.0, 0.0],   // 青
+    [0.8, 0.55, 0.0, 0.0, 1.0],  // 黄
+    [0.0, 0.7, 1.0, 0.25, 0.0],  // 水色
+    [1.0, 0.15, 0.0, 0.0, 1.0],  // オレンジ
+    [1.0, 0.0, 0.8, 0.0, 0.0],   // マゼンタ
+];
+
+pub fn encode_par(rgbwa: &[f32; 5], out: &mut [u8]) {
+    for (o, v) in out.iter_mut().zip(rgbwa) {
+        *o = to8(*v);
+    }
+}
+
+/// 1台ずつ、アドレス(1始まり)に書き込む。はみ出す台・アドレス0の台は書かない
+pub fn write_at(universe: &mut [u8; 512], address: u16, values: &[u8]) {
+    let start = address as usize;
+    if start == 0 || start - 1 + values.len() > 512 {
+        return;
+    }
+    universe[start - 1..start - 1 + values.len()].copy_from_slice(values);
+}
+
+/// スポットとパーを1ユニバースに書き込む
+pub fn write_universe(heads: &[Head], mode: Mode, spot_addrs: &[u16], pars: &[[f32; 5]], par_addrs: &[u16], universe: &mut [u8; 512]) {
+    let mut buf = [0u8; 11];
+    for (h, &a) in heads.iter().zip(spot_addrs) {
+        let n = mode.channels();
+        encode(h, mode, &mut buf[..n]);
+        write_at(universe, a, &buf[..n]);
+    }
+    for (p, &a) in pars.iter().zip(par_addrs) {
+        encode_par(p, &mut buf[..PAR_CHANNELS]);
+        write_at(universe, a, &buf[..PAR_CHANNELS]);
     }
 }
 
@@ -159,15 +191,16 @@ mod tests {
 
     #[test]
     fn universe_uses_addresses() {
-        let heads = [Head { dimmer: 1.0, ..Default::default() }; 4];
+        let heads = [Head { dimmer: 1.0, ..Default::default() }; 2];
+        let pars = [[1.0, 0.0, 0.5, 0.0, 1.0]; 2];
         let mut u = [0u8; 512];
-        write_universe(&heads, Mode::Ch9, &[1, 10, 19, 28], &mut u);
-        for a in [1, 10, 19, 28] {
-            assert_eq!(u[a - 1 + 5], 255, "address {a}");
-        }
+        write_universe(&heads, Mode::Ch9, &[1, 10], &pars, &[45, 50], &mut u);
+        assert_eq!((u[5], u[14]), (255, 255));
+        assert_eq!(&u[44..49], &[255, 0, 128, 0, 255]);
+        assert_eq!(&u[49..54], &[255, 0, 128, 0, 255]);
         // はみ出す台は書かない
         let mut u = [0u8; 512];
-        write_universe(&heads, Mode::Ch9, &[505, 0, 504, 504], &mut u);
+        write_universe(&heads, Mode::Ch9, &[505, 504], &pars, &[0, 509], &mut u);
         assert_eq!(u[503 + 5], 255);
         assert!(u[..503].iter().all(|&v| v == 0));
     }

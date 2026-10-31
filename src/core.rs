@@ -40,7 +40,7 @@ impl Shared {
                 {
                     let mut s = lock(&me.state);
                     s.tick(me.now());
-                    fixture::write_universe(&s.heads, s.setup.mode, &s.setup.addresses, &mut universe);
+                    fixture::write_universe(&s.heads, s.setup.mode, &s.setup.spot_addresses, &s.pars, &s.setup.par_addresses, &mut universe);
                     lock(&me.leds).sync(&s);
                 }
                 *lock(&me.frame) = universe;

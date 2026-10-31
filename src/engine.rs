@@ -1,11 +1,37 @@
-//! 演出の状態と、そこから4台ぶんの出力を毎フレーム計算するところ。
+//! 演出の状態と、そこから全台の出力を毎フレーム計算するところ。
+//! 機材: ムービング MINI SPOT 30 ×2 と、RGBWAのLED(GLP-185L)×2。床に横一列で置く。
 
-use crate::fixture::{self, Head, COLORS, GOBOS};
+use crate::fixture::{self, Head, COLORS, GOBOS, PAR_COLORS};
 use crate::tempo::Clock;
 use serde::{Deserialize, Serialize};
 use std::f64::consts::TAU;
 
-pub const N: usize = 4;
+/// ムービングの台数
+pub const N_SPOT: usize = 2;
+/// RGBWAのLEDの台数
+pub const N_PAR: usize = 2;
+/// 全台数(横一列の並び)
+pub const N: usize = N_SPOT + N_PAR;
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Unit {
+    Spot(usize),
+    Par(usize),
+}
+
+/// 並び方(客席から見て左から)の選択肢
+pub const LAYOUTS: [(&str, [Unit; N]); 3] = [
+    ("LED・ムービング・ムービング・LED", [Unit::Par(0), Unit::Spot(0), Unit::Spot(1), Unit::Par(1)]),
+    ("ムービング・LED・LED・ムービング", [Unit::Spot(0), Unit::Par(0), Unit::Par(1), Unit::Spot(1)]),
+    ("ムービング・LED・ムービング・LED", [Unit::Spot(0), Unit::Par(0), Unit::Spot(1), Unit::Par(1)]),
+];
+
+pub fn unit_name(u: Unit) -> String {
+    match u {
+        Unit::Spot(i) => format!("ムービング{}", i + 1),
+        Unit::Par(i) => format!("LED{}", i + 1),
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
 pub enum Motion {
@@ -23,9 +49,9 @@ pub enum Motion {
 pub enum Spread {
     /// 全台同じ動き
     Sync,
-    /// 1/4周ずつずらす
+    /// 台ごとに位相をずらす
     Fan,
-    /// 左右対称(1・2台目と3・4台目でPanが逆向き)
+    /// 左右対称(2台のムービングで左右の傾きが逆向き)
     Mirror,
 }
 
@@ -58,7 +84,7 @@ pub enum DimFx {
     Pulse,
     /// 1拍ごとに1台ずつ
     Chase,
-    /// 1・3台目と2・4台目を拍ごとに交互
+    /// 並びの1・3台目と2・4台目を拍ごとに交互
     Alternate,
     /// 拍ごとにランダムな台
     Random,
@@ -75,10 +101,10 @@ pub const RATES: [(f64, &str); 5] = [(16.0, "4小節"), (8.0, "2小節"), (4.0, 
 /// 床に横一列で置いたときの基準の向き
 pub const POSITION_NAMES: [&str; 4] = ["真上", "扇形", "交差", "客席"];
 
-/// 床置き・横一列の4台の、基準の向き(傾き: [右, 前] 度。0,0 = 真上)
+/// 床置きのムービングの、基準の向き(傾き: [右, 前] 度。0,0 = 真上)。i はムービングの番号(左から)
 pub fn base_lean(position: u8, i: usize) -> [f64; 2] {
-    // 列の中での位置: 左端 -1 … 右端 +1
-    let k = (i as f64 - 1.5) / 1.5;
+    // 左のムービング -1 / 右のムービング +1
+    let k = if N_SPOT > 1 { i as f64 / (N_SPOT - 1) as f64 * 2.0 - 1.0 } else { 0.0 };
     match position % 4 {
         0 => [0.0, 0.0],
         1 => [k * 35.0, 10.0],
@@ -213,10 +239,14 @@ impl Action {
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Setup {
+    /// ムービングのチャンネルモード
     pub mode: fixture::Mode,
-    pub addresses: [u16; N],
-    pub invert_pan: [bool; N],
-    pub invert_tilt: [bool; N],
+    pub spot_addresses: [u16; N_SPOT],
+    pub par_addresses: [u16; N_PAR],
+    pub spot_invert_pan: [bool; N_SPOT],
+    pub spot_invert_tilt: [bool; N_SPOT],
+    /// LAYOUTS の番号
+    pub layout: u8,
     /// 客席(正面)を向くときのPanの値(0..1)。本体の置き方で決まる
     pub pan_front: f32,
     /// 真上を向くときのTiltの値(0..1)
@@ -224,13 +254,22 @@ pub struct Setup {
     pub scenes: [Option<Look>; 8],
 }
 
+impl Setup {
+    /// 客席から見て左からの並び
+    pub fn row(&self) -> [Unit; N] {
+        LAYOUTS[self.layout as usize % LAYOUTS.len()].1
+    }
+}
+
 impl Default for Setup {
     fn default() -> Self {
         Setup {
             mode: fixture::Mode::Ch9,
-            addresses: [1, 10, 19, 28],
-            invert_pan: [false; N],
-            invert_tilt: [false; N],
+            spot_addresses: [1, 10],
+            par_addresses: [45, 50],
+            spot_invert_pan: [false; N_SPOT],
+            spot_invert_tilt: [false; N_SPOT],
+            layout: 0,
             pan_front: 0.5,
             tilt_up: 0.5,
             scenes: [None; 8],
@@ -252,16 +291,18 @@ pub struct State {
     pub active_scene: Option<u8>,
     pub clock: Clock,
     pub setup: Setup,
-    /// 直近に計算した出力
-    pub heads: [Head; N],
+    /// 直近に計算した出力(ムービング)
+    pub heads: [Head; N_SPOT],
+    /// 直近に計算した出力(LED。RGBWA 各0..1)
+    pub pars: [[f32; 5]; N_PAR],
     /// 直近のPan/Tiltの角度(度)。プレビューと、次のフレームの向きの選び方に使う
-    pub angles: [[f64; 2]; N],
+    pub angles: [[f64; 2]; N_SPOT],
     pub calib: Calib,
     pub beat: f64,
     phase: f64,
     last_t: Option<f64>,
     random_step: i64,
-    random_targets: [[f32; 2]; N],
+    random_targets: [[f32; 2]; N_SPOT],
     last_auto_bar: i64,
     rng: u64,
 }
@@ -282,14 +323,15 @@ impl State {
             active_scene: None,
             clock: Clock::new(bpm),
             setup,
-            heads: [Head::default(); N],
-            angles: [[0.0; 2]; N],
+            heads: [Head::default(); N_SPOT],
+            pars: [[0.0; 5]; N_PAR],
+            angles: [[0.0; 2]; N_SPOT],
             calib: Calib::Off,
             beat: 0.0,
             phase: 0.0,
             last_t: None,
             random_step: i64::MIN,
-            random_targets: [[0.0; 2]; N],
+            random_targets: [[0.0; 2]; N_SPOT],
             last_auto_bar: i64::MIN,
             rng: 0x2545_F491_4F6C_DD1D,
         }
@@ -439,14 +481,23 @@ impl State {
             let step = (self.phase * 4.0).floor() as i64;
             if step != self.random_step {
                 self.random_step = step;
-                for i in 0..N {
+                for i in 0..N_SPOT {
                     self.random_targets[i] = [self.rand01() * 2.0 - 1.0, self.rand01() * 2.0 - 1.0];
                 }
             }
         }
 
-        for i in 0..N {
-            let (mut h, lean) = self.head(i, beat);
+        let row = self.setup.row();
+        for (u, unit) in row.into_iter().enumerate() {
+            let level = self.level(u, beat);
+            let i = match unit {
+                Unit::Spot(i) => i,
+                Unit::Par(p) => {
+                    self.pars[p] = self.par(u, level, beat, t);
+                    continue;
+                }
+            };
+            let (mut h, lean) = self.head(i, u, level, beat);
             let lean = match self.calib {
                 Calib::Off => lean,
                 Calib::Up => [0.0, 0.0],
@@ -463,8 +514,8 @@ impl State {
     /// 傾き(度)を、取り付けの向き(反転・正面のPan・真上のTilt)を考えてDMXのPan/Tiltにする
     fn aim_head(&mut self, i: usize, lean: [f64; 2], h: &mut Head) {
         let s = &self.setup;
-        let ps = if s.invert_pan[i] { -1.0 } else { 1.0 };
-        let ts = if s.invert_tilt[i] { -1.0 } else { 1.0 };
+        let ps = if s.spot_invert_pan[i] { -1.0 } else { 1.0 };
+        let ts = if s.spot_invert_tilt[i] { -1.0 } else { 1.0 };
         let front = s.pan_front as f64;
         let up = s.tilt_up as f64;
         // DMXの0..1に収まるPanの角度の範囲
@@ -477,13 +528,93 @@ impl State {
         self.angles[i] = [(pan - front) * 540.0 * ps, (tilt - up) * 270.0 * ts];
     }
 
-    /// 1台ぶんの出力(Pan/Tiltはまだ入れない)と、ビームの傾き [右, 前](度)
-    fn head(&self, i: usize, beat: f64) -> (Head, [f64; 2]) {
+    /// 並びの u 番目(左から)の明るさ 0..1(効果・マスター・オン/オフ・ブラックアウト込み)と、
+    /// フラッシュ/ストロボの状態。フラッシュ/ストロボはマスター・消灯・ブラックアウトより優先(曲のキメ用)
+    fn level(&self, u: usize, beat: f64) -> Level {
+        let l = &self.look;
+        let f = &self.faders;
+        let decay = 2.0 + (1.0 - f[F_DECAY] as f64) * 10.0;
+        let env = |frac: f64| (-frac * decay).exp();
+        let frac = beat.rem_euclid(1.0);
+        let b = beat.floor() as i64;
+        let fx = match l.dim {
+            DimFx::Steady => 1.0,
+            DimFx::Pulse => env(frac),
+            DimFx::Chase => {
+                if b.rem_euclid(N as i64) as usize == u { env(frac) } else { 0.0 }
+            }
+            DimFx::Alternate => {
+                if b.rem_euclid(2) as usize == u % 2 { 1.0 } else { 0.0 }
+            }
+            DimFx::Random => {
+                if hash(b, u) % 2 == 0 { env(frac) } else { 0.0 }
+            }
+            DimFx::Wave => 0.5 + 0.5 * ((beat / 4.0 - u as f64 / N as f64) * TAU).sin(),
+            DimFx::FastChase => {
+                let h = beat * 2.0;
+                if (h.floor() as i64).rem_euclid(N as i64) as usize == u { env(h.rem_euclid(1.0)) } else { 0.0 }
+            }
+            DimFx::Build => (beat / 4.0).rem_euclid(1.0),
+        };
+        let depth = f[F_DEPTH] as f64;
+        let mut dimmer = (1.0 - depth * (1.0 - fx)) * f[F_MASTER] as f64;
+        if !self.enabled[u] || self.blackout {
+            dimmer = 0.0;
+        }
+        let strobe = if self.strobe_fast {
+            Some(1.0)
+        } else if self.strobe {
+            Some(f[F_STROBE])
+        } else {
+            None
+        };
+        if strobe.is_some() || self.flash {
+            dimmer = 1.0;
+        }
+        Level { dimmer, strobe }
+    }
+
+    /// 色のパレット番号(0..8)。「次の色」は拍数ぶん進める。揃える以外のときは並びの位置でずらす
+    fn color_index(&self, u: usize, beat: f64) -> usize {
+        let l = &self.look;
+        let offset = if l.spread == Spread::Sync { 0 } else { u as i64 };
+        let c = l.color as i64;
+        (match l.color_mode {
+            ColorMode::Fixed | ColorMode::Rainbow => c,
+            ColorMode::Beat => c + beat.floor() as i64 + offset,
+            ColorMode::Bar => c + (beat / 4.0).floor() as i64 + offset,
+            ColorMode::Split => c + u as i64 * 2,
+        })
+        .rem_euclid(8) as usize
+    }
+
+    /// LED(RGBWA)1台ぶん。u は並びの位置
+    fn par(&self, u: usize, level: Level, beat: f64, t: f64) -> [f32; 5] {
+        let base = if self.look.color_mode == ColorMode::Rainbow {
+            // ゆっくり〜速く色相が回る。台ごとに位相をずらす
+            let speed = 0.02 + self.faders[F_WHEEL] as f64 * 0.5;
+            let [r, g, b] = hue_rgb((beat * speed + u as f64 / N as f64).rem_euclid(1.0));
+            [r, g, b, 0.0, 0.0]
+        } else {
+            PAR_COLORS[self.color_index(u, beat)]
+        };
+        // ストロボchが無いので、明るさを点滅させる(本体の更新は40回/秒なので最大で約13回/秒)
+        let on = match level.strobe {
+            Some(speed) => (t * (2.0 + speed as f64 * 11.0)).rem_euclid(1.0) < 0.4,
+            None => true,
+        };
+        let k = if on { level.dimmer as f32 } else { 0.0 };
+        base.map(|v| v * k)
+    }
+
+    /// ムービング1台ぶんの出力(Pan/Tiltはまだ入れない)と、ビームの傾き [右, 前](度)。
+    /// i はムービングの番号、u は並びの位置
+    fn head(&self, i: usize, u: usize, level: Level, beat: f64) -> (Head, [f64; 2]) {
         let l = &self.look;
         let f = &self.faders;
 
         // ---- 動き(床置きなので、真上からどちらへ何度傾けるかで考える)
-        let fan = if l.spread == Spread::Fan { i as f64 / N as f64 } else { 0.0 };
+        let fan = if l.spread == Spread::Fan { i as f64 / N_SPOT as f64 } else { 0.0 };
         let p = self.phase + fan;
         let (sin, cos) = ((p * TAU).sin(), (p * TAU).cos());
         let a = f[F_SIZE] as f64 * 45.0;
@@ -507,29 +638,26 @@ impl State {
             Motion::Eight => (sin * a, (2.0 * p * TAU).sin() * a * 0.5),
             Motion::PanSweep => (sin * a, 0.0),
             Motion::TiltSweep => (0.0, sin * a),
-            // 隣どうしが逆に振れて、ビームがハサミのように交差する
+            // 2台が逆に振れて、ビームがハサミのように交差する
             Motion::Cross => (if i % 2 == 0 { sin } else { -sin } * a, 0.0),
             Motion::Random => (self.random_targets[i][0] as f64 * a, self.random_targets[i][1] as f64 * a),
             // 前後の波が、左の台から右の台へ伝わる
-            Motion::Wave => (0.0, ((self.phase + i as f64 / N as f64) * TAU).sin() * a),
+            Motion::Wave => (0.0, ((self.phase + i as f64 / (N_SPOT * 2) as f64) * TAU).sin() * a),
         };
-        if l.spread == Spread::Mirror && i >= N / 2 {
+        if l.spread == Spread::Mirror && i >= N_SPOT / 2 {
             x = -x;
         }
         let lean = [center[0] + x, center[1] + y];
 
-        // ---- 色: 「次の色」は拍数ぶん進める。Fan/Mirrorのときは台ごとにずらす
-        let offset = if l.spread == Spread::Sync { 0 } else { i as i64 };
-        let wheel = f[F_WHEEL];
+        // ---- 色(カラーホイール)
         let color = match l.color_mode {
-            ColorMode::Fixed => COLORS[l.color as usize % 8].1,
-            ColorMode::Beat => COLORS[(l.color as i64 + beat.floor() as i64 + offset).rem_euclid(8) as usize].1,
-            ColorMode::Bar => COLORS[(l.color as i64 + (beat / 4.0).floor() as i64 + offset).rem_euclid(8) as usize].1,
-            ColorMode::Split => COLORS[(l.color as usize + i * 2) % 8].1,
-            ColorMode::Rainbow => fixture::rainbow(wheel),
+            ColorMode::Rainbow => fixture::rainbow(f[F_WHEEL]),
+            _ => COLORS[self.color_index(u, beat)].1,
         };
 
         // ---- ゴボ: 送るときはゴボ1〜7を回す(オープンは飛ばす)
+        let offset = if l.spread == Spread::Sync { 0 } else { i as i64 };
+        let wheel = f[F_WHEEL];
         let step_gobo = |steps: i64| {
             let start = l.gobo.max(1) as i64 - 1;
             GOBOS[1 + (start + steps + offset).rem_euclid(7) as usize]
@@ -542,60 +670,31 @@ impl State {
             GoboMode::Rotate => fixture::gobo_rotate(wheel),
         };
 
-        // ---- 明るさ
-        let decay = 2.0 + (1.0 - f[F_DECAY] as f64) * 10.0;
-        let env = |frac: f64| (-frac * decay).exp();
-        let frac = beat.rem_euclid(1.0);
-        let b = beat.floor() as i64;
-        let fx = match l.dim {
-            DimFx::Steady => 1.0,
-            DimFx::Pulse => env(frac),
-            DimFx::Chase => {
-                if b.rem_euclid(N as i64) as usize == i { env(frac) } else { 0.0 }
-            }
-            DimFx::Alternate => {
-                if b.rem_euclid(2) as usize == i % 2 { 1.0 } else { 0.0 }
-            }
-            DimFx::Random => {
-                if hash(b, i) % 2 == 0 { env(frac) } else { 0.0 }
-            }
-            DimFx::Wave => 0.5 + 0.5 * ((beat / 4.0 - i as f64 / N as f64) * TAU).sin(),
-            DimFx::FastChase => {
-                let h = beat * 2.0;
-                if (h.floor() as i64).rem_euclid(N as i64) as usize == i { env(h.rem_euclid(1.0)) } else { 0.0 }
-            }
-            DimFx::Build => (beat / 4.0).rem_euclid(1.0),
-        };
-        let depth = f[F_DEPTH] as f64;
-        let mut dimmer = (1.0 - depth * (1.0 - fx)) * f[F_MASTER] as f64;
-        if !self.enabled[i] || self.blackout {
-            dimmer = 0.0;
-        }
-
-        // ---- フラッシュ/ストロボは、マスター・消灯・ブラックアウトより優先(曲のキメ用)
-        let mut strobe = 0;
-        if self.strobe_fast {
-            strobe = fixture::strobe(1.0);
-            dimmer = 1.0;
-        } else if self.strobe {
-            strobe = fixture::strobe(f[F_STROBE]);
-            dimmer = 1.0;
-        } else if self.flash {
-            dimmer = 1.0;
-        }
-
         let h = Head {
             pan: 0.5,
             tilt: 0.5,
             color,
             gobo,
-            strobe,
-            dimmer: dimmer as f32,
+            strobe: level.strobe.map(fixture::strobe).unwrap_or(0),
+            dimmer: level.dimmer as f32,
             // フェーダーは上げるほど速い(本体のchは0が最速)
             pt_speed: ((1.0 - f[F_MOTOR].clamp(0.0, 1.0)) * 255.0).round() as u8,
         };
         (h, lean)
     }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct Level {
+    dimmer: f64,
+    /// ストロボ中なら速さ(0..1)
+    strobe: Option<f32>,
+}
+
+/// 色相(0..1) → RGB(各0..1、彩度・明るさ最大)
+pub fn hue_rgb(h: f64) -> [f32; 3] {
+    let x = |o: f64| ((((h + o) * 6.0).rem_euclid(6.0) - 3.0).abs() - 1.0).clamp(0.0, 1.0) as f32;
+    [x(0.0), x(2.0 / 3.0), x(1.0 / 3.0)]
 }
 
 /// 拍と台番号から決まる疑似乱数(同じ拍の間は変わらない)
@@ -640,6 +739,14 @@ mod tests {
         direction(s.angles[i][0], s.angles[i][1])
     }
 
+    /// 並びの u 番目の明るさ(ムービングは調光、LEDは一番明るい色の値)
+    fn bright(s: &State, u: usize) -> f32 {
+        match s.setup.row()[u] {
+            Unit::Spot(i) => s.heads[i].dimmer,
+            Unit::Par(i) => s.pars[i].iter().cloned().fold(0.0, f32::max),
+        }
+    }
+
     fn close(a: [f64; 3], b: [f64; 3]) -> bool {
         a.iter().zip(b).all(|(x, y)| (x - y).abs() < 0.02)
     }
@@ -652,7 +759,7 @@ mod tests {
         s.press(Action::Spread(Spread::Sync), true, 1.3);
         s.press(Action::Position(0), true, 1.3);
         s.tick(1.325);
-        assert!((1..N).all(|i| close(dir(&s, i), dir(&s, 0))));
+        assert!((1..N_SPOT).all(|i| close(dir(&s, i), dir(&s, 0))));
     }
 
     #[test]
@@ -661,7 +768,7 @@ mod tests {
         s.press(Action::Spread(Spread::Mirror), true, 0.0);
         s.press(Action::Motion(Motion::PanSweep), true, 0.0);
         run(&mut s, 0.0, 0.7);
-        let (d0, d3) = (dir(&s, 0), dir(&s, 3));
+        let (d0, d3) = (dir(&s, 0), dir(&s, 1));
         assert!(d0[0].abs() > 0.1);
         assert!((d0[0] + d3[0]).abs() < 0.02 && (d0[1] - d3[1]).abs() < 0.02);
     }
@@ -672,17 +779,17 @@ mod tests {
         s.press(Action::Motion(Motion::Still), true, 0.0);
         s.press(Action::Position(0), true, 0.0);
         s.tick(0.0);
-        assert!((0..N).all(|i| dir(&s, i)[1] > 0.999), "真上");
+        assert!((0..N_SPOT).all(|i| dir(&s, i)[1] > 0.999), "真上");
         assert_eq!(s.heads[0].tilt, 0.5);
         s.press(Action::Position(1), true, 0.0);
         s.tick(0.1);
-        assert!(dir(&s, 0)[0] < -0.3 && dir(&s, 3)[0] > 0.3, "扇形は外向き");
+        assert!(dir(&s, 0)[0] < -0.3 && dir(&s, 1)[0] > 0.3, "扇形は外向き");
         s.press(Action::Position(2), true, 0.0);
         s.tick(0.2);
-        assert!(dir(&s, 0)[0] > 0.3 && dir(&s, 3)[0] < -0.3, "交差は内向き");
+        assert!(dir(&s, 0)[0] > 0.3 && dir(&s, 1)[0] < -0.3, "交差は内向き");
         s.press(Action::Position(3), true, 0.0);
         s.tick(0.3);
-        assert!((0..N).all(|i| dir(&s, i)[2] > 0.6), "客席");
+        assert!((0..N_SPOT).all(|i| dir(&s, i)[2] > 0.6), "客席");
     }
 
     #[test]
@@ -734,10 +841,10 @@ mod tests {
         s.press(Action::Blackout, true, 0.0);
         s.calib = Calib::Up;
         s.tick(0.0);
-        assert!((0..N).all(|i| dir(&s, i)[1] > 0.999 && s.heads[i].dimmer == 1.0 && s.heads[i].color == COLORS[0].1));
+        assert!((0..N_SPOT).all(|i| dir(&s, i)[1] > 0.999 && s.heads[i].dimmer == 1.0 && s.heads[i].color == COLORS[0].1));
         s.calib = Calib::Front;
         s.tick(0.1);
-        assert!((0..N).all(|i| (dir(&s, i)[2] - 45f64.to_radians().sin()).abs() < 0.01));
+        assert!((0..N_SPOT).all(|i| (dir(&s, i)[2] - 45f64.to_radians().sin()).abs() < 0.01));
     }
 
     #[test]
@@ -746,7 +853,7 @@ mod tests {
         s.press(Action::Dim(DimFx::Chase), true, 0.0);
         s.tick(0.0);
         s.tick(0.5 * 2.0 + 0.01); // 拍2の頭
-        let lit: Vec<usize> = (0..N).filter(|&i| s.heads[i].dimmer > 0.5).collect();
+        let lit: Vec<usize> = (0..N).filter(|&u| bright(&s, u) > 0.5).collect();
         assert_eq!(lit, vec![2]);
     }
 
@@ -766,9 +873,43 @@ mod tests {
         s.press(Action::Strobe, true, 0.2);
         s.tick(0.3);
         assert!(s.heads.iter().all(|h| h.strobe >= 10 && h.dimmer == 1.0));
-        s.press(Action::Strobe, false, 0.3);
-        s.tick(0.4);
+        // LEDはストロボchが無いので、明るさが点いたり消えたりする
+        let mut seen = [false; 2];
+        for k in 0..40 {
+            s.tick(0.3 + k as f64 * 0.025);
+            seen[(bright(&s, 0) > 0.5) as usize] = true;
+        }
+        assert_eq!(seen, [true, true]);
+        s.press(Action::Strobe, false, 1.4);
+        s.tick(1.5);
         assert!(s.heads.iter().all(|h| h.strobe == 0 && h.dimmer == 0.0));
+        assert!((0..N).all(|u| bright(&s, u) == 0.0));
+    }
+
+    #[test]
+    fn leds_follow_color_and_master() {
+        let mut s = state();
+        s.press(Action::Color(1), true, 0.0); // 赤
+        s.faders[F_MASTER] = 0.5;
+        s.tick(0.0);
+        assert_eq!(s.pars[0], [0.5, 0.0, 0.0, 0.0, 0.0]);
+        s.press(Action::ColorMode(ColorMode::Rainbow), true, 0.0);
+        s.tick(0.1);
+        assert!(s.pars[0][..3].iter().any(|&v| v > 0.0) && s.pars[0][3] == 0.0);
+    }
+
+    #[test]
+    fn layout_decides_row_order() {
+        let mut s = state();
+        s.press(Action::Fixture(0), true, 0.0);
+        s.tick(0.0);
+        // 既定の並びは LED・ムービング・ムービング・LED なので、左端はLED1
+        assert_eq!(s.pars[0], [0.0; 5]);
+        assert_eq!(s.heads[0].dimmer, 1.0);
+        s.setup.layout = 1;
+        s.tick(0.1);
+        assert_eq!(s.heads[0].dimmer, 0.0);
+        assert!(bright(&s, 1) > 0.0);
     }
 
     #[test]
@@ -776,8 +917,8 @@ mod tests {
         let mut s = state();
         s.press(Action::Fixture(1), true, 0.0);
         s.tick(0.0);
-        assert_eq!(s.heads[1].dimmer, 0.0);
-        assert_eq!(s.heads[0].dimmer, 1.0);
+        assert_eq!(bright(&s, 1), 0.0);
+        assert!([0, 2, 3].iter().all(|&u| bright(&s, u) == 1.0));
     }
 
     #[test]
@@ -854,8 +995,8 @@ mod tests {
         s.faders[F_PAN] = 0.8;
         s.tick(0.0);
         let normal = (s.heads[1], dir(&s, 1));
-        s.setup.invert_pan[1] = true;
-        s.setup.invert_tilt[1] = true;
+        s.setup.spot_invert_pan[1] = true;
+        s.setup.spot_invert_tilt[1] = true;
         s.tick(0.1);
         // DMXの値は変わるが、ビームの向きは同じ
         assert_ne!(s.heads[1].pan, normal.0.pan);
