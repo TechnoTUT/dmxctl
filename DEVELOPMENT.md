@@ -58,12 +58,13 @@ cargo test --release
 
 | ファイル | 中身 |
 |---|---|
-| `src/engine.rs` | 値の合成・出力ループ、MIDIの割り当ての実行 |
+| `src/engine.rs` | 共有状態(`Core`)、値の合成(`render`)・出力ループ |
+| `src/engine/` | `Core`の操作を分野ごとに: `binding.rs`(MIDIの受信・割り当ての実行) / `tempo.rs`(BPM・Link・MIDIクロック・音声・チェイス) / `palette.rs`(色・メイン/サブ色) / `scene.rs`(シーン・位置・フェード) / `pair.rs`(ペア) |
 | `src/project.rs` | 保存する設定(`project.json`)と割り当ての種類(`Action`) |
 | `src/layout.rs` | おすすめのMIDI配置(APC mini mk2) |
 | `src/pixel.rs` | LEDバーの模様(面向けプリセット4セット) |
 | `src/ndi.rs` | NDI受信(映像の平均色・音の色) |
-| `src/ui_map.rs` | MIDI画面(メイン画面) |
+| `src/ui_map.rs` | MIDI画面(メイン画面)。`src/ui_map/` に図の描画(`pad.rs`)と右のパネル(`stage.rs` / `settings.rs`) |
 | `src/theme.rs` | 見た目(色・フォント) |
 | `src/opendmx.rs` / `src/output.rs` | USB-DMX / Art-Net の出力 |
 
