@@ -58,12 +58,12 @@ impl Kind {
     }
 }
 
-/// APC mini mk2 の割り当てを、おすすめの配置に置き換える(APC以外のMIDI機器やOSCだけの割り当ては残す)。
-/// LEDバーの模様・ムービング用のエフェクトは、無ければ足す
 /// 1ページ目(演出)と2ページ目(設定)
 const P1: Option<u8> = Some(0);
 const P2: Option<u8> = Some(1);
 
+/// APC mini mk2 の割り当てを、おすすめの配置に置き換える(APC以外のMIDI機器やOSCだけの割り当ては残す)。
+/// LEDバーの模様・ムービング用のエフェクトは、無ければ足す
 pub fn apply(p: &mut Project, lib: &Library) -> Report {
     let mut r = Report { presets: crate::pixel::add_face_presets(p), ..Report::default() };
 
