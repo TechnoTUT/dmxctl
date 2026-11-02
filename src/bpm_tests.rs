@@ -294,8 +294,7 @@ fn midi_chase_toggle() {
 
 #[test]
 fn bpm_and_chases_persist_and_old_files_load() {
-    let mut p = Project::default();
-    p.bpm = 133.5;
+    let mut p = Project { bpm: 133.5, ..Project::default() };
     p.chases.push(Chase { name: "x".into(), steps: vec!["A".into()], order: ChaseOrder::PingPong, ..Chase::default() });
     let q: Project = serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap();
     assert_eq!(q.bpm, 133.5);

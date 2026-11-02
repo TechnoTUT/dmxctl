@@ -1061,19 +1061,6 @@ fn hue_of(c: [f32; 3]) -> f32 {
     h.rem_euclid(360.0)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::hue_of;
-
-    #[test]
-    fn hue_matches_the_hue_fader() {
-        for h in [0.0, 30.0, 120.0, 200.0, 300.0] {
-            assert!((hue_of(crate::color::hsv(h, 1.0, 1.0)) - h).abs() < 0.5, "{h}");
-        }
-        assert_eq!(hue_of([1.0, 1.0, 1.0]), 0.0);
-    }
-}
-
 /// パッドの中のプレビューを描く
 fn draw_preview(p: &egui::Painter, rect: Rect, preview: &Preview, active: bool, accent: Color32) {
     let area = rect.shrink(4.0);
@@ -1293,4 +1280,17 @@ fn settings_panel(ui: &mut egui::Ui, core: &mut Core) -> bool {
         });
     });
     changed
+}
+
+#[cfg(test)]
+mod tests {
+    use super::hue_of;
+
+    #[test]
+    fn hue_matches_the_hue_fader() {
+        for h in [0.0, 30.0, 120.0, 200.0, 300.0] {
+            assert!((hue_of(crate::color::hsv(h, 1.0, 1.0)) - h).abs() < 0.5, "{h}");
+        }
+        assert_eq!(hue_of([1.0, 1.0, 1.0]), 0.0);
+    }
 }

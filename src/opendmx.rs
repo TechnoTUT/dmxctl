@@ -416,7 +416,7 @@ mod hw_tests {
             }
         }
         // 最後は全部0(消灯)
-        link.send(&vec![0u8; 89]).unwrap();
+        link.send(&[0u8; 89]).unwrap();
         link.0.flush().unwrap();
         println!("終了");
     }

@@ -4,6 +4,7 @@
 //! - パッド 64個: Note 0x00..=0x3F (左下が0x00、右上が0x3F)
 //! - トラックボタン 8個: Note 0x64..=0x6B / シーンボタン 8個: Note 0x70..=0x77 / SHIFT: Note 0x7A
 //! - フェーダー 9本(8本 + マスター): CC 0x30..=0x38 (値は絶対位置)
+//!
 //! すべてチャンネル0(Session View時)
 
 use crate::project::TriggerKind;
@@ -117,7 +118,7 @@ mod tests {
         // プロトコルPDFの図: 上段左から 0x38..0x3F、最下段 0x00..0x07
         assert_eq!(pad_note(0, 0), 0x38);
         assert_eq!(pad_note(0, 7), 0x3F);
-        assert_eq!(pad_note(3, 3), 0x20 + 3 + 0x00); // 上から4行目 = 0x20..0x27
+        assert_eq!(pad_note(3, 3), 0x20 + 3); // 上から4行目 = 0x20..0x27
         assert_eq!(pad_note(7, 0), 0x00);
         assert_eq!(pad_note(7, 7), 0x07);
     }

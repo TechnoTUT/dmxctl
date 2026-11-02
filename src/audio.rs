@@ -270,7 +270,7 @@ fn run(core: Shared, device: &str, stop: Arc<AtomicBool>) {
         l2.store(a.level.to_bits(), Ordering::Relaxed);
     };
     let err_fn = |_e| {};
-    let stream_cfg: cpal::StreamConfig = cfg.clone().into();
+    let stream_cfg: cpal::StreamConfig = cfg.into();
     macro_rules! build {
         ($t:ty, $conv:expr) => {{
             let feed = feed.clone();
