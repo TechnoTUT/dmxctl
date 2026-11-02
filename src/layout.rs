@@ -62,6 +62,9 @@ impl Kind {
 const P1: Option<u8> = Some(0);
 const P2: Option<u8> = Some(1);
 
+/// パッドやフェーダーに置く(表示名, 動作)
+type Labeled = (String, Action);
+
 /// APC mini mk2 の割り当てを、おすすめの配置に置き換える(APC以外のMIDI機器やOSCだけの割り当ては残す)。
 /// LEDバーの模様・ムービング用のエフェクトは、無ければ足す
 pub fn apply(p: &mut Project, lib: &Library) -> Report {
@@ -86,7 +89,7 @@ pub fn apply(p: &mut Project, lib: &Library) -> Report {
     let bar_sel = if bars.is_empty() { None } else { Some(bar_group(p, &bars)) };
 
     // 5〜7段: 動きのプリセット(ムービングの動き / ムービングの見た目 / その他の機材)
-    let mut rows: [Vec<(String, Action)>; 3] = Default::default();
+    let mut rows: [Vec<Labeled>; 3] = Default::default();
     let add_fx = |p: &mut Project, r: &mut Report, list: Vec<Effect>| -> Vec<String> {
         let mut names: Vec<String> = Vec::new();
         for e in list {
@@ -114,7 +117,7 @@ pub fn apply(p: &mut Project, lib: &Library) -> Report {
         spread,
         beats,
     };
-    let toggle = |k: &Kind, name: &str, attr: &str, keyword: &str| -> Option<(String, Action)> {
+    let toggle = |k: &Kind, name: &str, attr: &str, keyword: &str| -> Option<Labeled> {
         let on = k.value(attr, keyword)?;
         Some((name.to_string(), Action::SetValue { sel: k.sel(), attr: attr.into(), mode: PadMode::Toggle, on, off: k.default_of(attr) }))
     };
@@ -262,7 +265,7 @@ pub fn apply(p: &mut Project, lib: &Library) -> Report {
     }
 
     // フェーダー
-    let mut faders: Vec<(String, Action)> = Vec::new();
+    let mut faders: Vec<Labeled> = Vec::new();
     if let Some(sel) = &bar_sel {
         faders.push(("LEDバー 明るさ".into(), Action::Level { sel: sel.clone() }));
         faders.push(("LEDバー 速さ".into(), Action::Pixel { param: PixelParam::Speed }));
@@ -290,7 +293,7 @@ pub fn apply(p: &mut Project, lib: &Library) -> Report {
     let mut all_fixtures: Vec<(u32, String)> = bars.clone();
     all_fixtures.extend(p.fixtures.iter().filter(|f| colored(f) && !bars.iter().any(|(id, _)| *id == f.id)).map(|f| (f.id, f.name.clone())));
     // 1段目: 機種ごとに メイン⇄サブ、1本おき、全部メイン/サブ
-    let mut row0: Vec<(String, Action)> = Vec::new();
+    let mut row0: Vec<Labeled> = Vec::new();
     if let Some(sel) = &bar_sel {
         row0.push(("系統:LEDバー".into(), Action::Role { sel: sel.clone(), op: RoleOp::Toggle }));
     }
@@ -303,9 +306,9 @@ pub fn apply(p: &mut Project, lib: &Library) -> Report {
     row0.push(("系統:全部メイン".into(), Action::Role { sel: Selector::All, op: RoleOp::Main }));
     row0.push(("系統:全部サブ".into(), Action::Role { sel: Selector::All, op: RoleOp::Sub }));
     // 2〜4段目: 1台ずつ メイン⇄サブ
-    let singles: Vec<(String, Action)> = all_fixtures.iter().map(|(id, name)| (format!("系統:{name}"), Action::Role { sel: Selector::Fixture(*id), op: RoleOp::Toggle })).collect();
+    let singles: Vec<Labeled> = all_fixtures.iter().map(|(id, name)| (format!("系統:{name}"), Action::Role { sel: Selector::Fixture(*id), op: RoleOp::Toggle })).collect();
     // 5段目: レーザーのARM(1台ずつと、まとめて)
-    let mut arms: Vec<(String, Action)> = Vec::new();
+    let mut arms: Vec<Labeled> = Vec::new();
     for f in p.fixtures.iter().filter(|f| lib.get(&f.profile).is_some_and(|x| x.needs_arm)) {
         arms.push((format!("ARM:{}", f.name), Action::Arm { sel: Selector::Fixture(f.id), mode: PadMode::Toggle }));
     }
@@ -315,7 +318,7 @@ pub fn apply(p: &mut Project, lib: &Library) -> Report {
     // 6段目: NDIの色とテンポ
     use crate::color::ColorRole;
     use crate::ndi::LiveSource;
-    let sync: Vec<(String, Action)> = vec![
+    let sync: Vec<Labeled> = vec![
         ("NDI:メイン=映像".into(), Action::LiveColor { role: ColorRole::Main, source: LiveSource::Video }),
         ("NDI:メイン=音".into(), Action::LiveColor { role: ColorRole::Main, source: LiveSource::Audio }),
         ("NDI:サブ=映像".into(), Action::LiveColor { role: ColorRole::Sub, source: LiveSource::Video }),
@@ -326,7 +329,7 @@ pub fn apply(p: &mut Project, lib: &Library) -> Report {
         ("BPM +1".into(), Action::Tempo { op: TempoOp::Nudge { delta: 1.0 } }),
     ];
     // 7段目: メイン⇄サブの自動入れ替えの間隔
-    let mut swaps: Vec<(String, Action)> = [1.0, 2.0, 4.0, 8.0, 16.0].iter().map(|&b| (format!("入れ替え {b}拍"), Action::SwapBeats { beats: b })).collect();
+    let mut swaps: Vec<Labeled> = [1.0, 2.0, 4.0, 8.0, 16.0].iter().map(|&b| (format!("入れ替え {b}拍"), Action::SwapBeats { beats: b })).collect();
     // LEDバーが9本以上あれば、本数の切り替え(8本 / 全部)も同じ段に
     if bars.len() > 8 {
         swaps.push(("LEDバー 8本".into(), Action::BarCount { count: 8 }));
@@ -335,9 +338,9 @@ pub fn apply(p: &mut Project, lib: &Library) -> Report {
     // 1台ずつの段は3段まで: LEDバー(8本なら1段、16本なら2段)と、それ以外の機材を1段
     let bar_ids: Vec<u32> = bars.iter().map(|(id, _)| *id).collect();
     let is_bar = |a: &Action| matches!(a, Action::Role { sel: Selector::Fixture(id), .. } if bar_ids.contains(id));
-    let (bar_singles, other_singles): (Vec<(String, Action)>, Vec<(String, Action)>) = singles.into_iter().partition(|(_, a)| is_bar(a));
-    let mut rows2: Vec<Vec<(String, Action)>> = vec![row0];
-    let bar_rows: Vec<Vec<(String, Action)>> = bar_singles.chunks(8).map(|c| c.to_vec()).take(2).collect();
+    let (bar_singles, other_singles): (Vec<Labeled>, Vec<Labeled>) = singles.into_iter().partition(|(_, a)| is_bar(a));
+    let mut rows2: Vec<Vec<Labeled>> = vec![row0];
+    let bar_rows: Vec<Vec<Labeled>> = bar_singles.chunks(8).map(|c| c.to_vec()).take(2).collect();
     let room = 3 - bar_rows.len();
     rows2.extend(bar_rows);
     rows2.extend(other_singles.chunks(8).map(|c| c.to_vec()).take(room));
@@ -350,7 +353,7 @@ pub fn apply(p: &mut Project, lib: &Library) -> Report {
         }
     }
     // フェーダー: レーザーの位置(X/Y)・大きさ、ムービングの動きの速さ
-    let mut faders2: Vec<(String, Action)> = Vec::new();
+    let mut faders2: Vec<Labeled> = Vec::new();
     let lasers: Vec<(u32, String, bool)> = p
         .fixtures
         .iter()

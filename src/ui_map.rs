@@ -1209,21 +1209,28 @@ fn settings_panel(ui: &mut egui::Ui, core: &mut Core) -> bool {
     ui.add_space(6.0);
 
     // レーザー(ARMと位置)
-    let lasers: Vec<(u32, String, bool, Option<usize>, Option<usize>)> = core
+    struct LaserRow {
+        id: u32,
+        name: String,
+        armed: bool,
+        pan: Option<usize>,
+        tilt: Option<usize>,
+    }
+    let lasers: Vec<LaserRow> = core
         .project
         .fixtures
         .iter()
         .filter_map(|f| {
             let prof = core.lib.get(&f.profile)?;
             let m = core.lib.mode(&f.profile, f.mode)?;
-            prof.needs_arm.then(|| (f.id, f.name.clone(), f.armed, m.find_attr("pan"), m.find_attr("tilt")))
+            prof.needs_arm.then(|| LaserRow { id: f.id, name: f.name.clone(), armed: f.armed, pan: m.find_attr("pan"), tilt: m.find_attr("tilt") })
         })
         .collect();
     if !lasers.is_empty() {
         theme::card().show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.label(RichText::new("レーザー").font(theme::bold(13.0)));
-            for (id, name, armed, pan, tilt) in lasers {
+            for LaserRow { id, name, armed, pan, tilt } in lasers {
                 ui.horizontal(|ui| {
                     let (text, fill) = if armed { ("ARM中", theme::DANGER) } else { ("ARM", theme::WIDGET) };
                     if ui.add(egui::Button::new(RichText::new(text).small().color(Color32::WHITE)).fill(fill).min_size(vec2(52.0, 0.0))).on_hover_text("出力を許可します(OFFの間は安全値=レーザーOFF)").clicked()
