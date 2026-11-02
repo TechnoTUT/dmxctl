@@ -294,12 +294,11 @@ fn control_led(core: &Core, ctl: Ctl, idle_level: u8, looks: &HashMap<u32, [f32;
                 return Led::Rgb { color: C_WHITE, level: LV_100 };
             }
             // 色に関係するパッドは、フルカラーで実際の色に光らせる(待機中は暗め)
-            if core.project.led_true_color {
-                if let Some(c) = action_rgb(core, &first.action, looks) {
-                    let s = if active { 1.0 } else { IDLE_SCALE[(idle_level as usize).min(IDLE_SCALE.len() - 1)] };
-                    let rgb = c.map(|x| (x.clamp(0.0, 1.0) * s * 255.0).round() as u8);
-                    return Led::True { rgb, full: active };
-                }
+            if core.project.led_true_color
+                && let Some(c) = action_rgb(core, &first.action, looks) {
+                let s = if active { 1.0 } else { IDLE_SCALE[(idle_level as usize).min(IDLE_SCALE.len() - 1)] };
+                let rgb = c.map(|x| (x.clamp(0.0, 1.0) * s * 255.0).round() as u8);
+                return Led::True { rgb, full: active };
             }
             // 拍の頭は、1拍目だけオレンジにして小節の頭が分かるようにする
             let mut color = base_color(core, &first.action);

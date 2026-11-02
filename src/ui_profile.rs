@@ -165,10 +165,9 @@ impl App {
                 self.pe.msg = (false, String::new());
             }
             Some(Act::Save) => {
-                if self.pe.is_new {
-                    if let Some(d) = self.pe.draft.as_mut() {
-                        d.id = lib.unique_id(&d.name);
-                    }
+                if self.pe.is_new
+                    && let Some(d) = self.pe.draft.as_mut() {
+                    d.id = lib.unique_id(&d.name);
                 }
                 if let Some(d) = self.pe.draft.clone() {
                     let report = d.validate();

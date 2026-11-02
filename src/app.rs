@@ -172,10 +172,9 @@ impl App {
             shot: crate::shot::Shot::from_env(),
         };
         // 確認用: DMXCTL_TAB=タブ名 で開くタブ、DMXCTL_UNIVERSE=番号 でモニターのユニバースを選ぶ
-        if let Ok(name) = std::env::var("DMXCTL_TAB") {
-            if let Some((t, _)) = TABS.iter().find(|(_, label)| *label == name) {
-                app.tab = *t;
-            }
+        if let Ok(name) = std::env::var("DMXCTL_TAB")
+            && let Some((t, _)) = TABS.iter().find(|(_, label)| *label == name) {
+            app.tab = *t;
         }
         if let Some(u) = std::env::var("DMXCTL_UNIVERSE").ok().and_then(|v| v.parse::<usize>().ok()) {
             app.monitor_universe = u.clamp(1, NUM_UNIVERSES) - 1;
@@ -188,10 +187,9 @@ impl App {
         let auto_midi = std::env::var_os("DMXCTL_NO_MIDI").is_none();
         if !auto_midi {
             app.midi_choice.clear();
-        } else if app.midi_choice.is_empty() || !app.midi_ports.contains(&app.midi_choice) {
-            if let Some(p) = crate::apcmini::find_port(&app.midi_ports) {
-                app.midi_choice = p;
-            }
+        } else if (app.midi_choice.is_empty() || !app.midi_ports.contains(&app.midi_choice))
+            && let Some(p) = crate::apcmini::find_port(&app.midi_ports) {
+            app.midi_choice = p;
         }
         if !app.midi_choice.is_empty() && app.midi_ports.contains(&app.midi_choice) {
             let name = app.midi_choice.clone();
@@ -242,10 +240,9 @@ impl App {
         let want_clock = (src == TempoSource::MidiClock && !clock_port.is_empty() && self.midi.connected.as_deref() != Some(clock_port.as_str())).then_some(clock_port);
         if self.midi.clock_connected != want_clock {
             self.midi.disconnect_clock();
-            if let Some(name) = want_clock {
-                if let Err(e) = self.midi.connect_clock(&self.core, &name) {
-                    self.notice = format!("MIDIクロック: {e}");
-                }
+            if let Some(name) = want_clock
+                && let Err(e) = self.midi.connect_clock(&self.core, &name) {
+                self.notice = format!("MIDIクロック: {e}");
             }
         }
     }
@@ -687,10 +684,9 @@ impl SelMeta {
     /// 選択範囲の最初の機材が持つ、そのattrのレンジ一覧(パッドに色/ゴボを割り当てる時の候補)
     pub fn ranges(&self, lib: &Library, sel: &Selector, attr: &str) -> Vec<Range> {
         for f in self.members(sel) {
-            if let Some(m) = lib.mode(&f.profile, f.mode) {
-                if let Some(ch) = m.find_attr(attr) {
-                    return m.channels[ch].ranges.clone();
-                }
+            if let Some(m) = lib.mode(&f.profile, f.mode)
+                && let Some(ch) = m.find_attr(attr) {
+                return m.channels[ch].ranges.clone();
             }
         }
         Vec::new()

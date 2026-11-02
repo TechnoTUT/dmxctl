@@ -504,10 +504,9 @@ fn run(core: Shared, ctx: Option<eframe::egui::Context>, stop: Arc<AtomicBool>) 
                     st.status = format!("{connected}: 受信が止まっています");
                 });
             }
-            if need_any {
-                if let Some(c) = &ctx {
-                    c.request_repaint_after(Duration::from_millis(250));
-                }
+            if need_any
+                && let Some(c) = &ctx {
+                c.request_repaint_after(Duration::from_millis(250));
             }
         }
         if !recv.is_null() {
@@ -619,11 +618,10 @@ mod hw_tests {
         while t0.elapsed() < Duration::from_secs(15) {
             std::thread::sleep(Duration::from_millis(500));
             let mut c = lock(&core);
-            if c.project.ndi.source.is_empty() {
-                if let Some(s) = c.rt.ndi.sources.iter().find(|s| s.contains(&want)).cloned() {
-                    println!("ソース: {:?} → {s} につなぐ", c.rt.ndi.sources);
-                    c.project.ndi.source = s;
-                }
+            if c.project.ndi.source.is_empty()
+                && let Some(s) = c.rt.ndi.sources.iter().find(|s| s.contains(&want)).cloned() {
+                println!("ソース: {:?} → {s} につなぐ", c.rt.ndi.sources);
+                c.project.ndi.source = s;
             }
             let st = &c.rt.ndi;
             println!("{:>4.1}s {} / 映像 {:?} / 音 {:?}", t0.elapsed().as_secs_f32(), st.status, st.video.map(|v| v.map(|x| (x * 255.0) as u8)), st.audio.map(|v| v.map(|x| (x * 100.0) as u8)));

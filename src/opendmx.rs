@@ -108,12 +108,11 @@ fn run(kind: LinkKind, frame: Arc<Mutex<Vec<u8>>>, status: Arc<Mutex<String>>, s
 
         let t0 = Instant::now();
         let data = frame.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        if let Some(l) = link.as_mut() {
-            if let Err(e) = l.send(&data) {
-                set(format!("切断: {e}"));
-                link = None;
-                continue;
-            }
+        if let Some(l) = link.as_mut()
+            && let Err(e) = l.send(&data) {
+            set(format!("切断: {e}"));
+            link = None;
+            continue;
         }
         let elapsed = t0.elapsed();
         if elapsed < FRAME_PERIOD {

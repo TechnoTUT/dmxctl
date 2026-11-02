@@ -234,10 +234,9 @@ impl Mode {
         if let Some(slot) = values.get_mut(ch) {
             *slot = c as u8;
         }
-        if let Some(f) = self.fine_of(ch) {
-            if let Some(slot) = values.get_mut(f) {
-                *slot = ((v - c) * 256.0).floor().min(255.0) as u8;
-            }
+        if let Some(f) = self.fine_of(ch)
+            && let Some(slot) = values.get_mut(f) {
+            *slot = ((v - c) * 256.0).floor().min(255.0) as u8;
         }
     }
 
@@ -412,10 +411,9 @@ impl ModeInfo {
         if let Some(slot) = values.get_mut(ch) {
             *slot = c as u8;
         }
-        if let Some(f) = self.fine.get(ch).copied().flatten() {
-            if let Some(slot) = values.get_mut(f) {
-                *slot = ((v - c) * 256.0).floor().min(255.0) as u8;
-            }
+        if let Some(f) = self.fine.get(ch).copied().flatten()
+            && let Some(slot) = values.get_mut(f) {
+            *slot = ((v - c) * 256.0).floor().min(255.0) as u8;
         }
     }
 

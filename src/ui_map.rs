@@ -511,11 +511,10 @@ impl App {
                             menu.read_faders = true;
                             ui.close();
                         }
-                        if use_pages && common_pads > 0 {
-                            if ui.button(format!("共通のパッド {common_pads} 件をページ{}専用にする", page + 1)).on_hover_text("「全ページ共通」になっているパッドの割り当てを、表示中のページだけで効くようにします(ボタンとフェーダーは共通のまま)").clicked() {
-                                menu.move_common = true;
-                                ui.close();
-                            }
+                        if use_pages && common_pads > 0
+                            && ui.button(format!("共通のパッド {common_pads} 件をページ{}専用にする", page + 1)).on_hover_text("「全ページ共通」になっているパッドの割り当てを、表示中のページだけで効くようにします(ボタンとフェーダーは共通のまま)").clicked() {
+                            menu.move_common = true;
+                            ui.close();
                         }
                     });
                     legend(ui);
@@ -633,10 +632,9 @@ impl App {
         }
         drop(guard);
 
-        if menu.read_faders {
-            if let Err(e) = self.midi.request_faders() {
-                self.notice = format!("フェーダー位置の読み取りに失敗: {e}");
-            }
+        if menu.read_faders
+            && let Err(e) = self.midi.request_faders() {
+            self.notice = format!("フェーダー位置の読み取りに失敗: {e}");
         }
         if menu.recommended {
             self.apply_recommended_layout();
@@ -1241,10 +1239,9 @@ fn settings_panel(ui: &mut egui::Ui, core: &mut Core) -> bool {
             for (id, name, armed, pan, tilt) in lasers {
                 ui.horizontal(|ui| {
                     let (text, fill) = if armed { ("ARM中", theme::DANGER) } else { ("ARM", theme::WIDGET) };
-                    if ui.add(egui::Button::new(RichText::new(text).small().color(Color32::WHITE)).fill(fill).min_size(vec2(52.0, 0.0))).on_hover_text("出力を許可します(OFFの間は安全値=レーザーOFF)").clicked() {
-                        if let Some(i) = core.project.fixture_index(id) {
-                            core.project.fixtures[i].armed = !armed;
-                        }
+                    if ui.add(egui::Button::new(RichText::new(text).small().color(Color32::WHITE)).fill(fill).min_size(vec2(52.0, 0.0))).on_hover_text("出力を許可します(OFFの間は安全値=レーザーOFF)").clicked()
+                        && let Some(i) = core.project.fixture_index(id) {
+                        core.project.fixtures[i].armed = !armed;
                     }
                     ui.add(egui::Label::new(RichText::new(&name).small()).truncate());
                 });

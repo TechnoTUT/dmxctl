@@ -583,14 +583,13 @@ impl Core {
     fn sync_beat(&mut self, now: Instant, dt: f64) {
         match self.project.tempo_source {
             TempoSource::Link => {
-                if let Some(l) = self.rt.link.as_ref() {
-                    if let Some((tempo, beat)) = l.state(BEATS_PER_BAR as f64) {
-                        self.rt.link_peers = l.peers();
-                        self.rt.beat = beat;
-                        // 仲間から来たテンポの変更は、保存のきっかけにしない
-                        self.project.bpm = (tempo as f32).clamp(BPM_MIN, BPM_MAX);
-                        return;
-                    }
+                if let Some(l) = self.rt.link.as_ref()
+                    && let Some((tempo, beat)) = l.state(BEATS_PER_BAR as f64) {
+                    self.rt.link_peers = l.peers();
+                    self.rt.beat = beat;
+                    // 仲間から来たテンポの変更は、保存のきっかけにしない
+                    self.project.bpm = (tempo as f32).clamp(BPM_MIN, BPM_MAX);
+                    return;
                 }
             }
             TempoSource::MidiClock => {
@@ -839,12 +838,11 @@ impl Core {
             let Some(new_mode) = profile.modes.get(fx.mode) else { continue };
             let old_mode = old.mode(&fx.profile, fx.mode);
             let mut values = new_mode.default_values();
-            if let Some(om) = old_mode {
-                if om.channels.len() == fx.values.len() {
-                    for (i, ch) in new_mode.channels.iter().enumerate() {
-                        if let Some(oi) = om.find_attr(&ch.attr) {
-                            values[i] = fx.values[oi];
-                        }
+            if let Some(om) = old_mode
+                && om.channels.len() == fx.values.len() {
+                for (i, ch) in new_mode.channels.iter().enumerate() {
+                    if let Some(oi) = om.find_attr(&ch.attr) {
+                        values[i] = fx.values[oi];
                     }
                 }
             }
@@ -1052,11 +1050,10 @@ impl Core {
                 }
             }
             // ブラックアウトでは、安全値の無い機材(RGBの灯具など)も、明るさのチャンネルを0にする。ミュート中の機材も同じ
-            if dark || muted {
-                if let Some(info) = lib.info(&fx.profile, fx.mode) {
-                    for &ch in &info.master {
-                        info.set_f(v, ch, 0.0);
-                    }
+            if (dark || muted)
+                && let Some(info) = lib.info(&fx.profile, fx.mode) {
+                for &ch in &info.master {
+                    info.set_f(v, ch, 0.0);
                 }
             }
             let base = fx.address as usize - 1;
@@ -1084,11 +1081,10 @@ impl Core {
         // 全体光量だけは、実機のフェーダー位置に合わせる(位置と出力がずれたままにならないように)
         let mut master = None;
         for b in &self.project.bindings {
-            if let (Action::Master { mode: PadMode::Continuous, on, off }, Some(t)) = (&b.action, b.trigger) {
-                if t.kind == TriggerKind::Cc && (0x30..=0x38).contains(&t.number) && t.channel.is_none_or(|c| c == 0) {
-                    let v = positions[(t.number - 0x30) as usize] as f32;
-                    master = Some(((off + (on - off) * v / 127.0) / 100.0).clamp(0.0, 1.0));
-                }
+            if let (Action::Master { mode: PadMode::Continuous, on, off }, Some(t)) = (&b.action, b.trigger)
+                && t.kind == TriggerKind::Cc && (0x30..=0x38).contains(&t.number) && t.channel.is_none_or(|c| c == 0) {
+                let v = positions[(t.number - 0x30) as usize] as f32;
+                master = Some(((off + (on - off) * v / 127.0) / 100.0).clamp(0.0, 1.0));
             }
         }
         if let Some(m) = master {
@@ -1221,12 +1217,10 @@ impl Core {
             let mut reset: Vec<(u32, String, f32)> = Vec::new();
             for (i, attr) in &mine {
                 let f = &self.project.fixtures[*i];
-                if let Some(m) = lib.mode(&f.profile, f.mode) {
-                    if let Some(ch) = m.find_attr(attr).map(|c| &m.channels[c]) {
-                        if !ch.ranges.is_empty() {
-                            reset.push((f.id, attr.clone(), ch.default as f32));
-                        }
-                    }
+                if let Some(m) = lib.mode(&f.profile, f.mode)
+                    && let Some(ch) = m.find_attr(attr).map(|c| &m.channels[c])
+                    && !ch.ranges.is_empty() {
+                    reset.push((f.id, attr.clone(), ch.default as f32));
                 }
             }
             for (id, attr, v) in reset {
