@@ -1,0 +1,232 @@
+{
+  "id": "stage-evolution/minispot30",
+  "name": "MINI SPOT 30",
+  "manufacturer": "STAGE EVOLUTION",
+  "needs_arm": false,
+  "modes": [
+    {
+      "name": "9ch",
+      "channels": [
+        {
+          "name": "Pan",
+          "attr": "pan",
+          "default": 127,
+          "category": "動き"
+        },
+        {
+          "name": "Tilt",
+          "attr": "tilt",
+          "default": 127,
+          "category": "動き"
+        },
+        {
+          "name": "カラー",
+          "attr": "color",
+          "ranges": [
+            { "from": 0, "to": 9, "label": "オープン(白)" },
+            { "from": 10, "to": 19, "label": "赤" },
+            { "from": 20, "to": 29, "label": "緑" },
+            { "from": 30, "to": 39, "label": "青" },
+            { "from": 40, "to": 49, "label": "黄" },
+            { "from": 50, "to": 59, "label": "ライトブルー" },
+            { "from": 60, "to": 69, "label": "オレンジ" },
+            { "from": 70, "to": 79, "label": "マゼンタ" },
+            { "from": 80, "to": 89, "label": "マゼンタ/オレンジ" },
+            { "from": 90, "to": 99, "label": "オレンジ/ライトブルー" },
+            { "from": 100, "to": 109, "label": "ライトブルー/黄" },
+            { "from": 110, "to": 119, "label": "黄/青" },
+            { "from": 120, "to": 129, "label": "青/緑" },
+            { "from": 130, "to": 139, "label": "緑/赤" },
+            { "from": 140, "to": 255, "label": "レインボー(遅→速)", "sweep": true }
+          ],
+          "category": "色"
+        },
+        {
+          "name": "ゴボ",
+          "attr": "gobo",
+          "ranges": [
+            { "from": 0, "to": 7, "label": "オープン" },
+            { "from": 8, "to": 15, "label": "ゴボ1" },
+            { "from": 16, "to": 24, "label": "ゴボ2" },
+            { "from": 25, "to": 31, "label": "ゴボ3" },
+            { "from": 32, "to": 39, "label": "ゴボ4" },
+            { "from": 40, "to": 47, "label": "ゴボ5" },
+            { "from": 48, "to": 55, "label": "ゴボ6" },
+            { "from": 56, "to": 63, "label": "ゴボ7" },
+            { "from": 64, "to": 71, "label": "オープン(2)" },
+            { "from": 72, "to": 79, "label": "ゴボ1 シェイク(遅→速)", "sweep": true },
+            { "from": 80, "to": 87, "label": "ゴボ2 シェイク(遅→速)", "sweep": true },
+            { "from": 88, "to": 95, "label": "ゴボ3 シェイク(遅→速)", "sweep": true },
+            { "from": 96, "to": 103, "label": "ゴボ4 シェイク(遅→速)", "sweep": true },
+            { "from": 104, "to": 111, "label": "ゴボ5 シェイク(遅→速)", "sweep": true },
+            { "from": 112, "to": 119, "label": "ゴボ6 シェイク(遅→速)", "sweep": true },
+            { "from": 120, "to": 127, "label": "ゴボ7 シェイク(遅→速)", "sweep": true },
+            { "from": 128, "to": 255, "label": "ゴボホイール回転(遅→速)", "sweep": true }
+          ],
+          "category": "形"
+        },
+        {
+          "name": "ストロボ",
+          "attr": "strobe",
+          "ranges": [
+            { "from": 0, "to": 9, "label": "なし" },
+            { "from": 10, "to": 249, "label": "ストロボ(遅→速)", "sweep": true },
+            { "from": 250, "to": 255, "label": "なし(2)" }
+          ],
+          "category": "光量"
+        },
+        {
+          "name": "ディマー",
+          "attr": "dimmer",
+          "safe": 0,
+          "category": "光量"
+        },
+        {
+          "name": "Pan/Tilt スピード",
+          "attr": "pt_speed",
+          "category": "動き"
+        },
+        {
+          "name": "動作モード",
+          "attr": "auto",
+          "ranges": [
+            { "from": 0, "to": 59, "label": "DMX制御" },
+            { "from": 60, "to": 159, "label": "内蔵プログラム" },
+            { "from": 160, "to": 255, "label": "サウンドアクティブ" }
+          ],
+          "category": "制御"
+        },
+        {
+          "name": "ムーブ/リセット",
+          "attr": "control",
+          "ranges": [
+            { "from": 0, "to": 20, "label": "なし" },
+            { "from": 21, "to": 100, "label": "PAN ムーブメント" },
+            { "from": 101, "to": 200, "label": "TILT ムーブメント" },
+            { "from": 201, "to": 249, "label": "PAN/TILT ムーブメント" },
+            { "from": 250, "to": 255, "label": "リセット(注意)", "warn": true }
+          ],
+          "category": "制御"
+        }
+      ]
+    },
+    {
+      "name": "11ch",
+      "channels": [
+        {
+          "name": "Pan",
+          "attr": "pan",
+          "default": 127,
+          "category": "動き"
+        },
+        {
+          "name": "Pan Fine",
+          "attr": "pan_fine",
+          "fine_of": 1,
+          "category": "動き"
+        },
+        {
+          "name": "Tilt",
+          "attr": "tilt",
+          "default": 127,
+          "category": "動き"
+        },
+        {
+          "name": "Tilt Fine",
+          "attr": "tilt_fine",
+          "fine_of": 3,
+          "category": "動き"
+        },
+        {
+          "name": "カラー",
+          "attr": "color",
+          "ranges": [
+            { "from": 0, "to": 9, "label": "オープン(白)" },
+            { "from": 10, "to": 19, "label": "赤" },
+            { "from": 20, "to": 29, "label": "緑" },
+            { "from": 30, "to": 39, "label": "青" },
+            { "from": 40, "to": 49, "label": "黄" },
+            { "from": 50, "to": 59, "label": "ライトブルー" },
+            { "from": 60, "to": 69, "label": "オレンジ" },
+            { "from": 70, "to": 79, "label": "マゼンタ" },
+            { "from": 80, "to": 89, "label": "マゼンタ/オレンジ" },
+            { "from": 90, "to": 99, "label": "オレンジ/ライトブルー" },
+            { "from": 100, "to": 109, "label": "ライトブルー/黄" },
+            { "from": 110, "to": 119, "label": "黄/青" },
+            { "from": 120, "to": 129, "label": "青/緑" },
+            { "from": 130, "to": 139, "label": "緑/赤" },
+            { "from": 140, "to": 255, "label": "レインボー(遅→速)", "sweep": true }
+          ],
+          "category": "色"
+        },
+        {
+          "name": "ゴボ",
+          "attr": "gobo",
+          "ranges": [
+            { "from": 0, "to": 7, "label": "オープン" },
+            { "from": 8, "to": 15, "label": "ゴボ1" },
+            { "from": 16, "to": 24, "label": "ゴボ2" },
+            { "from": 25, "to": 31, "label": "ゴボ3" },
+            { "from": 32, "to": 39, "label": "ゴボ4" },
+            { "from": 40, "to": 47, "label": "ゴボ5" },
+            { "from": 48, "to": 55, "label": "ゴボ6" },
+            { "from": 56, "to": 63, "label": "ゴボ7" },
+            { "from": 64, "to": 71, "label": "オープン(2)" },
+            { "from": 72, "to": 79, "label": "ゴボ1 シェイク(遅→速)", "sweep": true },
+            { "from": 80, "to": 87, "label": "ゴボ2 シェイク(遅→速)", "sweep": true },
+            { "from": 88, "to": 95, "label": "ゴボ3 シェイク(遅→速)", "sweep": true },
+            { "from": 96, "to": 103, "label": "ゴボ4 シェイク(遅→速)", "sweep": true },
+            { "from": 104, "to": 111, "label": "ゴボ5 シェイク(遅→速)", "sweep": true },
+            { "from": 112, "to": 119, "label": "ゴボ6 シェイク(遅→速)", "sweep": true },
+            { "from": 120, "to": 127, "label": "ゴボ7 シェイク(遅→速)", "sweep": true },
+            { "from": 128, "to": 255, "label": "ゴボホイール回転(遅→速)", "sweep": true }
+          ],
+          "category": "形"
+        },
+        {
+          "name": "ストロボ",
+          "attr": "strobe",
+          "ranges": [
+            { "from": 0, "to": 9, "label": "なし" },
+            { "from": 10, "to": 249, "label": "ストロボ(遅→速)", "sweep": true },
+            { "from": 250, "to": 255, "label": "なし(2)" }
+          ],
+          "category": "光量"
+        },
+        {
+          "name": "ディマー",
+          "attr": "dimmer",
+          "safe": 0,
+          "category": "光量"
+        },
+        {
+          "name": "Pan/Tilt スピード",
+          "attr": "pt_speed",
+          "category": "動き"
+        },
+        {
+          "name": "動作モード",
+          "attr": "auto",
+          "ranges": [
+            { "from": 0, "to": 59, "label": "DMX制御" },
+            { "from": 60, "to": 159, "label": "内蔵プログラム" },
+            { "from": 160, "to": 255, "label": "サウンドアクティブ" }
+          ],
+          "category": "制御"
+        },
+        {
+          "name": "ムーブ/リセット",
+          "attr": "control",
+          "ranges": [
+            { "from": 0, "to": 20, "label": "なし" },
+            { "from": 21, "to": 100, "label": "PAN ムーブメント" },
+            { "from": 101, "to": 200, "label": "TILT ムーブメント" },
+            { "from": 201, "to": 249, "label": "PAN/TILT ムーブメント" },
+            { "from": 250, "to": 255, "label": "リセット(注意)", "warn": true }
+          ],
+          "category": "制御"
+        }
+      ]
+    }
+  ]
+}

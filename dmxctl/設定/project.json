@@ -1,0 +1,964 @@
+{
+  "fixtures": [
+    {
+      "id": 1,
+      "name": "MINI SPOT 30 1",
+      "profile": "stage-evolution/minispot30",
+      "mode": 0,
+      "universe": 0,
+      "address": 1,
+      "values": [
+        126,
+        130,
+        0,
+        0,
+        0,
+        255,
+        0,
+        0,
+        0
+      ],
+      "color_role": "Main"
+    },
+    {
+      "id": 2,
+      "name": "LASER SCAN 300 1",
+      "profile": "stage-evolution/laserscan300",
+      "mode": 0,
+      "universe": 0,
+      "address": 10,
+      "values": [
+        255,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        103,
+        0,
+        140,
+        0
+      ],
+      "color_role": "Main"
+    },
+    {
+      "id": 3,
+      "name": "MINI SPOT 30 2",
+      "profile": "stage-evolution/minispot30",
+      "mode": 0,
+      "universe": 0,
+      "address": 27,
+      "values": [
+        127,
+        127,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "color_role": "Main"
+    }
+  ],
+  "groups": [],
+  "effects": [],
+  "scenes": [],
+  "bindings": [
+    {
+      "name": "パッド56",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 56
+      },
+      "action": {
+        "SetValue": {
+          "sel": {
+            "Fixture": 1
+          },
+          "attr": "dimmer",
+          "mode": "Trigger",
+          "on": 255.0,
+          "off": 0.0
+        }
+      }
+    },
+    {
+      "name": "全体光量",
+      "trigger": {
+        "kind": "Cc",
+        "channel": null,
+        "number": 56
+      },
+      "action": {
+        "Master": {
+          "mode": "Continuous",
+          "on": 100.0,
+          "off": 0.0
+        }
+      }
+    },
+    {
+      "name": "パッド57",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 57
+      },
+      "action": {
+        "SetValue": {
+          "sel": "All",
+          "attr": "dimmer",
+          "mode": "Toggle",
+          "on": 255.0,
+          "off": 0.0
+        }
+      }
+    },
+    {
+      "name": "フェーダー1",
+      "trigger": {
+        "kind": "Cc",
+        "channel": null,
+        "number": 48
+      },
+      "action": {
+        "Color": {
+          "color": null,
+          "target": "Scope"
+        }
+      }
+    },
+    {
+      "name": "模様:縞々",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 58
+      },
+      "action": {
+        "Effect": {
+          "name": "縞々",
+          "mode": "Toggle"
+        }
+      }
+    },
+    {
+      "name": "模様:縞々スクロール",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 59
+      },
+      "action": {
+        "Effect": {
+          "name": "縞々スクロール",
+          "mode": "Toggle"
+        }
+      }
+    },
+    {
+      "name": "模様:太縞スクロール",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 60
+      },
+      "action": {
+        "Effect": {
+          "name": "太縞スクロール",
+          "mode": "Toggle"
+        }
+      }
+    },
+    {
+      "name": "模様:交互チェンジ",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 61
+      },
+      "action": {
+        "Effect": {
+          "name": "交互チェンジ",
+          "mode": "Toggle"
+        }
+      }
+    },
+    {
+      "name": "模様:ウェーブ",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 62
+      },
+      "action": {
+        "Effect": {
+          "name": "ウェーブ",
+          "mode": "Toggle"
+        }
+      }
+    },
+    {
+      "name": "模様:交互ウェーブ",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 63
+      },
+      "action": {
+        "Effect": {
+          "name": "交互ウェーブ",
+          "mode": "Toggle"
+        }
+      }
+    },
+    {
+      "name": "模様:センターウェーブ",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 48
+      },
+      "action": {
+        "Effect": {
+          "name": "センターウェーブ",
+          "mode": "Toggle"
+        }
+      }
+    },
+    {
+      "name": "模様:センター縞",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 49
+      },
+      "action": {
+        "Effect": {
+          "name": "センター縞",
+          "mode": "Toggle"
+        }
+      }
+    },
+    {
+      "name": "ページ1",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 112
+      },
+      "action": {
+        "Page": {
+          "op": {
+            "Go": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "ページ2",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 113
+      },
+      "action": {
+        "Page": {
+          "op": {
+            "Go": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "ページ3",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 114
+      },
+      "action": {
+        "Page": {
+          "op": {
+            "Go": 2
+          }
+        }
+      }
+    },
+    {
+      "name": "ページ4",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 115
+      },
+      "action": {
+        "Page": {
+          "op": {
+            "Go": 3
+          }
+        }
+      }
+    },
+    {
+      "name": "ページ5",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 116
+      },
+      "action": {
+        "Page": {
+          "op": {
+            "Go": 4
+          }
+        }
+      }
+    },
+    {
+      "name": "ページ6",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 117
+      },
+      "action": {
+        "Page": {
+          "op": {
+            "Go": 5
+          }
+        }
+      }
+    },
+    {
+      "name": "ページ7",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 118
+      },
+      "action": {
+        "Page": {
+          "op": {
+            "Go": 6
+          }
+        }
+      }
+    },
+    {
+      "name": "ページ8",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 119
+      },
+      "action": {
+        "Page": {
+          "op": {
+            "Go": 7
+          }
+        }
+      }
+    },
+    {
+      "name": "色:赤",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 0
+      },
+      "action": {
+        "Color": {
+          "color": "Red",
+          "target": "Scope"
+        }
+      }
+    },
+    {
+      "name": "色:オレンジ",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 1
+      },
+      "action": {
+        "Color": {
+          "color": "Orange",
+          "target": "Scope"
+        }
+      }
+    },
+    {
+      "name": "色:黄",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 2
+      },
+      "action": {
+        "Color": {
+          "color": "Yellow",
+          "target": "Scope"
+        }
+      }
+    },
+    {
+      "name": "色:緑",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 3
+      },
+      "action": {
+        "Color": {
+          "color": "Green",
+          "target": "Scope"
+        }
+      }
+    },
+    {
+      "name": "色:水色",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 4
+      },
+      "action": {
+        "Color": {
+          "color": "Cyan",
+          "target": "Scope"
+        }
+      }
+    },
+    {
+      "name": "色:青",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 5
+      },
+      "action": {
+        "Color": {
+          "color": "Blue",
+          "target": "Scope"
+        }
+      }
+    },
+    {
+      "name": "色:紫",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 6
+      },
+      "action": {
+        "Color": {
+          "color": "Violet",
+          "target": "Scope"
+        }
+      }
+    },
+    {
+      "name": "色:白",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 7
+      },
+      "action": {
+        "Color": {
+          "color": "White",
+          "target": "Scope"
+        }
+      }
+    },
+    {
+      "name": "選択:MINI SPOT 30 1",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 100
+      },
+      "action": {
+        "Select": {
+          "fixture": 1,
+          "op": "Only"
+        }
+      }
+    },
+    {
+      "name": "選択:LASER SCAN 300 1",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 101
+      },
+      "action": {
+        "Select": {
+          "fixture": 2,
+          "op": "Only"
+        }
+      }
+    },
+    {
+      "name": "選択:MINI SPOT 30 2",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 102
+      },
+      "action": {
+        "Select": {
+          "fixture": 3,
+          "op": "Only"
+        }
+      }
+    },
+    {
+      "name": "色相(H)",
+      "trigger": {
+        "kind": "Cc",
+        "channel": null,
+        "number": 55
+      },
+      "action": {
+        "Color": {
+          "color": null,
+          "target": "Scope"
+        }
+      }
+    },
+    {
+      "name": "メイン:赤",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 8
+      },
+      "action": {
+        "Color": {
+          "color": "Red",
+          "target": "Main"
+        }
+      }
+    },
+    {
+      "name": "メイン:オレンジ",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 9
+      },
+      "action": {
+        "Color": {
+          "color": "Orange",
+          "target": "Main"
+        }
+      }
+    },
+    {
+      "name": "メイン:黄",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 10
+      },
+      "action": {
+        "Color": {
+          "color": "Yellow",
+          "target": "Main"
+        }
+      }
+    },
+    {
+      "name": "メイン:緑",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 11
+      },
+      "action": {
+        "Color": {
+          "color": "Green",
+          "target": "Main"
+        }
+      }
+    },
+    {
+      "name": "メイン:水色",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 12
+      },
+      "action": {
+        "Color": {
+          "color": "Cyan",
+          "target": "Main"
+        }
+      }
+    },
+    {
+      "name": "メイン:青",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 13
+      },
+      "action": {
+        "Color": {
+          "color": "Blue",
+          "target": "Main"
+        }
+      }
+    },
+    {
+      "name": "メイン:紫",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 14
+      },
+      "action": {
+        "Color": {
+          "color": "Violet",
+          "target": "Main"
+        }
+      }
+    },
+    {
+      "name": "メイン:白",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 15
+      },
+      "action": {
+        "Color": {
+          "color": "White",
+          "target": "Main"
+        }
+      }
+    },
+    {
+      "name": "サブ:赤",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 16
+      },
+      "action": {
+        "Color": {
+          "color": "Red",
+          "target": "Sub"
+        }
+      }
+    },
+    {
+      "name": "サブ:オレンジ",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 17
+      },
+      "action": {
+        "Color": {
+          "color": "Orange",
+          "target": "Sub"
+        }
+      }
+    },
+    {
+      "name": "サブ:黄",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 18
+      },
+      "action": {
+        "Color": {
+          "color": "Yellow",
+          "target": "Sub"
+        }
+      }
+    },
+    {
+      "name": "サブ:緑",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 19
+      },
+      "action": {
+        "Color": {
+          "color": "Green",
+          "target": "Sub"
+        }
+      }
+    },
+    {
+      "name": "サブ:水色",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 20
+      },
+      "action": {
+        "Color": {
+          "color": "Cyan",
+          "target": "Sub"
+        }
+      }
+    },
+    {
+      "name": "サブ:青",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 21
+      },
+      "action": {
+        "Color": {
+          "color": "Blue",
+          "target": "Sub"
+        }
+      }
+    },
+    {
+      "name": "サブ:紫",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 22
+      },
+      "action": {
+        "Color": {
+          "color": "Violet",
+          "target": "Sub"
+        }
+      }
+    },
+    {
+      "name": "サブ:白",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 23
+      },
+      "action": {
+        "Color": {
+          "color": "White",
+          "target": "Sub"
+        }
+      }
+    },
+    {
+      "name": "メイン⇄サブ",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 107
+      },
+      "action": {
+        "Palette": {
+          "op": "Swap"
+        }
+      }
+    },
+    {
+      "name": "自動入れ替え",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 106
+      },
+      "action": {
+        "Palette": {
+          "op": "Auto"
+        }
+      }
+    },
+    {
+      "name": "メインの色相",
+      "trigger": {
+        "kind": "Cc",
+        "channel": null,
+        "number": 53
+      },
+      "action": {
+        "Color": {
+          "color": null,
+          "target": "Main"
+        }
+      }
+    },
+    {
+      "name": "サブの色相",
+      "trigger": {
+        "kind": "Cc",
+        "channel": null,
+        "number": 54
+      },
+      "action": {
+        "Color": {
+          "color": null,
+          "target": "Sub"
+        }
+      }
+    }
+  ],
+  "outputs": [
+    {
+      "enabled": true,
+      "universe": 0,
+      "kind": {
+        "OpenDmxD2xx": {
+          "index": 0
+        }
+      }
+    }
+  ],
+  "midi_input": "",
+  "next_id": 4,
+  "master_seeded": true,
+  "bpm": 120.0,
+  "chases": [],
+  "pairs": [],
+  "led_enabled": true,
+  "led_idle": 1,
+  "positions": [],
+  "tempo_source": "Internal",
+  "clock_input": "",
+  "osc_enabled": false,
+  "osc_port": 9000,
+  "palette": {
+    "main": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "sub": [
+      0.0,
+      0.0,
+      1.0
+    ],
+    "auto": false,
+    "auto_beats": 4.0
+  },
+  "pixel_fx": [
+    {
+      "name": "縞々",
+      "enabled": false,
+      "sel": "All",
+      "kind": "Alternate",
+      "a": "Main",
+      "b": "Sub",
+      "beats": 0.0,
+      "width": 2.0,
+      "reverse": false,
+      "span": true,
+      "mirror": false
+    },
+    {
+      "name": "縞々スクロール",
+      "enabled": false,
+      "sel": "All",
+      "kind": "Stripes",
+      "a": "Main",
+      "b": "Sub",
+      "beats": 4.0,
+      "width": 2.0,
+      "reverse": false,
+      "span": true,
+      "mirror": false
+    },
+    {
+      "name": "太縞スクロール",
+      "enabled": false,
+      "sel": "All",
+      "kind": "Stripes",
+      "a": "Main",
+      "b": "Sub",
+      "beats": 8.0,
+      "width": 4.0,
+      "reverse": false,
+      "span": true,
+      "mirror": false
+    },
+    {
+      "name": "交互チェンジ",
+      "enabled": false,
+      "sel": "All",
+      "kind": "Alternate",
+      "a": "Main",
+      "b": "Sub",
+      "beats": 1.0,
+      "width": 1.0,
+      "reverse": false,
+      "span": true,
+      "mirror": false
+    },
+    {
+      "name": "ウェーブ",
+      "enabled": false,
+      "sel": "All",
+      "kind": "Wave",
+      "a": "Main",
+      "b": "Sub",
+      "beats": 4.0,
+      "width": 1.0,
+      "reverse": false,
+      "span": true,
+      "mirror": false
+    },
+    {
+      "name": "交互ウェーブ",
+      "enabled": false,
+      "sel": "All",
+      "kind": "AltFade",
+      "a": "Main",
+      "b": "Sub",
+      "beats": 2.0,
+      "width": 1.0,
+      "reverse": false,
+      "span": true,
+      "mirror": false
+    },
+    {
+      "name": "センターウェーブ",
+      "enabled": false,
+      "sel": "All",
+      "kind": "Wave",
+      "a": "Main",
+      "b": "Sub",
+      "beats": 4.0,
+      "width": 1.0,
+      "reverse": false,
+      "span": true,
+      "mirror": true
+    },
+    {
+      "name": "センター縞",
+      "enabled": false,
+      "sel": "All",
+      "kind": "Stripes",
+      "a": "Main",
+      "b": "Sub",
+      "beats": 4.0,
+      "width": 2.0,
+      "reverse": false,
+      "span": true,
+      "mirror": true
+    }
+  ]
+}

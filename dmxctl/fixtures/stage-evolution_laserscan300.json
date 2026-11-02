@@ -1,0 +1,167 @@
+{
+  "id": "stage-evolution/laserscan300",
+  "name": "LASER SCAN 300",
+  "manufacturer": "STAGE EVOLUTION",
+  "needs_arm": true,
+  "modes": [
+    {
+      "name": "17ch",
+      "channels": [
+        {
+          "name": "動作モード",
+          "attr": "mode",
+          "default": 255,
+          "safe": 0,
+          "ranges": [
+            { "from": 0, "to": 20, "label": "レーザーOFF" },
+            { "from": 21, "to": 40, "label": "AUF オートショー(速)" },
+            { "from": 41, "to": 100, "label": "AUS オートショー(遅)" },
+            { "from": 101, "to": 120, "label": "SUF サウンド(速)" },
+            { "from": 121, "to": 180, "label": "SUS サウンド(遅)" },
+            { "from": 181, "to": 200, "label": "AUP オートパターン" },
+            { "from": 201, "to": 220, "label": "SUP サウンドパターン" },
+            { "from": 221, "to": 255, "label": "DMX制御" }
+          ],
+          "category": "制御"
+        },
+        {
+          "name": "パターン グループ",
+          "attr": "pattern_group",
+          "ranges": [
+            { "from": 0, "to": 63, "label": "グループ1" },
+            { "from": 64, "to": 127, "label": "グループ2" },
+            { "from": 128, "to": 191, "label": "グループ3" },
+            { "from": 192, "to": 255, "label": "グループ4" }
+          ],
+          "category": "形"
+        },
+        {
+          "name": "パターン(16刻み)",
+          "attr": "pattern",
+          "category": "形"
+        },
+        {
+          "name": "カラー",
+          "attr": "color",
+          "ranges": [
+            { "from": 0, "to": 7, "label": "プリプログラム" },
+            { "from": 8, "to": 15, "label": "赤" },
+            { "from": 16, "to": 23, "label": "緑" },
+            { "from": 24, "to": 31, "label": "黄" },
+            { "from": 32, "to": 39, "label": "青" },
+            { "from": 40, "to": 47, "label": "紫" },
+            { "from": 48, "to": 55, "label": "シアン" },
+            { "from": 56, "to": 63, "label": "白" },
+            { "from": 64, "to": 111, "label": "カラーチェンジ(遅→速)", "sweep": true },
+            { "from": 112, "to": 159, "label": "7色" },
+            { "from": 160, "to": 207, "label": "7色チェンジ" },
+            { "from": 208, "to": 255, "label": "フラッシュ(遅→速)", "sweep": true }
+          ],
+          "category": "色"
+        },
+        {
+          "name": "描画",
+          "attr": "draw",
+          "ranges": [
+            { "from": 0, "to": 0, "label": "ストップ" },
+            { "from": 1, "to": 127, "label": "ペイントブラシ" },
+            { "from": 128, "to": 255, "label": "パターン描画(遅→速)", "sweep": true }
+          ],
+          "category": "形"
+        },
+        {
+          "name": "サイズ/ズーム",
+          "attr": "size",
+          "ranges": [
+            { "from": 0, "to": 127, "label": "サイズ 100%→5%", "sweep": true },
+            { "from": 128, "to": 169, "label": "ズームイン マクロ" },
+            { "from": 170, "to": 209, "label": "ズームアウト マクロ" },
+            { "from": 210, "to": 255, "label": "ズームイン/アウト マクロ" }
+          ],
+          "category": "形"
+        },
+        {
+          "name": "ズームスピード",
+          "attr": "zoom_speed",
+          "category": "形"
+        },
+        {
+          "name": "X軸ロール",
+          "attr": "x_roll",
+          "ranges": [
+            { "from": 0, "to": 127, "label": "角度 0-359°", "sweep": true },
+            { "from": 128, "to": 191, "label": "ロール(A)" },
+            { "from": 192, "to": 255, "label": "ロール(B)" }
+          ],
+          "category": "動き"
+        },
+        {
+          "name": "X軸ロール速度",
+          "attr": "x_roll_speed",
+          "category": "動き"
+        },
+        {
+          "name": "Y軸ロール",
+          "attr": "y_roll",
+          "ranges": [
+            { "from": 0, "to": 127, "label": "角度 0-359°", "sweep": true },
+            { "from": 128, "to": 191, "label": "ロール(A)" },
+            { "from": 192, "to": 255, "label": "ロール(B)" }
+          ],
+          "category": "動き"
+        },
+        {
+          "name": "Y軸ロール速度",
+          "attr": "y_roll_speed",
+          "category": "動き"
+        },
+        {
+          "name": "Z軸回転",
+          "attr": "z_roll",
+          "ranges": [
+            { "from": 0, "to": 191, "label": "時計まわり回転", "sweep": true },
+            { "from": 192, "to": 255, "label": "反時計まわり回転", "sweep": true }
+          ],
+          "category": "動き"
+        },
+        {
+          "name": "Z軸ロール速度",
+          "attr": "z_roll_speed",
+          "category": "動き"
+        },
+        {
+          "name": "パン(Y軸128点)",
+          "attr": "pan",
+          "default": 64,
+          "ranges": [
+            { "from": 0, "to": 127, "label": "位置 128ポイント", "sweep": true },
+            { "from": 128, "to": 191, "label": "パン 右→左(A)" },
+            { "from": 192, "to": 255, "label": "パン 右→左(B)" }
+          ],
+          "category": "動き"
+        },
+        {
+          "name": "X軸ロータリー速度",
+          "attr": "pan_speed",
+          "category": "動き"
+        },
+        {
+          "name": "チルト(X軸128点)",
+          "attr": "tilt",
+          "default": 64,
+          "ranges": [
+            { "from": 0, "to": 127, "label": "位置 128ポイント", "sweep": true },
+            { "from": 128, "to": 191, "label": "チルト アップ→ダウン→アップ(A)" },
+            { "from": 192, "to": 255, "label": "チルト アップ→ダウン→アップ(B)" }
+          ],
+          "category": "動き"
+        },
+        {
+          "name": "Y軸ロータリー速度",
+          "attr": "tilt_speed",
+          "category": "動き"
+        }
+      ]
+    }
+  ]
+}

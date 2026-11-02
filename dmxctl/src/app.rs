@@ -1,0 +1,721 @@
+//! アプリ本体(ウィンドウ枠・タブ・保存)。各タブの中身は ui_*.rs。
+
+use crate::engine::{lock, Core, Engine, Shared};
+use crate::fixture::{Library, Range};
+use crate::midi::{self, Midi};
+use crate::project::*;
+use eframe::egui::{self, Align, Color32, Layout, RichText};
+use std::collections::HashSet;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Tab {
+    Control,
+    Map,
+    Patch,
+    Profiles,
+    Pairs,
+    Scenes,
+    Effects,
+    Sequence,
+    Midi,
+    Output,
+    Monitor,
+}
+
+/// タブ。先頭の`LIVE_TABS`個が本番で使う画面、残りが準備・設定
+const TABS: [(Tab, &str); 11] = [
+    (Tab::Map, "MIDI"),
+    (Tab::Control, "コントロール"),
+    (Tab::Effects, "エフェクト"),
+    (Tab::Scenes, "シーン"),
+    (Tab::Sequence, "BPM/チェイス"),
+    (Tab::Pairs, "ペア"),
+    (Tab::Patch, "パッチ"),
+    (Tab::Profiles, "機材定義"),
+    (Tab::Output, "出力"),
+    (Tab::Midi, "MIDI設定"),
+    (Tab::Monitor, "モニター"),
+];
+const LIVE_TABS: usize = 6;
+
+pub const RED: Color32 = crate::theme::DANGER;
+pub const WARN: Color32 = crate::theme::WARN;
+
+pub struct App {
+    pub core: Shared,
+    engine: Engine,
+    pub midi: Midi,
+    pub tab: Tab,
+    pub project_path: PathBuf,
+    last_save: Instant,
+    pub notice: String,
+    // 各タブのUI状態
+    pub add_profile: usize,
+    pub scene_skip: HashSet<u32>,
+    pub scene_name: String,
+    pub scene_fade: f32,
+    pub monitor_universe: usize,
+    /// モニターで、使っていないチャンネルも512chまで並べる
+    pub monitor_all: bool,
+    pub midi_ports: Vec<String>,
+    pub midi_choice: String,
+    pub serial_ports: Vec<(String, String)>,
+    pub d2xx: Result<Vec<String>, String>,
+    pub new_group: String,
+    pub map_sel: Option<crate::apcmini::Ctl>,
+    /// コントロール画面で隠しているカテゴリ
+    pub cat_hidden: HashSet<String>,
+    /// シーン保存の対象から外すカテゴリ
+    pub scene_skip_cats: HashSet<String>,
+    pub pe: crate::ui_profile::ProfileEd,
+    pub osc: Option<crate::osc::OscServer>,
+    /// NDIの受信(設定で有効にしている間だけ動かす)
+    ndi: Option<crate::ndi::NdiService>,
+    audio: Option<crate::audio::AudioService>,
+    pub audio_ports: Vec<String>,
+    /// OSCの受信ポートの編集中の値(「適用」で反映)
+    pub osc_port_edit: u16,
+    /// 位置プリセットの保存欄
+    pub pos_name: String,
+    pub pos_fade: f32,
+    /// コントロールタブの色ボタンの操作先(全体/個別スイッチ・メイン色・サブ色)
+    pub color_edit: crate::color::ColorTarget,
+    /// キーボードのF/Gでフラッシュ中(離したら止める)
+    key_flash: bool,
+    pub ctx: egui::Context,
+    /// 診断表示(環境変数 DMXCTL_PERF=1): 描画1回あたりの時間
+    perf: Option<Perf>,
+    /// 確認用の画面保存(環境変数 DMXCTL_SHOT)
+    shot: Option<crate::shot::Shot>,
+}
+
+struct Perf {
+    frames: u32,
+    ui_time: Duration,
+    /// 前のフレームのCPU時間(図形の変換・描画の準備を含む)の合計
+    frame_cpu: f32,
+    since: Instant,
+    text: String,
+}
+
+impl App {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        crate::theme::setup_fonts(&cc.egui_ctx);
+        crate::theme::apply(&cc.egui_ctx);
+
+        let (lib, lib_errors) = Library::load(&config_dir().join("fixtures"));
+        let lib = Arc::new(lib);
+        let path = default_project_path();
+        let mut notice = lib_errors.join(" / ");
+        // 起動のたびに、前回の保存ファイルをバックアップに残す(うっかり消した割り当てなどを戻せるように)
+        backup_to(&path, &backup_dir(), BACKUP_KEEP);
+        let mut project = match Project::load(&path) {
+            Ok(p) => p,
+            // 初めての起動: おすすめのMIDI配置で始める
+            Err(_) if !path.exists() => {
+                let mut p = Project::starter(&lib);
+                crate::layout::apply(&mut p, &lib);
+                p
+            }
+            Err(e) => {
+                let saved = Project::backup_broken(&path).map(|p| format!(" 元のファイルは {} に退避しました。", p.display())).unwrap_or_default();
+                notice = format!("プロジェクトを読めませんでした({e})。初期状態で起動します。{saved}");
+                Project::starter(&lib)
+            }
+        };
+        // 全体光量を右端のフェーダーに初期割り当て(既存のプロジェクトにも、一度だけ)
+        if project.seed_master_binding() == Some(false) {
+            notice = format!("{notice} 右端のフェーダーは別の用途で使われているため、全体光量は未割り当てです(MIDIタブで割り当てられます)");
+        }
+        let midi_choice = project.midi_input.clone();
+        let core: Shared = Arc::new(Mutex::new(Core::new(project, lib)));
+        // 初回のoutput_gen(0)でエンジンが出力を組み立てる
+        let engine = Engine::spawn(core.clone());
+
+        let mut app = App {
+            core,
+            engine,
+            midi: Midi::default(),
+            tab: Tab::Map,
+            project_path: path,
+            last_save: Instant::now(),
+            notice,
+            add_profile: 0,
+            scene_skip: HashSet::new(),
+            scene_name: String::new(),
+            scene_fade: 1.0,
+            monitor_universe: 0,
+            monitor_all: false,
+            midi_ports: midi::list_ports(),
+            midi_choice,
+            serial_ports: crate::opendmx::list_serial_ports(),
+            d2xx: Ok(Vec::new()),
+            new_group: String::new(),
+            map_sel: None,
+            cat_hidden: HashSet::new(),
+            scene_skip_cats: HashSet::new(),
+            pe: Default::default(),
+            osc: None,
+            ndi: None,
+            audio: None,
+            audio_ports: crate::audio::input_devices(),
+            osc_port_edit: 9000,
+            pos_name: String::new(),
+            pos_fade: 0.5,
+            color_edit: crate::color::ColorTarget::Scope,
+            key_flash: false,
+            ctx: cc.egui_ctx.clone(),
+            perf: std::env::var_os("DMXCTL_PERF").map(|_| Perf { frames: 0, ui_time: Duration::ZERO, frame_cpu: 0.0, since: Instant::now(), text: String::new() }),
+            shot: crate::shot::Shot::from_env(),
+        };
+        // 確認用: DMXCTL_TAB=タブ名 で開くタブ、DMXCTL_UNIVERSE=番号 でモニターのユニバースを選ぶ
+        if let Ok(name) = std::env::var("DMXCTL_TAB") {
+            if let Some((t, _)) = TABS.iter().find(|(_, label)| *label == name) {
+                app.tab = *t;
+            }
+        }
+        if let Some(u) = std::env::var("DMXCTL_UNIVERSE").ok().and_then(|v| v.parse::<usize>().ok()) {
+            app.monitor_universe = u.clamp(1, NUM_UNIVERSES) - 1;
+        }
+        if let Some(p) = std::env::var("DMXCTL_PAGE").ok().and_then(|v| v.parse::<u8>().ok()) {
+            lock(&app.core).rt.page = p.clamp(1, PAGES) - 1;
+        }
+        // 前回のMIDI機器、なければAPC mini が見つかれば自動接続。
+        // 環境変数 DMXCTL_NO_MIDI=1 なら自動接続しない(本番のアプリが使っているコントローラーを、2つ目のアプリが奪わないように)
+        let auto_midi = std::env::var_os("DMXCTL_NO_MIDI").is_none();
+        if !auto_midi {
+            app.midi_choice.clear();
+        } else if app.midi_choice.is_empty() || !app.midi_ports.contains(&app.midi_choice) {
+            if let Some(p) = crate::apcmini::find_port(&app.midi_ports) {
+                app.midi_choice = p;
+            }
+        }
+        if !app.midi_choice.is_empty() && app.midi_ports.contains(&app.midi_choice) {
+            let name = app.midi_choice.clone();
+            match app.midi.connect(&app.core, cc.egui_ctx.clone(), &name) {
+                Ok(()) => lock(&app.core).project.midi_input = name,
+                Err(e) => app.notice = e,
+            }
+        }
+        app.apply_services();
+        app
+    }
+
+    /// 設定に合わせて、Ableton Link・OSC受信・MIDIクロック用の入力を開始/停止する
+    pub fn apply_services(&mut self) {
+        let (osc_on, port, src, clock_port, ndi_on, audio_port) = {
+            let mut c = lock(&self.core);
+            c.ensure_link();
+            (c.project.osc_enabled, c.project.osc_port, c.project.tempo_source, c.project.clock_input.clone(), c.project.ndi.enabled, c.project.audio_input.clone())
+        };
+        if ndi_on != self.ndi.is_some() {
+            self.ndi = ndi_on.then(|| crate::ndi::NdiService::start(self.core.clone(), Some(self.ctx.clone())));
+        }
+        self.osc_port_edit = port;
+        let want = osc_on.then_some(port);
+        if self.osc.as_ref().map(|s| s.port) != want {
+            self.osc = None;
+            match want {
+                Some(port) => match crate::osc::OscServer::start(self.core.clone(), Some(self.ctx.clone()), port) {
+                    Ok(s) => self.osc = Some(s),
+                    Err(e) => {
+                        self.notice = format!("OSC: {e}");
+                        lock(&self.core).rt.osc_status = e;
+                    }
+                },
+                None => lock(&self.core).rt.osc_status = "停止中".into(),
+            }
+        }
+        // 音声からのBPM検出(テンポの元が「音声」のときだけ入力を開く)
+        let want_audio = (src == TempoSource::Audio).then(|| audio_port.clone());
+        if self.audio.as_ref().map(|a| &a.device) != want_audio.as_ref() {
+            self.audio = None;
+            match want_audio {
+                Some(dev) => self.audio = Some(crate::audio::AudioService::start(self.core.clone(), &dev)),
+                None => lock(&self.core).rt.audio_status = "停止中".into(),
+            }
+        }
+        // MIDIクロックを、メインの入力とは別のポートから受け取る
+        let want_clock = (src == TempoSource::MidiClock && !clock_port.is_empty() && self.midi.connected.as_deref() != Some(clock_port.as_str())).then_some(clock_port);
+        if self.midi.clock_connected != want_clock {
+            self.midi.disconnect_clock();
+            if let Some(name) = want_clock {
+                if let Err(e) = self.midi.connect_clock(&self.core, &name) {
+                    self.notice = format!("MIDIクロック: {e}");
+                }
+            }
+        }
+    }
+
+    pub fn save(&mut self) {
+        let project = {
+            let mut c = lock(&self.core);
+            c.dirty = false;
+            c.project.clone()
+        };
+        if let Err(e) = project.save(&self.project_path) {
+            self.notice = format!("保存に失敗しました: {e}");
+            lock(&self.core).dirty = true;
+        }
+        self.last_save = Instant::now();
+    }
+
+    fn load_from(&mut self, path: PathBuf) {
+        // 読み込むと今の内容は置き換わる(自動保存で上書きされる)ので、先に保存してバックアップに残す
+        self.save();
+        backup_to(&self.project_path, &backup_dir(), BACKUP_KEEP);
+        match Project::load(&path) {
+            Ok(p) => {
+                let mut c = lock(&self.core);
+                c.project = p;
+                c.rt.fades.clear();
+                c.rt.pad_state.clear();
+                c.rt.toggle_state.clear();
+                c.rt.learn = None;
+                c.rt.osc_learn = None;
+                c.rt.page = 0;
+                c.apply_outputs_changed();
+                drop(c);
+                self.apply_services();
+                self.notice = format!("読み込みました: {}", path.display());
+            }
+            Err(e) => self.notice = format!("読み込みに失敗しました: {e}"),
+        }
+    }
+
+    fn autosave(&mut self) {
+        if self.last_save.elapsed() > Duration::from_secs(5) {
+            let dirty = lock(&self.core).dirty;
+            if dirty {
+                self.save();
+            } else {
+                self.last_save = Instant::now();
+            }
+        }
+    }
+
+    fn top_bar(&mut self, ui: &mut egui::Ui) {
+        use crate::theme;
+        ui.add_space(6.0);
+        ui.horizontal(|ui| {
+            brand(ui);
+            ui.add_space(14.0);
+            ui.spacing_mut().item_spacing.x = 2.0;
+            for (k, (t, label)) in TABS.iter().enumerate() {
+                if k == LIVE_TABS {
+                    ui.add_space(8.0);
+                    ui.separator();
+                    ui.add_space(8.0);
+                }
+                if tab_button(ui, self.tab == *t, label).clicked() {
+                    self.tab = *t;
+                }
+            }
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.spacing_mut().item_spacing.x = 8.0;
+                ui.menu_button("ファイル ▼", |ui| {
+                    if ui.button("保存").on_hover_text(if cfg!(target_os = "macos") { "⌘S" } else { "Ctrl+S" }).clicked() {
+                        self.save();
+                        self.notice = "保存しました".into();
+                        ui.close();
+                    }
+                    if ui.button("別名で保存…").clicked() {
+                        ui.close();
+                        if let Some(p) = rfd::FileDialog::new().add_filter("プロジェクト", &["json"]).set_file_name("show.json").save_file() {
+                            self.project_path = p;
+                            self.save();
+                        }
+                    }
+                    if ui.button("開く…").clicked() {
+                        ui.close();
+                        if let Some(p) = rfd::FileDialog::new().add_filter("プロジェクト", &["json"]).pick_file() {
+                            self.load_from(p);
+                        }
+                    }
+                    ui.separator();
+                    if ui.button("バックアップから戻す…").on_hover_text("起動のたび・別のファイルを開く前に、自動でバックアップを残しています(最新20個)。選んだものに戻します(戻す前の状態もバックアップされます)").clicked() {
+                        ui.close();
+                        if let Some(p) = rfd::FileDialog::new().add_filter("プロジェクト", &["json"]).set_directory(backup_dir()).pick_file() {
+                            self.load_from(p);
+                        }
+                    }
+                });
+                if lock(&self.core).dirty {
+                    ui.label(RichText::new("● 未保存").small().color(theme::WARN)).on_hover_text("変更は5秒ごとに自動で保存されます");
+                }
+            });
+        });
+        ui.add_space(6.0);
+        self.transport_row(ui);
+        ui.add_space(6.0);
+    }
+
+    fn status_bar(&mut self, ui: &mut egui::Ui) {
+        use crate::theme;
+        let (midi, last, outs) = {
+            let c = lock(&self.core);
+            (c.rt.midi_status.clone(), c.rt.last_midi.clone(), c.rt.output_status.clone())
+        };
+        ui.add_space(3.0);
+        ui.horizontal(|ui| {
+            let connected = self.midi.connected.is_some();
+            theme::dot(ui, if connected { theme::OK } else { theme::TEXT_FAINT });
+            ui.label(RichText::new(format!("MIDI {midi}")).small().color(theme::TEXT_DIM));
+            if !last.is_empty() {
+                ui.label(RichText::new(format!("最後の入力: {last}")).small().color(theme::TEXT_FAINT));
+            }
+            ui.separator();
+            // 出力はまとめて1行に(詳しくはマウスを乗せると出る)
+            let on: Vec<(usize, &String)> = outs.iter().enumerate().filter(|(_, s)| s.as_str() != "無効").collect();
+            let bad = on.iter().filter(|(_, s)| output_has_error(s)).count();
+            let color = if outs.is_empty() || bad > 0 { theme::WARN } else if on.is_empty() { theme::TEXT_FAINT } else { theme::OK };
+            theme::dot(ui, color);
+            let text = if outs.is_empty() {
+                "出力: 未設定(「出力」タブで追加)".to_string()
+            } else if bad > 0 {
+                format!("出力 {}/{} ・ エラー {bad}件", on.len(), outs.len())
+            } else {
+                format!("出力 {}/{}", on.len(), outs.len())
+            };
+            let detail = outs.iter().enumerate().map(|(i, s)| format!("出力{}: {s}", i + 1)).collect::<Vec<_>>().join("\n");
+            ui.label(RichText::new(text).small().color(if bad > 0 { theme::WARN } else { theme::TEXT_DIM })).on_hover_text(detail);
+            if let Some(p) = &self.perf {
+                ui.separator();
+                ui.label(RichText::new(&p.text).small().color(theme::TEXT_FAINT));
+            }
+            if !self.notice.is_empty() {
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    if ui.small_button("×").on_hover_text("消す").clicked() {
+                        self.notice.clear();
+                    }
+                    ui.add(egui::Label::new(RichText::new(&self.notice).small().color(theme::WARN)).truncate()).on_hover_text(&self.notice);
+                });
+            }
+        });
+        ui.add_space(1.0);
+    }
+}
+
+/// 出力の状態の文字から、エラーかどうか
+fn output_has_error(status: &str) -> bool {
+    ["エラー", "失敗", "見つかりません", "開けません"].iter().any(|k| status.contains(k))
+}
+
+/// 左上のロゴ
+fn brand(ui: &mut egui::Ui) {
+    use crate::theme;
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(22.0, 22.0), egui::Sense::hover());
+    let p = ui.painter();
+    let c = rect.center();
+    // 3色の光が重なるマーク
+    for (dx, dy, color) in [(-3.5, -2.5, Color32::from_rgb(255, 70, 110)), (3.5, -2.5, Color32::from_rgb(70, 140, 255)), (0.0, 3.5, theme::ACCENT)] {
+        p.rect_filled(egui::Rect::from_center_size(c + egui::vec2(dx, dy), egui::vec2(9.5, 9.5)), 2.0, theme::alpha(color, 0.85));
+    }
+    ui.label(RichText::new("DMX").font(theme::bold(15.0)).color(theme::TEXT));
+}
+
+/// タブのボタン(選ばれているタブはうっすら色付きの角丸)
+fn tab_button(ui: &mut egui::Ui, selected: bool, label: &str) -> egui::Response {
+    use crate::theme;
+    let font = egui::FontId::proportional(13.5);
+    let galley = ui.painter().layout_no_wrap(label.to_string(), font, theme::TEXT);
+    let size = galley.size() + egui::vec2(18.0, 12.0);
+    let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
+    let hovered = resp.hovered();
+    let (fill, color) = if selected {
+        (theme::alpha(theme::ACCENT, 0.15), theme::ACCENT)
+    } else if hovered {
+        (theme::WIDGET, theme::TEXT)
+    } else {
+        (Color32::TRANSPARENT, theme::TEXT_DIM)
+    };
+    ui.painter().rect_filled(rect, 7.0, fill);
+    ui.painter().galley_with_override_text_color(rect.center() - galley.size() / 2.0, galley, color);
+    resp
+}
+
+impl App {
+    fn ui_timed(&mut self, ui: &mut egui::Ui) {
+        let t_frame = Instant::now();
+        self.ui_body(ui);
+        if let Some(p) = self.perf.as_mut() {
+            p.frames += 1;
+            p.ui_time += t_frame.elapsed();
+            let secs = p.since.elapsed().as_secs_f64();
+            if secs >= 2.0 {
+                let n = p.frames.max(1) as f64;
+                p.text = format!("描画 {:.1}回/秒, ui() {:.2}ms/回, フレーム全体 {:.2}ms/回", p.frames as f64 / secs, p.ui_time.as_secs_f64() * 1000.0 / n, p.frame_cpu as f64 * 1000.0 / n);
+                eprintln!("{}", p.text);
+                p.frames = 0;
+                p.ui_time = Duration::ZERO;
+                p.frame_cpu = 0.0;
+                p.since = Instant::now();
+            }
+        }
+    }
+}
+
+/// キーボードショートカットの一覧(画面の説明用)
+pub const SHORTCUTS: &[(&str, &str)] = &[
+    ("Space", "TAP(タップテンポ)"),
+    ("R", "頭出し(小節の頭へ)"),
+    ("1〜8", "パッドのページ"),
+    ("← / →", "前 / 次のページ"),
+    ("F(押している間)", "フラッシュ(白で全開)"),
+    ("G(押している間)", "フラッシュ(今の色のまま全開)"),
+    ("S", "メイン⇄サブ入れ替え"),
+    ("A", "拍で自動入れ替え ON/OFF"),
+    ("D", "暗転フェード(暗転⇄復帰)"),
+    ("Esc", "ブラックアウト ON/OFF"),
+    (if cfg!(target_os = "macos") { "⌘S" } else { "Ctrl+S" }, "保存"),
+];
+
+impl App {
+    /// キーボードショートカット。文字を入力している間は、Escと Ctrl+S 以外は効かない
+    fn shortcuts(&mut self, ui: &egui::Ui, focused: bool) {
+        let typing = ui.ctx().egui_wants_keyboard_input();
+        let events = ui.input(|i| i.events.clone());
+        let mut save = false;
+        {
+            let mut c = lock(&self.core);
+            for ev in events {
+                let egui::Event::Key { key, physical_key, pressed, repeat, modifiers } = ev else { continue };
+                // 日本語入力中でも効くよう、キーの位置で判定する
+                let key = physical_key.unwrap_or(key);
+                if !pressed {
+                    if matches!(key, egui::Key::F | egui::Key::G) && self.key_flash {
+                        c.rt.flash = None;
+                        self.key_flash = false;
+                    }
+                    continue;
+                }
+                if repeat {
+                    continue;
+                }
+                match key {
+                    egui::Key::Escape => c.rt.blackout = !c.rt.blackout,
+                    egui::Key::S if modifiers.command => save = true,
+                    _ if typing || modifiers.command || modifiers.alt => {}
+                    egui::Key::Space => c.tap(),
+                    egui::Key::R => c.resync(),
+                    egui::Key::ArrowLeft => c.rt.page = (c.rt.page + PAGES - 1) % PAGES,
+                    egui::Key::ArrowRight => c.rt.page = (c.rt.page + 1) % PAGES,
+                    egui::Key::F | egui::Key::G => {
+                        c.rt.flash = Some(key == egui::Key::F);
+                        self.key_flash = true;
+                    }
+                    egui::Key::S => c.swap_palette(),
+                    egui::Key::A => {
+                        let on = !c.project.palette.auto;
+                        c.set_palette_auto(on);
+                    }
+                    egui::Key::D => {
+                        let secs = c.project.fade_secs;
+                        c.toggle_fade(secs);
+                    }
+                    k => {
+                        let pages = [egui::Key::Num1, egui::Key::Num2, egui::Key::Num3, egui::Key::Num4, egui::Key::Num5, egui::Key::Num6, egui::Key::Num7, egui::Key::Num8];
+                        if let Some(p) = pages.iter().position(|x| *x == k) {
+                            c.rt.page = (p as u8).min(PAGES - 1);
+                        }
+                    }
+                }
+            }
+            // キーを押したまま他のウィンドウへ移ると離したことが届かないので、フラッシュを止める
+            if !focused && self.key_flash {
+                c.rt.flash = None;
+                self.key_flash = false;
+            }
+        }
+        if save {
+            self.save();
+            self.notice = "保存しました".into();
+        }
+    }
+
+    fn ui_body(&mut self, ui: &mut egui::Ui) {
+        // DMXの出力は別スレッドなので、画面の更新頻度は出力に影響しない。
+        // 普段は操作時とMIDI入力時だけ描画し、フェード中/モニター表示中だけ30fpsで更新する(グラフィックPCと同居するためCPUを節約)
+        // 拍の表示は、次の拍の頭で1回だけ更新する(毎フレーム描き直さない)
+        let (busy, to_beat, animated) = {
+            let c = lock(&self.core);
+            let p = &c.project;
+            // 色や値がひとりでに変わっているか(マップの「今の色」を追従させるため)
+            let animated = p.effects.iter().any(|e| e.enabled) || p.pixel_fx.iter().any(|e| e.enabled) || p.chases.iter().any(|e| e.enabled) || p.palette.auto;
+            (self.tab == Tab::Monitor || !c.rt.fades.is_empty() || c.fading(), (1.0 - c.rt.beat.rem_euclid(1.0)) * 60.0 / p.bpm.max(1.0) as f64, animated)
+        };
+        // 他のアプリ(映像など)を前に出して使っているとき(このウィンドウが前面でないとき)は、表示の更新をさらに減らす
+        let focused = ui.input(|i| i.focused);
+        let mut idle = if focused { Duration::from_millis(500).min(Duration::from_secs_f64(to_beat.max(0.0) + 0.01)) } else { Duration::from_millis(1000) };
+        // MIDI画面は、エフェクトなどで色が動いている間は8fpsで「今の色」とパッドのプレビューを追従する
+        // (プレビューはメッシュでまとめて描くので、1回の描画は他のタブと大きく変わらない)
+        if focused && animated && self.tab == Tab::Map {
+            idle = idle.min(Duration::from_millis(125));
+        }
+        // モニター表示中/フェード中は10fps。描画1回ぶんのCPUは内容によらず約12〜16msかかるので、回数を減らすのが一番効く
+        // (DMXの出力は画面と別スレッドで40Hz固定なので、画面の更新頻度は出力に影響しない)
+        ui.ctx().request_repaint_after(if busy { Duration::from_millis(if focused { 100 } else { 250 }) } else { idle });
+        self.shortcuts(ui, focused);
+        self.autosave();
+        // NDIの受信は、設定(パッド・画面)でONにしている間だけ動かす
+        let ndi_on = lock(&self.core).project.ndi.enabled;
+        if ndi_on != self.ndi.is_some() {
+            self.ndi = ndi_on.then(|| crate::ndi::NdiService::start(self.core.clone(), Some(self.ctx.clone())));
+        }
+
+        egui::Panel::top("top").show(ui, |ui| self.top_bar(ui));
+        egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
+        egui::CentralPanel::default().show(ui, |ui| match self.tab {
+            Tab::Control => self.tab_control(ui),
+            Tab::Map => self.tab_map(ui),
+            Tab::Patch => self.tab_patch(ui),
+            Tab::Profiles => self.tab_profiles(ui),
+            Tab::Pairs => self.tab_pairs(ui),
+            Tab::Scenes => self.tab_scenes(ui),
+            Tab::Effects => self.tab_effects(ui),
+            Tab::Sequence => self.tab_sequence(ui),
+            Tab::Midi => self.tab_midi(ui),
+            Tab::Output => self.tab_output(ui),
+            Tab::Monitor => self.tab_monitor(ui),
+        });
+    }
+}
+
+impl eframe::App for App {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        if let (Some(p), Some(cpu)) = (self.perf.as_mut(), frame.info().cpu_usage) {
+            p.frame_cpu += cpu;
+        }
+        self.ui_timed(ui);
+        if let Some(s) = self.shot.as_mut() {
+            s.tick(ui.ctx());
+        }
+    }
+
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        // 終了時は先にブラックアウトを数フレーム送ってから止める(レーザーを出しっぱなしにしない)
+        {
+            let mut c = lock(&self.core);
+            c.rt.blackout = true;
+            c.project.midi_input = self.midi.connected.clone().unwrap_or_default();
+        }
+        std::thread::sleep(Duration::from_millis(200));
+        self.osc = None;
+        self.ndi = None;
+        lock(&self.core).rt.link = None;
+        self.midi.disconnect_clock();
+        self.midi.disconnect();
+        self.engine.stop();
+        self.save();
+    }
+}
+
+// ------------------------------------------------------------ 対象セレクタ用の共通部品
+
+pub struct FxMeta {
+    pub id: u32,
+    pub name: String,
+    pub profile: String,
+    pub mode: usize,
+}
+
+/// UI描画中にCoreを借りたままでも使えるよう、選択肢の情報だけを複製したもの
+pub struct SelMeta {
+    pub fixtures: Vec<FxMeta>,
+    pub groups: Vec<Group>,
+    pub profiles: Vec<(String, String)>,
+}
+
+impl SelMeta {
+    pub fn new(p: &Project, lib: &Library) -> Self {
+        let fixtures: Vec<FxMeta> = p
+            .fixtures
+            .iter()
+            .map(|f| FxMeta { id: f.id, name: f.name.clone(), profile: f.profile.clone(), mode: f.mode })
+            .collect();
+        let mut profiles: Vec<(String, String)> = Vec::new();
+        for f in &fixtures {
+            if !profiles.iter().any(|(id, _)| *id == f.profile) {
+                let name = lib.get(&f.profile).map(|x| x.name.clone()).unwrap_or_else(|| f.profile.clone());
+                profiles.push((f.profile.clone(), name));
+            }
+        }
+        SelMeta { fixtures, groups: p.groups.clone(), profiles }
+    }
+
+    pub fn label(&self, sel: &Selector) -> String {
+        match sel {
+            Selector::All => "すべての機材".into(),
+            Selector::Fixture(id) => self.fixtures.iter().find(|f| f.id == *id).map(|f| f.name.clone()).unwrap_or_else(|| "(削除された機材)".into()),
+            Selector::Group(g) => format!("グループ: {g}"),
+            Selector::Profile(p) => format!("同機種すべて: {}", self.profiles.iter().find(|(id, _)| id == p).map(|(_, n)| n.as_str()).unwrap_or(p)),
+        }
+    }
+
+    fn members(&self, sel: &Selector) -> Vec<&FxMeta> {
+        self.fixtures
+            .iter()
+            .filter(|f| match sel {
+                Selector::All => true,
+                Selector::Fixture(id) => f.id == *id,
+                Selector::Group(g) => self.groups.iter().any(|x| x.name == *g && x.fixtures.contains(&f.id)),
+                Selector::Profile(p) => f.profile == *p,
+            })
+            .collect()
+    }
+
+    /// 選択範囲の機材が持つ機能名(attr)の一覧
+    pub fn attrs(&self, lib: &Library, sel: &Selector) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        for f in self.members(sel) {
+            if let Some(m) = lib.mode(&f.profile, f.mode) {
+                for c in m.channels.iter().filter(|c| c.fine_of.is_none()) {
+                    // LEDバーのピクセル(red.1, red.2 ...)は「red」(全ピクセル)にまとめる
+                    let a = crate::fixture::split_pixel(&c.attr).0.to_string();
+                    if !out.contains(&a) {
+                        out.push(a);
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// 選択範囲の最初の機材が持つ、そのattrのレンジ一覧(パッドに色/ゴボを割り当てる時の候補)
+    pub fn ranges(&self, lib: &Library, sel: &Selector, attr: &str) -> Vec<Range> {
+        for f in self.members(sel) {
+            if let Some(m) = lib.mode(&f.profile, f.mode) {
+                if let Some(ch) = m.find_attr(attr) {
+                    return m.channels[ch].ranges.clone();
+                }
+            }
+        }
+        Vec::new()
+    }
+}
+
+pub fn selector_combo(ui: &mut egui::Ui, salt: &str, sel: &mut Selector, meta: &SelMeta) -> bool {
+    let mut changed = false;
+    egui::ComboBox::from_id_salt(salt).selected_text(meta.label(sel)).width(190.0).show_ui(ui, |ui| {
+        let mut pick = |ui: &mut egui::Ui, s: Selector, label: String| {
+            if ui.selectable_label(*sel == s, label).clicked() && *sel != s {
+                *sel = s;
+                changed = true;
+            }
+        };
+        pick(ui, Selector::All, "すべての機材".into());
+        for f in &meta.fixtures {
+            pick(ui, Selector::Fixture(f.id), f.name.clone());
+        }
+        for g in &meta.groups {
+            pick(ui, Selector::Group(g.name.clone()), format!("グループ: {}", g.name));
+        }
+        for (id, name) in &meta.profiles {
+            pick(ui, Selector::Profile(id.clone()), format!("同機種すべて: {name}"));
+        }
+    });
+    changed
+}

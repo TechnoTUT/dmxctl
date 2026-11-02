@@ -1,0 +1,35 @@
+# GitHubにこのフォルダを置く(push する)と、Mac用とWindows用を自動でビルドする。
+# 出来上がったものは、GitHubの「Actions」→ 実行結果のページ下の「Artifacts」からダウンロードできる。
+# (手元にMacが無くても、Mac用のアプリが作れる)
+name: build
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo test --release
+
+  mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: chmod +x scripts/build-mac.sh && ./scripts/build-mac.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DMX-Controller-mac
+          path: dist/mac/DMX-Controller-mac.zip
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo build --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DMX-Controller-windows
+          path: target/release/dmxctl.exe
