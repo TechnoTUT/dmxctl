@@ -1,24 +1,26 @@
-# GitHubにこのフォルダを置く(push する)と、Mac用とWindows用を自動でビルドする。
-# 出来上がったものは、GitHubの「Actions」→ 実行結果のページ下の「Artifacts」からダウンロードできる。
-# (手元にMacが無くても、Mac用のアプリが作れる)
+# ビルドが通るかを確かめる(push・PRのたび)。
+# タグ(v で始まる名前。例: v0.2.0)を push すると、Mac用・Windows用のビルド成果物を
+# GitHub の Release に添付する。
+#   git tag v0.2.0 && git push origin v0.2.0
 name: build
 
 on:
   push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
   workflow_dispatch:
 
-jobs:
-  test:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: cargo test --release
+permissions:
+  contents: read
 
+jobs:
   mac:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - run: chmod +x scripts/build-mac.sh && ./scripts/build-mac.sh
+      - name: Macアプリをビルド
+        run: chmod +x scripts/build-mac.sh && ./scripts/build-mac.sh
       - uses: actions/upload-artifact@v4
         with:
           name: DMX-Controller-mac
@@ -28,8 +30,31 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - run: cargo build --release
+      - name: Windows版をビルド
+        run: cargo build --release
+      - name: zipにまとめる
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist/windows | Out-Null
+          Compress-Archive -Force -Path target/release/dmxctl.exe -DestinationPath dist/windows/DMX-Controller-windows.zip
       - uses: actions/upload-artifact@v4
         with:
           name: DMX-Controller-windows
-          path: target/release/dmxctl.exe
+          path: dist/windows/DMX-Controller-windows.zip
+
+  release:
+    # タグを打ったときだけ、両方のビルドが通ったあとにReleaseを作る
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [mac, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Releaseを作って成果物を添付
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes dist/DMX-Controller-mac.zip dist/DMX-Controller-windows.zip

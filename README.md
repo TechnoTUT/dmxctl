@@ -30,7 +30,7 @@ cargo run --release
 
 **MacからWindows版を作る**: MinGW-w64 を入れて(`brew install mingw-w64`)、`bash ./scripts/build-windows-mingw.sh`。`dist/windows/dmxctl.exe`(単体で動く。追加のDLLは不要)と配布用のzipができます。
 
-**Macが手元に無い場合**: このフォルダを GitHub に置くと、`.github/workflows/build.yml` により Mac 用と Windows 用が自動でビルドされ、「Actions」のページからダウンロードできます。
+**Macが手元に無い場合**: GitHub に push すると、`.github/workflows/build.yml` により Mac 用と Windows 用がビルドされます(ビルドが通るかの確認)。`v` で始まるタグ(例: `v0.2.0`)を push すると、そのビルドの成果物(zip)が GitHub の Release に添付されます。
 
 **Macでの違い・注意**
 
