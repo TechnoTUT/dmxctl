@@ -1238,17 +1238,15 @@ impl Core {
         let Some(action) = self.project.bindings.get(idx).map(|b| b.action.clone()) else { return };
         let v = v.clamp(0.0, 1.0);
         let was = self.rt.pad_state.insert(idx, pressed).unwrap_or(false);
-        let rising = pressed && !was;
-        let falling = !pressed && was;
+        let edge = Edge { pressed, was };
+        let rising = edge.rising();
 
         match action {
             Action::SetValue { sel, attr, mode, on, off } => match mode {
                 PadMode::Continuous => self.set_attr(&sel, &attr, off + (on - off) * v),
                 PadMode::Momentary => {
-                    if rising {
-                        self.set_attr(&sel, &attr, on);
-                    } else if falling {
-                        self.set_attr(&sel, &attr, off);
+                    if edge.changed() {
+                        self.set_attr(&sel, &attr, if pressed { on } else { off });
                     }
                 }
                 PadMode::Toggle => {
@@ -1276,13 +1274,7 @@ impl Core {
             Action::Effect { name, mode } => {
                 // 通常のエフェクトとピクセルエフェクトは、同じ名前ならまとめてON/OFF
                 let cur = self.project.effects.iter().find(|e| e.name == name).map(|e| e.enabled).or_else(|| self.project.pixel_fx.iter().find(|e| e.name == name).map(|e| e.enabled));
-                let new = match (mode, cur) {
-                    (_, None) => None,
-                    (PadMode::Toggle, Some(c)) => rising.then_some(!c),
-                    (PadMode::Trigger, Some(_)) => rising.then_some(true),
-                    (_, Some(_)) => (rising || falling).then_some(pressed),
-                };
-                if let Some(en) = new {
+                if let Some(en) = cur.and_then(|c| edge.switch(mode, c)) {
                     self.set_effect(&name, en);
                     if self.project.pixel_fx.iter().any(|e| e.name == name) {
                         self.set_pixel_fx(&name, en);
@@ -1294,15 +1286,7 @@ impl Core {
                 let cur = self.rt.master;
                 let new = match mode {
                     PadMode::Continuous => Some((off + (on - off) * v) / 100.0),
-                    PadMode::Momentary => {
-                        if rising {
-                            Some(on / 100.0)
-                        } else if falling {
-                            Some(off / 100.0)
-                        } else {
-                            None
-                        }
-                    }
+                    PadMode::Momentary => edge.changed().then(|| if pressed { on / 100.0 } else { off / 100.0 }),
                     PadMode::Toggle => rising.then(|| if (cur - on / 100.0).abs() < 0.005 { off / 100.0 } else { on / 100.0 }),
                     PadMode::Trigger => rising.then(|| on / 100.0),
                 };
@@ -1326,7 +1310,7 @@ impl Core {
                     }
                 }
                 ScopeOp::HoldIndividual => {
-                    if rising || falling {
+                    if edge.changed() {
                         self.rt.color_global = !pressed;
                     }
                 }
@@ -1354,13 +1338,7 @@ impl Core {
             }
             Action::Pair { name, op, mode } => {
                 let cur = self.project.pairs.iter().find(|p| p.name == name).map(|p| if op == PairOp::Link { p.enabled } else { p.mirror });
-                let new = match (mode, cur) {
-                    (_, None) => None,
-                    (PadMode::Toggle, Some(c)) => rising.then_some(!c),
-                    (PadMode::Trigger, Some(_)) => rising.then_some(true),
-                    (_, Some(_)) => (rising || falling).then_some(pressed),
-                };
-                if let Some(v) = new {
+                if let Some(v) = cur.and_then(|c| edge.switch(mode, c)) {
                     for p in self.project.pairs.iter_mut().filter(|p| p.name == name) {
                         if op == PairOp::Link {
                             p.enabled = v;
@@ -1403,13 +1381,7 @@ impl Core {
             },
             Action::Chase { name, mode } => {
                 let cur = self.project.chases.iter().find(|c| c.name == name).map(|c| c.enabled);
-                let new = match (mode, cur) {
-                    (_, None) => None,
-                    (PadMode::Toggle, Some(c)) => rising.then_some(!c),
-                    (PadMode::Trigger, Some(_)) => rising.then_some(true),
-                    (_, Some(_)) => (rising || falling).then_some(pressed),
-                };
-                if let Some(en) = new {
+                if let Some(en) = cur.and_then(|c| edge.switch(mode, c)) {
                     for c in self.project.chases.iter_mut().filter(|c| c.name == name) {
                         c.enabled = en;
                     }
@@ -1434,19 +1406,14 @@ impl Core {
                 }
                 // 押している間だけ暗転
                 _ => {
-                    if rising || falling {
+                    if edge.changed() {
                         self.fade_to_black(pressed, secs);
                     }
                 }
             },
             Action::Flash { white, mode } => {
-                let new = match mode {
-                    PadMode::Toggle => rising.then(|| if self.rt.flash.is_some() { None } else { Some(white) }),
-                    PadMode::Trigger => rising.then_some(Some(white)),
-                    _ => (rising || falling).then(|| pressed.then_some(white)),
-                };
-                if let Some(f) = new {
-                    self.rt.flash = f;
+                if let Some(on) = edge.switch(mode, self.rt.flash.is_some()) {
+                    self.rt.flash = on.then_some(white);
                 }
             }
             Action::Palette { op } => match op {
@@ -1457,7 +1424,7 @@ impl Core {
                 }
                 // 押したときに入れ替え、離したときに戻す
                 PaletteOp::HoldSwap => {
-                    if rising || falling {
+                    if edge.changed() {
                         self.swap_palette();
                     }
                 }
@@ -1490,12 +1457,7 @@ impl Core {
             Action::Mute { sel, mode } => {
                 let ids: Vec<u32> = self.resolve(&sel).into_iter().map(|i| self.project.fixtures[i].id).collect();
                 let all = !ids.is_empty() && ids.iter().all(|id| self.rt.muted.contains(id));
-                let new = match mode {
-                    PadMode::Toggle => rising.then_some(!all),
-                    PadMode::Trigger => rising.then_some(true),
-                    _ => (rising || falling).then_some(pressed),
-                };
-                if let Some(m) = new {
+                if let Some(m) = edge.switch(mode, all) {
                     for id in ids {
                         if m {
                             self.rt.muted.insert(id);
@@ -1528,12 +1490,7 @@ impl Core {
             Action::Arm { sel, mode } => {
                 let idx: Vec<usize> = self.resolve(&sel);
                 let all = !idx.is_empty() && idx.iter().all(|&i| self.project.fixtures[i].armed);
-                let new = match mode {
-                    PadMode::Toggle => rising.then_some(!all),
-                    PadMode::Trigger => rising.then_some(true),
-                    _ => (rising || falling).then_some(pressed),
-                };
-                if let Some(a) = new {
+                if let Some(a) = edge.switch(mode, all) {
                     for i in idx {
                         self.project.fixtures[i].armed = a;
                     }
@@ -1562,16 +1519,37 @@ impl Core {
                 }
             }
             Action::Blackout { mode } => {
-                let cur = self.rt.blackout;
-                let new = match mode {
-                    PadMode::Toggle => rising.then_some(!cur),
-                    PadMode::Trigger => rising.then_some(true),
-                    _ => (rising || falling).then_some(pressed),
-                };
-                if let Some(b) = new {
+                if let Some(b) = edge.switch(mode, self.rt.blackout) {
                     self.rt.blackout = b;
                 }
             }
+        }
+    }
+}
+
+/// パッドの押下状態の変化(前回→今回)
+#[derive(Clone, Copy)]
+struct Edge {
+    pressed: bool,
+    was: bool,
+}
+
+impl Edge {
+    /// 押した瞬間
+    fn rising(self) -> bool {
+        self.pressed && !self.was
+    }
+    /// 押した/離した瞬間
+    fn changed(self) -> bool {
+        self.pressed != self.was
+    }
+    /// ON/OFFを切り替える動作の新しい状態(変えないときはNone)。
+    /// トグル=押すたびに`cur`を反転、ワンショット=押したらON、それ以外=押している間だけON
+    fn switch(self, mode: PadMode, cur: bool) -> Option<bool> {
+        match mode {
+            PadMode::Toggle => self.rising().then_some(!cur),
+            PadMode::Trigger => self.rising().then_some(true),
+            PadMode::Continuous | PadMode::Momentary => self.changed().then_some(self.pressed),
         }
     }
 }
