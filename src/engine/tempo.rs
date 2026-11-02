@@ -5,9 +5,9 @@ use super::*;
 /// MIDIクロック(0xF8)は1拍に24回
 pub const CLOCK_PPQ: f64 = 24.0;
 /// これ以上クロックが来なければ途切れたとみなし、内部のテンポで走り続ける
+pub const CLOCK_TIMEOUT: Duration = Duration::from_millis(500);
 /// 音声検出を採用する確からしさの下限
 pub const AUDIO_MIN_CONF: f32 = 0.25;
-pub const CLOCK_TIMEOUT: Duration = Duration::from_millis(500);
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ClockMsg {
