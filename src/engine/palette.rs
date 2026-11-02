@@ -180,4 +180,31 @@ impl Core {
             self.rt.selected.insert(id);
         }
     }
+
+    /// 対象の機材の色の系統(メイン/サブ)をまとめて変える
+    pub fn set_roles(&mut self, sel: &Selector, op: RoleOp) {
+        let ids = self.resolve_ids(sel);
+        let all_main = ids.iter().all(|id| self.project.fixture_index(*id).is_some_and(|i| self.project.fixtures[i].color_role == ColorRole::Main));
+        for (n, id) in ids.into_iter().enumerate() {
+            let role = match op {
+                RoleOp::Main => ColorRole::Main,
+                RoleOp::Sub => ColorRole::Sub,
+                // まとめて切り替え: 全部メインならサブへ、そうでなければメインへ
+                RoleOp::Toggle => if all_main { ColorRole::Sub } else { ColorRole::Main },
+                RoleOp::Alternate => if n % 2 == 0 { ColorRole::Main } else { ColorRole::Sub },
+            };
+            self.set_color_role(id, role);
+        }
+    }
+
+    /// メイン色/サブ色にNDIの色(映像/音)を使う。同じものを選び直すと使わない(パレットの色に戻る)
+    pub fn toggle_live_color(&mut self, role: ColorRole, source: crate::ndi::LiveSource) {
+        let cfg = &mut self.project.ndi;
+        let slot = if role == ColorRole::Sub { &mut cfg.sub } else { &mut cfg.main };
+        *slot = if *slot == source { crate::ndi::LiveSource::Off } else { source };
+        if source != crate::ndi::LiveSource::Off {
+            cfg.enabled = true;
+        }
+        self.dirty = true;
+    }
 }

@@ -166,42 +166,56 @@ impl Core {
 
     /// 割り当てを実行する。`v`=入力値(0.0〜1.0。フェーダー/ノブ用)、`pressed`=押されているか(ボタン用)
     pub fn apply_binding(&mut self, idx: usize, v: f32, pressed: bool) {
+        use crate::pixel::PixelParam;
         let Some(action) = self.project.bindings.get(idx).map(|b| b.action.clone()) else { return };
         let v = v.clamp(0.0, 1.0);
         let was = self.rt.pad_state.insert(idx, pressed).unwrap_or(false);
         let edge = Edge { pressed, was };
-        let rising = edge.rising();
 
         match action {
-            Action::SetValue { sel, attr, mode, on, off } => match mode {
-                PadMode::Continuous => self.set_attr(&sel, &attr, off + (on - off) * v),
-                PadMode::Momentary => {
-                    if edge.changed() {
-                        self.set_attr(&sel, &attr, if pressed { on } else { off });
-                    }
-                }
-                PadMode::Toggle => {
-                    if rising {
-                        // 今の値で判断する(同じチャンネルの別のボタンで変わっていても、押したほうが選ばれる)
-                        let now_on = !crate::led::set_value_active(self, &sel, &attr, on);
-                        self.rt.toggle_state.insert(idx, now_on);
-                        if now_on {
-                            self.stop_effects_on(&sel, &attr);
-                        }
-                        self.set_attr(&sel, &attr, if now_on { on } else { off });
-                    }
-                }
-                PadMode::Trigger => {
-                    if rising {
-                        self.set_attr(&sel, &attr, on);
-                    }
-                }
-            },
-            Action::Scene { name } => {
-                if rising {
-                    self.recall_scene(&name);
+            // ---- フェーダーの値や、離したときにも働くもの ----
+            Action::SetValue { sel, attr, mode: PadMode::Continuous, on, off } => self.set_attr(&sel, &attr, off + (on - off) * v),
+            Action::SetValue { sel, attr, mode: PadMode::Momentary, on, off } => {
+                if edge.changed() {
+                    self.set_attr(&sel, &attr, if pressed { on } else { off });
                 }
             }
+            Action::Master { mode: PadMode::Continuous, on, off } => self.set_master((off + (on - off) * v) / 100.0),
+            Action::Master { mode: PadMode::Momentary, on, off } => {
+                if edge.changed() {
+                    self.set_master((if pressed { on } else { off }) / 100.0);
+                }
+            }
+            // フェーダーの全行程で色相環を一周する(下端=赤 → 上端=赤に戻る)
+            Action::Color { color: None, target } => self.apply_hue(v * 360.0, target),
+            Action::Tempo { op: TempoOp::Set { min, max } } => self.set_bpm(min + (max - min) * v),
+            Action::Level { sel } => {
+                for id in self.resolve_ids(&sel) {
+                    self.rt.level.insert(id, v);
+                }
+            }
+            Action::Pixel { param: PixelParam::Speed } => self.set_pixel_speed(crate::pixel::speed_step(v)),
+            Action::Pixel { param: PixelParam::Skew } => self.rt.px_skew = v * crate::pixel::SKEW_FADER_MAX,
+            // 押している間だけ個別
+            Action::ColorScope { op: ScopeOp::HoldIndividual } => {
+                if edge.changed() {
+                    self.rt.color_global = !pressed;
+                }
+            }
+            // 押したときに入れ替え、離したときに戻す
+            Action::Palette { op: PaletteOp::HoldSwap } => {
+                if edge.changed() {
+                    self.swap_palette();
+                }
+            }
+            // 押している間だけ暗転
+            Action::Fade { secs, mode: PadMode::Continuous | PadMode::Momentary } => {
+                if edge.changed() {
+                    self.fade_to_black(pressed, secs);
+                }
+            }
+
+            // ---- ON/OFFの切り替え(トグル/ワンショット/押している間は Edge::switch が決める) ----
             Action::Effect { name, mode } => {
                 // 通常のエフェクトとピクセルエフェクトは、同じ名前ならまとめてON/OFF
                 let cur = self.project.effects.iter().find(|e| e.name == name).map(|e| e.enabled).or_else(|| self.project.pixel_fx.iter().find(|e| e.name == name).map(|e| e.enabled));
@@ -211,60 +225,6 @@ impl Core {
                         self.set_pixel_fx(&name, en);
                     }
                     self.dirty = true;
-                }
-            }
-            Action::Master { mode, on, off } => {
-                let cur = self.rt.master;
-                let new = match mode {
-                    PadMode::Continuous => Some((off + (on - off) * v) / 100.0),
-                    PadMode::Momentary => edge.changed().then(|| if pressed { on / 100.0 } else { off / 100.0 }),
-                    PadMode::Toggle => rising.then(|| if (cur - on / 100.0).abs() < 0.005 { off / 100.0 } else { on / 100.0 }),
-                    PadMode::Trigger => rising.then(|| on / 100.0),
-                };
-                if let Some(v) = new {
-                    self.rt.master = v.clamp(0.0, 1.0);
-                }
-            }
-            Action::Color { color, target } => match color {
-                Some(c) => {
-                    if rising {
-                        self.apply_named_color(c, target);
-                    }
-                }
-                // フェーダーの全行程で色相環を一周する(下端=赤 → 上端=赤に戻る)
-                None => self.apply_hue(v * 360.0, target),
-            },
-            Action::ColorScope { op } => match op {
-                ScopeOp::Toggle => {
-                    if rising {
-                        self.rt.color_global = !self.rt.color_global;
-                    }
-                }
-                ScopeOp::HoldIndividual => {
-                    if edge.changed() {
-                        self.rt.color_global = !pressed;
-                    }
-                }
-                ScopeOp::Global => {
-                    if rising {
-                        self.rt.color_global = true;
-                    }
-                }
-                ScopeOp::Individual => {
-                    if rising {
-                        self.rt.color_global = false;
-                    }
-                }
-            },
-            Action::Select { fixture, op } => {
-                if rising {
-                    match op {
-                        SelectOp::Only => {
-                            self.rt.selected.clear();
-                            self.rt.selected.insert(fixture);
-                        }
-                        SelectOp::Toggle => self.toggle_selected(fixture),
-                    }
                 }
             }
             Action::Pair { name, op, mode } => {
@@ -280,36 +240,6 @@ impl Core {
                     self.dirty = true;
                 }
             }
-            Action::Tempo { op } => match op {
-                TempoOp::Tap => {
-                    if rising {
-                        self.tap();
-                    }
-                }
-                TempoOp::Resync => {
-                    if rising {
-                        self.resync();
-                    }
-                }
-                TempoOp::Set { min, max } => self.set_bpm(min + (max - min) * v),
-                TempoOp::Nudge { delta } => {
-                    if rising {
-                        self.set_bpm(self.project.bpm + delta);
-                    }
-                }
-                TempoOp::Audio => {
-                    if rising {
-                        let to = if self.project.tempo_source == TempoSource::Audio { TempoSource::Internal } else { TempoSource::Audio };
-                        self.set_tempo_source(to);
-                    }
-                }
-                TempoOp::Link => {
-                    if rising {
-                        let to = if self.project.tempo_source == TempoSource::Link { TempoSource::Internal } else { TempoSource::Link };
-                        self.set_tempo_source(to);
-                    }
-                }
-            },
             Action::Chase { name, mode } => {
                 let cur = self.project.chases.iter().find(|c| c.name == name).map(|c| c.enabled);
                 if let Some(en) = cur.and_then(|c| edge.switch(mode, c)) {
@@ -319,74 +249,13 @@ impl Core {
                     self.dirty = true;
                 }
             }
-            Action::Position { name } => {
-                if rising {
-                    self.recall_position(&name);
-                }
-            }
-            Action::Fade { secs, mode } => match mode {
-                PadMode::Toggle => {
-                    if rising {
-                        self.toggle_fade(secs);
-                    }
-                }
-                PadMode::Trigger => {
-                    if rising {
-                        self.fade_to_black(true, secs);
-                    }
-                }
-                // 押している間だけ暗転
-                _ => {
-                    if edge.changed() {
-                        self.fade_to_black(pressed, secs);
-                    }
-                }
-            },
             Action::Flash { white, mode } => {
                 if let Some(on) = edge.switch(mode, self.rt.flash.is_some()) {
                     self.rt.flash = on.then_some(white);
                 }
             }
-            Action::Palette { op } => match op {
-                PaletteOp::Swap => {
-                    if rising {
-                        self.swap_palette();
-                    }
-                }
-                // 押したときに入れ替え、離したときに戻す
-                PaletteOp::HoldSwap => {
-                    if edge.changed() {
-                        self.swap_palette();
-                    }
-                }
-                PaletteOp::Auto => {
-                    if rising {
-                        self.set_palette_auto(!self.project.palette.auto);
-                    }
-                }
-                PaletteOp::Fade => {
-                    if rising {
-                        self.set_palette_fade(!self.project.palette.fade);
-                    }
-                }
-            },
-            Action::Page { op } => {
-                if rising {
-                    self.rt.page = match op {
-                        PageOp::Go(p) => p.min(PAGES - 1),
-                        PageOp::Next => (self.rt.page + 1) % PAGES,
-                        PageOp::Prev => (self.rt.page + PAGES - 1) % PAGES,
-                    };
-                }
-            }
-            Action::Level { sel } => {
-                for i in self.resolve(&sel) {
-                    let id = self.project.fixtures[i].id;
-                    self.rt.level.insert(id, v);
-                }
-            }
             Action::Mute { sel, mode } => {
-                let ids: Vec<u32> = self.resolve(&sel).into_iter().map(|i| self.project.fixtures[i].id).collect();
+                let ids = self.resolve_ids(&sel);
                 let all = !ids.is_empty() && ids.iter().all(|id| self.rt.muted.contains(id));
                 if let Some(m) = edge.switch(mode, all) {
                     for id in ids {
@@ -395,26 +264,6 @@ impl Core {
                         } else {
                             self.rt.muted.remove(&id);
                         }
-                    }
-                }
-            }
-            Action::Pixel { param } => match param {
-                crate::pixel::PixelParam::Speed => self.set_pixel_speed(crate::pixel::speed_step(v)),
-                crate::pixel::PixelParam::Skew => self.rt.px_skew = v * crate::pixel::SKEW_FADER_MAX,
-            },
-            Action::Role { sel, op } => {
-                if rising {
-                    let ids: Vec<u32> = self.resolve(&sel).into_iter().map(|i| self.project.fixtures[i].id).collect();
-                    let all_main = ids.iter().all(|id| self.project.fixture_index(*id).is_some_and(|i| self.project.fixtures[i].color_role == ColorRole::Main));
-                    for (n, id) in ids.into_iter().enumerate() {
-                        let role = match op {
-                            RoleOp::Main => ColorRole::Main,
-                            RoleOp::Sub => ColorRole::Sub,
-                            // まとめて切り替え: 全部メインならサブへ、そうでなければメインへ
-                            RoleOp::Toggle => if all_main { ColorRole::Sub } else { ColorRole::Main },
-                            RoleOp::Alternate => if n % 2 == 0 { ColorRole::Main } else { ColorRole::Sub },
-                        };
-                        self.set_color_role(id, role);
                     }
                 }
             }
@@ -427,34 +276,80 @@ impl Core {
                     }
                 }
             }
-            Action::LiveColor { role, source } => {
-                if rising {
-                    let cfg = &mut self.project.ndi;
-                    let slot = if role == ColorRole::Sub { &mut cfg.sub } else { &mut cfg.main };
-                    *slot = if *slot == source { crate::ndi::LiveSource::Off } else { source };
-                    if source != crate::ndi::LiveSource::Off {
-                        cfg.enabled = true;
-                    }
-                    self.dirty = true;
-                }
-            }
-            Action::BarCount { count } => {
-                if rising {
-                    self.set_bar_count(count as usize);
-                }
-            }
-            Action::SwapBeats { beats } => {
-                if rising {
-                    self.project.palette.auto_beats = beats.max(0.25);
-                    self.set_palette_auto(true);
-                }
-            }
             Action::Blackout { mode } => {
                 if let Some(b) = edge.switch(mode, self.rt.blackout) {
                     self.rt.blackout = b;
                 }
             }
+
+            // ---- ここから下は、押した瞬間にだけ働く ----
+            _ if !edge.rising() => {}
+            Action::SetValue { sel, attr, mode: PadMode::Toggle, on, off } => self.toggle_value(idx, &sel, &attr, on, off),
+            Action::SetValue { sel, attr, mode: PadMode::Trigger, on, .. } => self.set_attr(&sel, &attr, on),
+            Action::Master { mode: PadMode::Toggle, on, off } => {
+                // 今ON値ならOFF値へ、そうでなければON値へ
+                let to = if (self.rt.master - on / 100.0).abs() < 0.005 { off } else { on };
+                self.set_master(to / 100.0);
+            }
+            Action::Master { mode: PadMode::Trigger, on, .. } => self.set_master(on / 100.0),
+            Action::Color { color: Some(c), target } => self.apply_named_color(c, target),
+            Action::ColorScope { op: ScopeOp::Toggle } => self.rt.color_global = !self.rt.color_global,
+            Action::ColorScope { op: ScopeOp::Global } => self.rt.color_global = true,
+            Action::ColorScope { op: ScopeOp::Individual } => self.rt.color_global = false,
+            Action::Select { fixture, op: SelectOp::Only } => {
+                self.rt.selected.clear();
+                self.rt.selected.insert(fixture);
+            }
+            Action::Select { fixture, op: SelectOp::Toggle } => self.toggle_selected(fixture),
+            Action::Role { sel, op } => self.set_roles(&sel, op),
+            Action::LiveColor { role, source } => self.toggle_live_color(role, source),
+            Action::Palette { op: PaletteOp::Swap } => self.swap_palette(),
+            Action::Palette { op: PaletteOp::Auto } => self.set_palette_auto(!self.project.palette.auto),
+            Action::Palette { op: PaletteOp::Fade } => self.set_palette_fade(!self.project.palette.fade),
+            Action::SwapBeats { beats } => {
+                self.project.palette.auto_beats = beats.max(0.25);
+                self.set_palette_auto(true);
+            }
+            Action::Tempo { op: TempoOp::Tap } => self.tap(),
+            Action::Tempo { op: TempoOp::Resync } => self.resync(),
+            Action::Tempo { op: TempoOp::Nudge { delta } } => self.set_bpm(self.project.bpm + delta),
+            Action::Tempo { op: TempoOp::Audio } => self.toggle_tempo_source(TempoSource::Audio),
+            Action::Tempo { op: TempoOp::Link } => self.toggle_tempo_source(TempoSource::Link),
+            Action::Fade { secs, mode: PadMode::Toggle } => self.toggle_fade(secs),
+            Action::Fade { secs, mode: PadMode::Trigger } => self.fade_to_black(true, secs),
+            Action::Scene { name } => self.recall_scene(&name),
+            Action::Position { name } => self.recall_position(&name),
+            Action::Page { op } => {
+                self.rt.page = match op {
+                    PageOp::Go(p) => p.min(PAGES - 1),
+                    PageOp::Next => (self.rt.page + 1) % PAGES,
+                    PageOp::Prev => (self.rt.page + PAGES - 1) % PAGES,
+                };
+            }
+            Action::BarCount { count } => self.set_bar_count(count as usize),
         }
+    }
+
+    /// 全体光量を設定する(0.0〜1.0)
+    fn set_master(&mut self, m: f32) {
+        self.rt.master = m.clamp(0.0, 1.0);
+    }
+
+    /// トグル動作のチャンネル値: 今ON値ならOFF値へ、そうでなければON値へ
+    fn toggle_value(&mut self, idx: usize, sel: &Selector, attr: &str, on: f32, off: f32) {
+        // 今の値で判断する(同じチャンネルの別のボタンで変わっていても、押したほうが選ばれる)
+        let now_on = !crate::led::set_value_active(self, sel, attr, on);
+        self.rt.toggle_state.insert(idx, now_on);
+        if now_on {
+            self.stop_effects_on(sel, attr);
+        }
+        self.set_attr(sel, attr, if now_on { on } else { off });
+    }
+
+    /// テンポの元を`s`にする。すでに`s`なら内部のテンポに戻す
+    fn toggle_tempo_source(&mut self, s: TempoSource) {
+        let to = if self.project.tempo_source == s { TempoSource::Internal } else { s };
+        self.set_tempo_source(to);
     }
 }
 

@@ -231,6 +231,11 @@ impl Core {
             .collect()
     }
 
+    /// セレクタに該当する機材のid
+    pub fn resolve_ids(&self, sel: &Selector) -> Vec<u32> {
+        self.resolve(sel).into_iter().map(|i| self.project.fixtures[i].id).collect()
+    }
+
     /// 機能名(attr)を持つチャンネルに値を設定する(上位/下位を含む)。LEDバーで「red」なら全ピクセルの赤
     pub fn set_attr(&mut self, sel: &Selector, attr: &str, v: f32) {
         let lib = self.lib.clone();
