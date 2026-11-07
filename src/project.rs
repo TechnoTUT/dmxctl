@@ -3,6 +3,7 @@
 use crate::color::{ColorRole, ColorTarget, NamedColor, Palette, PaletteOp, ScopeOp, SelectOp};
 use crate::fixture::Library;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 pub const NUM_UNIVERSES: usize = 32;
@@ -28,6 +29,9 @@ pub struct FixtureInstance {
     /// 使う(false=出力しない。操作・エフェクトの対象からも外す)。LEDバーの本数の切り替えなどに使う
     #[serde(default = "yes")]
     pub enabled: bool,
+    /// 動いてよい範囲(機能名 → [下限, 上限] のDMX値)。レーザーの位置など。出力の直前に必ずこの中に収める
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub limits: BTreeMap<String, [u8; 2]>,
 }
 
 fn yes() -> bool {
@@ -707,6 +711,7 @@ impl Project {
             armed: false,
             color_role: ColorRole::Main,
             enabled: true,
+            limits: BTreeMap::new(),
         });
         Some(id)
     }

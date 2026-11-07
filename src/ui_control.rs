@@ -467,7 +467,8 @@ fn channel_row(ui: &mut egui::Ui, fx_id: u32, values: &mut [u8], mode: &Mode, ci
             egui::ComboBox::from_id_salt(format!("cb{fx_id}_{ci}")).selected_text(text).width(250.0).show_ui(ui, |ui| {
                 // 色を持つ範囲が1つでもあれば、選択肢の左に色見本を出す
                 let any_color = ch.ranges.iter().any(|r| crate::color::range_rgb(r).is_some());
-                for r in &ch.ranges {
+                // 禁止の範囲(レーザーのオートショーなど)は出さない
+                for r in ch.ranges.iter().filter(|r| !ch.forbids_range(r)) {
                     let mut label = RichText::new(&r.label);
                     if r.warn {
                         label = label.color(WARN);

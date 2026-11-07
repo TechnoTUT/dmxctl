@@ -21,7 +21,7 @@ use crate::color::{self, ColorRole, ColorTarget, NamedColor, PaletteOp, ScopeOp,
 use crate::fixture::{Library, Mode};
 use crate::output::{self, Output};
 use crate::project::*;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::JoinHandle;
@@ -430,21 +430,19 @@ impl Core {
             let dark = self.rt.blackout || self.rt.dim <= 0.001;
             // ミュート中も安全値を出す(明るさのチャンネルが無いレーザーも消えるように)
             let muted = self.rt.muted.contains(&fx.id);
-            let gated = dark || muted || (profile.needs_arm && !fx.armed);
-            if gated {
+            if dark || muted {
+                if let Some(info) = lib.info(&fx.profile, fx.mode) {
+                    safe_values(mode, &info, v);
+                }
+            } else if profile.needs_arm && !fx.armed {
                 for (c, ch) in mode.channels.iter().enumerate() {
                     if let Some(s) = ch.safe {
                         v[c] = s;
                     }
                 }
             }
-            // ブラックアウトでは、安全値の無い機材(RGBの灯具など)も、明るさのチャンネルを0にする。ミュート中の機材も同じ
-            if (dark || muted)
-                && let Some(info) = lib.info(&fx.profile, fx.mode) {
-                for &ch in &info.master {
-                    info.set_f(v, ch, 0.0);
-                }
-            }
+            // 禁止の値(レーザーのオートショーなど)と、動いてよい範囲は、何をしていても最後に必ず直す
+            guard_values(mode, &fx.limits, v);
             let base = fx.address as usize - 1;
             for (c, &b) in v.iter().enumerate() {
                 let a = base + c;
@@ -457,6 +455,29 @@ impl Core {
         for (u, n) in used.into_iter().enumerate() {
             self.rt.used_len[u] = n.clamp(MIN_SLOTS, 512);
         }
+    }
+}
+
+/// 安全な値にする: 安全値のあるチャンネルは安全値(レーザーOFFなど)、明るさのチャンネルは0
+fn safe_values(mode: &Mode, info: &crate::fixture::ModeInfo, v: &mut [u8]) {
+    for (c, ch) in mode.channels.iter().enumerate() {
+        if let Some(s) = ch.safe {
+            v[c] = s;
+        }
+    }
+    for &ch in &info.master {
+        info.set_f(v, ch, 0.0);
+    }
+}
+
+/// 禁止の値を使える値に置き換え、機材ごとの動いてよい範囲に収める
+pub fn guard_values(mode: &Mode, limits: &BTreeMap<String, [u8; 2]>, v: &mut [u8]) {
+    for (c, ch) in mode.channels.iter().enumerate() {
+        let Some(x) = v.get_mut(c) else { break };
+        if let Some(&[a, b]) = limits.get(&ch.attr) {
+            *x = (*x).clamp(a.min(b), a.max(b));
+        }
+        *x = ch.allowed(*x);
     }
 }
 
@@ -490,6 +511,69 @@ fn flash_values(mode: &Mode, info: &crate::fixture::ModeInfo, v: &mut [u8], whit
     }
 }
 
+impl Core {
+    /// 異常時に送るフレーム: 最後に送ったフレームから、全機材を安全な値(レーザーOFF・明るさ0)にしたもの
+    pub fn safe_frames(&self) -> Vec<[u8; 512]> {
+        let mut frames = self.rt.frames.clone();
+        for fx in &self.project.fixtures {
+            let (Some(mode), Some(info)) = (self.lib.mode(&fx.profile, fx.mode), self.lib.info(&fx.profile, fx.mode)) else { continue };
+            let n = mode.channels.len();
+            let base = (fx.address as usize).saturating_sub(1);
+            let Some(f) = frames.get_mut(fx.universe) else { continue };
+            if fx.address == 0 || base + n > 512 {
+                continue;
+            }
+            safe_values(mode, &info, &mut f[base..base + n]);
+        }
+        frames
+    }
+}
+
+/// 異常時(画面や出力のスレッドがpanicした・終了のシグナルを受けた)に立てる。
+/// 立つと出力スレッドは、以後は安全なフレームだけを送る(戻らない。アプリの再起動が必要)
+pub static EMERGENCY: AtomicBool = AtomicBool::new(false);
+/// 安全なフレームを送り終えたら、プロセスを終了する(終了のシグナルを受けたとき)
+static EXIT_AFTER_SAFE: AtomicBool = AtomicBool::new(false);
+/// 安全なフレームを送る回数(40Hzで約0.3秒)
+const SAFE_TICKS: u32 = 12;
+
+/// 安全停止に入る。`exit`=安全なフレームを送り終えたら終了する
+pub fn emergency_stop(exit: bool) {
+    if exit {
+        EXIT_AFTER_SAFE.store(true, Ordering::SeqCst);
+    }
+    EMERGENCY.store(true, Ordering::SeqCst);
+}
+
+/// 画面のスレッドのpanicで安全停止する(出力スレッドが安全なフレームを送る時間を待ってから終了へ進む)。
+/// Ctrl+C・終了のシグナルでも、安全なフレームを送ってから終了する
+pub fn install_safety_hooks() {
+    let default = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        default(info);
+        // 画面(main)が落ちるとアプリが終わる。出力スレッドの中のpanicは、出力スレッド自身が受け止める
+        if std::thread::current().name() == Some("main") {
+            emergency_stop(false);
+            std::thread::sleep(TICK * (SAFE_TICKS + 2));
+        }
+    }));
+    #[cfg(unix)]
+    unsafe {
+        extern "C" fn on_signal(_: libc::c_int) {
+            // シグナルの中ではフラグを立てるだけ(終了は出力スレッドが安全なフレームを送ってから行う)。
+            // 2回目(出力スレッドが動いていないときなど)は、すぐに終了する
+            if EMERGENCY.load(Ordering::SeqCst) {
+                unsafe { libc::_exit(130) };
+            }
+            emergency_stop(true);
+        }
+        let h = on_signal as extern "C" fn(libc::c_int) as libc::sighandler_t;
+        libc::signal(libc::SIGINT, h);
+        libc::signal(libc::SIGTERM, h);
+        libc::signal(libc::SIGHUP, h);
+    }
+}
+
 /// 出力スレッド。40Hzでフレームを合成して各出力へ送る
 pub struct Engine {
     stop: Arc<AtomicBool>,
@@ -520,37 +604,82 @@ fn run(core: Shared, stop: Arc<AtomicBool>) {
     let mut outs: Vec<Box<dyn Output>> = Vec::new();
     let mut gen_seen = u64::MAX;
     let mut next = Instant::now();
+    // 異常時に送るフレーム(毎回、最新のものを作っておく)
+    let mut safe: Option<(Vec<[u8; 512]>, Vec<usize>)> = None;
+    let mut safe_sent = 0u32;
 
     while !stop.load(Ordering::SeqCst) {
-        let (frames, lens, cfg_now, gen_now) = {
-            let mut c = lock(&core);
+        if EMERGENCY.load(Ordering::SeqCst) {
+            // 安全停止中: Coreを待たずに(画面のスレッドが止まっていても)安全なフレームを送り続ける
+            if let Some((frames, lens)) = &safe {
+                send_frames(&cfgs, &mut outs, frames, lens);
+            }
+            safe_sent += 1;
+            if safe_sent >= SAFE_TICKS && EXIT_AFTER_SAFE.load(Ordering::SeqCst) {
+                std::process::exit(130);
+            }
+            wait_tick(&mut next);
+            continue;
+        }
+        // 1回分の処理でpanicしても、出力を止めずに安全停止へ切り替える(最後のフレームが出っぱなしにならないように)
+        let tick = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let Some(mut c) = lock_unless_emergency(&core) else { return };
             c.render();
-            (c.rt.frames.clone(), c.rt.used_len.clone(), c.project.outputs.clone(), c.rt.output_gen)
-        };
-        if gen_now != gen_seen {
-            // 先に古い出力を閉じてからポートを開き直す
-            outs.clear();
-            outs = cfg_now.iter().map(output::create).collect();
-            cfgs = cfg_now;
-            gen_seen = gen_now;
-        }
-        for (cfg, o) in cfgs.iter().zip(outs.iter_mut()) {
-            if !cfg.enabled {
-                continue;
+            let (frames, lens, cfg_now, gen_now) = (c.rt.frames.clone(), c.rt.used_len.clone(), c.project.outputs.clone(), c.rt.output_gen);
+            safe = Some((c.safe_frames(), lens.clone()));
+            drop(c);
+            if gen_now != gen_seen {
+                // 先に古い出力を閉じてからポートを開き直す
+                outs.clear();
+                outs = cfg_now.iter().map(output::create).collect();
+                cfgs = cfg_now;
+                gen_seen = gen_now;
             }
-            if let (Some(f), Some(&len)) = (frames.get(cfg.universe), lens.get(cfg.universe)) {
-                o.send(f, len);
-            }
+            send_frames(&cfgs, &mut outs, &frames, &lens);
+            let statuses: Vec<String> = outs.iter().map(|o| o.status()).collect();
+            lock(&core).rt.output_status = statuses;
+        }));
+        if tick.is_err() {
+            emergency_stop(false);
+            continue;
         }
-        let statuses: Vec<String> = outs.iter().map(|o| o.status()).collect();
-        lock(&core).rt.output_status = statuses;
+        wait_tick(&mut next);
+    }
+}
 
-        next += TICK;
-        let now = Instant::now();
-        if next > now {
-            std::thread::sleep(next - now);
-        } else {
-            next = now;
+/// Coreを借りる。待っている間に安全停止になったら諦める(panicした画面のスレッドがロックを持ったままでも止まらないように)
+fn lock_unless_emergency(core: &Shared) -> Option<MutexGuard<'_, Core>> {
+    loop {
+        match core.try_lock() {
+            Ok(g) => return Some(g),
+            Err(std::sync::TryLockError::Poisoned(e)) => return Some(e.into_inner()),
+            Err(std::sync::TryLockError::WouldBlock) => {
+                if EMERGENCY.load(Ordering::SeqCst) {
+                    return None;
+                }
+                std::thread::sleep(Duration::from_millis(1));
+            }
         }
+    }
+}
+
+fn send_frames(cfgs: &[OutputCfg], outs: &mut [Box<dyn Output>], frames: &[[u8; 512]], lens: &[usize]) {
+    for (cfg, o) in cfgs.iter().zip(outs.iter_mut()) {
+        if !cfg.enabled {
+            continue;
+        }
+        if let (Some(f), Some(&len)) = (frames.get(cfg.universe), lens.get(cfg.universe)) {
+            o.send(f, len);
+        }
+    }
+}
+
+fn wait_tick(next: &mut Instant) {
+    *next += TICK;
+    let now = Instant::now();
+    if *next > now {
+        std::thread::sleep(*next - now);
+    } else {
+        *next = now;
     }
 }

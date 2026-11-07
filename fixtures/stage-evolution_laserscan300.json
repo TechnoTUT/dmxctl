@@ -12,6 +12,7 @@
           "attr": "mode",
           "default": 255,
           "safe": 0,
+          "forbid": [[21, 220]],
           "ranges": [
             { "from": 0, "to": 20, "label": "レーザーOFF" },
             { "from": 21, "to": 40, "label": "AUF オートショー(速)" },
@@ -133,6 +134,7 @@
           "name": "パン(Y軸128点)",
           "attr": "pan",
           "default": 64,
+          "forbid": [[128, 255]],
           "ranges": [
             { "from": 0, "to": 127, "label": "位置 128ポイント", "sweep": true },
             { "from": 128, "to": 191, "label": "パン 右→左(A)" },
@@ -149,6 +151,7 @@
           "name": "チルト(X軸128点)",
           "attr": "tilt",
           "default": 64,
+          "forbid": [[128, 255]],
           "ranges": [
             { "from": 0, "to": 127, "label": "位置 128ポイント", "sweep": true },
             { "from": 128, "to": 191, "label": "チルト アップ→ダウン→アップ(A)" },

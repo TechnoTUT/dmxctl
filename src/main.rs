@@ -35,6 +35,8 @@ mod pixel_tests;
 #[cfg(test)]
 mod palette_tests;
 #[cfg(test)]
+mod safety_tests;
+#[cfg(test)]
 mod sync_tests;
 mod midi;
 mod ndi;
@@ -47,6 +49,7 @@ mod shot;
 mod theme;
 mod ui_binding;
 mod ui_control;
+mod ui_laser;
 mod ui_map;
 mod ui_midi;
 mod ui_output;
@@ -65,6 +68,8 @@ fn main() -> eframe::Result {
         }
         return Ok(());
     }
+    // 落ちたとき・終了のシグナルを受けたときに、安全な値(レーザーOFF・明るさ0)を送ってから終わる
+    engine::install_safety_hooks();
     // 開発・確認用: DMXCTL_SIZE=幅x高さ でウィンドウの大きさを指定
     let size = std::env::var("DMXCTL_SIZE").ok().and_then(|s| {
         let (w, h) = s.split_once('x')?;

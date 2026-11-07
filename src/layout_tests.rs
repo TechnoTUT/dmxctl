@@ -174,7 +174,7 @@ fn recommended_layout_fills_the_controller_without_conflicts() {
         .filter(|b| b.page == Some(0) && matches!(&b.action, Action::SetValue { sel: Selector::Profile(p), .. } if p == "stage-evolution/laserscan300"))
         .map(|b| b.name.as_str())
         .collect();
-    assert_eq!(laser, ["オートショー", "回転", "ズーム", "描画"], "7段目の残り(8個まで)");
+    assert_eq!(laser, ["回転", "ズーム", "描画", "7色"], "7段目の残り(8個まで)。オートショーは置かない");
 }
 
 #[test]
@@ -414,11 +414,14 @@ fn settings_page_switches_roles_arm_and_ndi() {
     assert_eq!(c.project.tempo_source, TempoSource::Link);
     press(&mut c, Ctl::Pad(pad_note(5, 4)));
     assert_eq!(c.project.tempo_source, TempoSource::Internal);
-    // フェーダー1 = レーザー1のX
-    fader(&mut c, 0, 127);
-    let f = &c.project.fixtures[lasers[0]];
-    let m = c.lib.mode(&f.profile, f.mode).unwrap();
-    assert_eq!(f.values[m.find_attr("pan").unwrap()], 127);
+    // フェーダーはレーザーを動かさない(位置はレーザータブでマウスで合わせる)
+    let before: Vec<Vec<u8>> = lasers.iter().map(|&i| c.project.fixtures[i].values.clone()).collect();
+    for k in 0..6 {
+        fader(&mut c, k, 127);
+        fader(&mut c, k, 0);
+    }
+    let after: Vec<Vec<u8>> = lasers.iter().map(|&i| c.project.fixtures[i].values.clone()).collect();
+    assert_eq!(before, after, "2ページ目のフェーダーでレーザーが動かない");
     // 戻る
     press(&mut c, Ctl::Scene(4));
     assert_eq!(c.rt.page, 0);

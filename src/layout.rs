@@ -190,7 +190,6 @@ pub fn apply(p: &mut Project, lib: &Library) -> Report {
     for k in &armed {
         rows[2].extend(
             [
-                toggle(k, "オートショー", "mode", "オートショー(速)"),
                 toggle(k, "回転", "z_roll", "時計まわり"),
                 toggle(k, "ズーム", "size", "ズームイン/アウト"),
                 toggle(k, "描画", "draw", "パターン描画"),
@@ -352,25 +351,9 @@ pub fn apply(p: &mut Project, lib: &Library) -> Report {
             put(p, P2, Ctl::Pad(pad_note(row as u8, col as u8)), name, action);
         }
     }
-    // フェーダー: レーザーの位置(X/Y)・大きさ、ムービングの動きの速さ
-    let mut faders2: Vec<Labeled> = Vec::new();
-    let lasers: Vec<(u32, String, bool)> = p
-        .fixtures
-        .iter()
-        .filter(|f| lib.get(&f.profile).is_some_and(|x| x.needs_arm) && lib.mode(&f.profile, f.mode).is_some_and(|m| m.find_attr("pan").is_some()))
-        .map(|f| (f.id, f.name.clone(), lib.mode(&f.profile, f.mode).is_some_and(|m| m.find_attr("tilt").is_some())))
-        .collect();
-    for (id, name, tilt) in lasers.iter().take(2) {
-        // 位置は 0〜127(それより上はパンの動きのマクロ)
-        faders2.push((format!("{name} X"), Action::SetValue { sel: Selector::Fixture(*id), attr: "pan".into(), mode: PadMode::Continuous, on: 127.0, off: 0.0 }));
-        if *tilt {
-            faders2.push((format!("{name} Y"), Action::SetValue { sel: Selector::Fixture(*id), attr: "tilt".into(), mode: PadMode::Continuous, on: 127.0, off: 0.0 }));
-        }
-    }
-    if let Some(k) = armed.iter().find(|k| k.attr("size")) {
-        // 上げるほど大きく(0=100% / 127=5%)
-        faders2.push((format!("{} 大きさ", k.name), Action::SetValue { sel: k.sel(), attr: "size".into(), mode: PadMode::Continuous, on: 0.0, off: 127.0 }));
-    }
+    // フェーダー: ムービングの動きの速さ。
+    // レーザーの位置・大きさは、フェーダーの誤操作で客席に向かないよう、MIDIには置かない(「レーザー」タブでマウスで合わせる)
+    let mut faders2: Vec<(String, Action)> = Vec::new();
     if let Some(k) = kinds.iter().find(|k| k.attr("pt_speed")) {
         // 上げるほど速く(0=最速)
         faders2.push((format!("{} 動きの速さ", k.name), Action::SetValue { sel: k.sel(), attr: "pt_speed".into(), mode: PadMode::Continuous, on: 0.0, off: 255.0 }));

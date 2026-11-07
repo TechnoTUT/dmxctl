@@ -17,6 +17,7 @@ pub enum Tab {
     Patch,
     Profiles,
     Pairs,
+    Laser,
     Scenes,
     Effects,
     Sequence,
@@ -26,13 +27,14 @@ pub enum Tab {
 }
 
 /// タブ。先頭の`LIVE_TABS`個が本番で使う画面、残りが準備・設定
-const TABS: [(Tab, &str); 11] = [
+const TABS: [(Tab, &str); 12] = [
     (Tab::Map, "MIDI"),
     (Tab::Control, "コントロール"),
     (Tab::Effects, "エフェクト"),
     (Tab::Scenes, "シーン"),
     (Tab::Sequence, "BPM/チェイス"),
     (Tab::Pairs, "ペア"),
+    (Tab::Laser, "レーザー"),
     (Tab::Patch, "パッチ"),
     (Tab::Profiles, "機材定義"),
     (Tab::Output, "出力"),
@@ -66,6 +68,8 @@ pub struct App {
     pub d2xx: Result<Vec<String>, String>,
     pub new_group: String,
     pub map_sel: Option<crate::apcmini::Ctl>,
+    /// レーザータブで、動いてよい範囲を編集中のレーザー
+    pub laser_edit: Option<u32>,
     /// コントロール画面で隠しているカテゴリ
     pub cat_hidden: HashSet<String>,
     /// シーン保存の対象から外すカテゴリ
@@ -155,6 +159,7 @@ impl App {
             d2xx: Ok(Vec::new()),
             new_group: String::new(),
             map_sel: None,
+            laser_edit: None,
             cat_hidden: HashSet::new(),
             scene_skip_cats: HashSet::new(),
             pe: Default::default(),
@@ -358,6 +363,11 @@ impl App {
         };
         ui.add_space(3.0);
         ui.horizontal(|ui| {
+            if crate::engine::EMERGENCY.load(std::sync::atomic::Ordering::SeqCst) {
+                theme::dot(ui, theme::DANGER);
+                ui.label(RichText::new("安全停止中(アプリを再起動してください)").small().color(theme::DANGER));
+                ui.separator();
+            }
             let connected = self.midi.connected.is_some();
             theme::dot(ui, if connected { theme::OK } else { theme::TEXT_FAINT });
             ui.label(RichText::new(format!("MIDI {midi}")).small().color(theme::TEXT_DIM));
@@ -571,6 +581,7 @@ impl App {
             Tab::Patch => self.tab_patch(ui),
             Tab::Profiles => self.tab_profiles(ui),
             Tab::Pairs => self.tab_pairs(ui),
+            Tab::Laser => self.tab_laser(ui),
             Tab::Scenes => self.tab_scenes(ui),
             Tab::Effects => self.tab_effects(ui),
             Tab::Sequence => self.tab_sequence(ui),

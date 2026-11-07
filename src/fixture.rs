@@ -103,9 +103,34 @@ pub struct ChannelDef {
     pub safe: Option<u8>,
     #[serde(default)]
     pub ranges: Vec<Range>,
+    /// 絶対に出力しない値の範囲([from, to])。レーザーのオートショーなど。
+    /// 出力の直前に、安全値(それも禁止なら一番近い使える値)へ置き換える
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub forbid: Vec<[u8; 2]>,
 }
 
 impl ChannelDef {
+    pub fn is_forbidden(&self, v: u8) -> bool {
+        self.forbid.iter().any(|&[a, b]| (a.min(b)..=a.max(b)).contains(&v))
+    }
+    /// 範囲の値がすべて禁止か(選択肢に出さない)
+    pub fn forbids_range(&self, r: &Range) -> bool {
+        (r.from..=r.to).all(|v| self.is_forbidden(v))
+    }
+    /// 出してよい値にする: 禁止の値なら安全値へ、安全値も禁止なら一番近い使える値へ
+    pub fn allowed(&self, v: u8) -> u8 {
+        if !self.is_forbidden(v) {
+            return v;
+        }
+        if let Some(s) = self.safe.filter(|&s| !self.is_forbidden(s)) {
+            return s;
+        }
+        (1..=255u8)
+            .flat_map(|d| [v.checked_sub(d), v.checked_add(d)])
+            .flatten()
+            .find(|&c| !self.is_forbidden(c))
+            .unwrap_or(v)
+    }
     pub fn range_of(&self, v: u8) -> Option<&Range> {
         self.ranges.iter().find(|r| r.contains(v))
     }
@@ -113,7 +138,7 @@ impl ChannelDef {
         if self.category.trim().is_empty() { OTHER } else { self.category.trim() }
     }
     pub fn blank(name: &str, attr: &str, category: &str) -> ChannelDef {
-        ChannelDef { name: name.into(), attr: attr.into(), category: category.into(), default: 0, fine_of: None, safe: None, ranges: Vec::new() }
+        ChannelDef { name: name.into(), attr: attr.into(), category: category.into(), default: 0, fine_of: None, safe: None, ranges: Vec::new(), forbid: Vec::new() }
     }
 }
 
@@ -500,15 +525,33 @@ pub fn slug(id: &str) -> String {
     if s.chars().any(|c| c.is_ascii_alphanumeric()) { s } else { "fixture".into() }
 }
 
+/// 内蔵の定義を上書きした機材定義にも、内蔵の禁止範囲を引き継ぐ(編集で消えて、オートショーなどに入らないように)
+fn inherit_forbid(p: &mut Profile, builtin: &Profile) {
+    for (i, m) in p.modes.iter_mut().enumerate() {
+        let Some(bm) = builtin.modes.iter().find(|b| b.name == m.name).or_else(|| builtin.modes.get(i)) else { continue };
+        for ch in m.channels.iter_mut() {
+            for bc in bm.channels.iter().filter(|b| b.attr == ch.attr) {
+                for span in &bc.forbid {
+                    if !ch.forbid.contains(span) {
+                        ch.forbid.push(*span);
+                    }
+                }
+            }
+        }
+    }
+}
+
 impl Library {
     /// 内蔵プロファイル + ユーザーフォルダ(同じidならユーザーのものが優先)
     pub fn load(user_dir: &Path) -> (Self, Vec<String>) {
         let mut lib = Library { user_dir: user_dir.to_path_buf(), ..Library::default() };
         let mut errors = Vec::new();
+        let mut builtin: HashMap<String, Profile> = HashMap::new();
         for src in BUILTIN {
             match serde_json::from_str::<Profile>(src) {
                 Ok(p) => {
                     lib.builtin_ids.insert(p.id.clone());
+                    builtin.insert(p.id.clone(), p.clone());
                     lib.add(p)
                 }
                 Err(e) => errors.push(format!("内蔵プロファイル: {e}")),
@@ -525,7 +568,10 @@ impl Library {
                     .map_err(|e| e.to_string())
                     .and_then(|s| serde_json::from_str::<Profile>(s.trim_start_matches('\u{feff}')).map_err(|e| e.to_string()));
                 match res {
-                    Ok(p) => {
+                    Ok(mut p) => {
+                        if let Some(b) = builtin.get(&p.id) {
+                            inherit_forbid(&mut p, b);
+                        }
                         lib.user_files.insert(p.id.clone(), path);
                         lib.add(p)
                     }

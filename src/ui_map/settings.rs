@@ -106,50 +106,26 @@ pub(super) fn settings_panel(ui: &mut egui::Ui, core: &mut Core) -> bool {
     });
     ui.add_space(6.0);
 
-    // レーザー(ARMと位置)
-    struct LaserRow {
-        id: u32,
-        name: String,
-        armed: bool,
-        pan: Option<usize>,
-        tilt: Option<usize>,
-    }
-    let lasers: Vec<LaserRow> = core
+    // レーザー(ARMだけ。位置はフェーダーやパッドで誤って動かさないよう、「レーザー」タブでマウスで合わせる)
+    let lasers: Vec<(u32, String, bool)> = core
         .project
         .fixtures
         .iter()
-        .filter_map(|f| {
-            let prof = core.lib.get(&f.profile)?;
-            let m = core.lib.mode(&f.profile, f.mode)?;
-            prof.needs_arm.then(|| LaserRow { id: f.id, name: f.name.clone(), armed: f.armed, pan: m.find_attr("pan"), tilt: m.find_attr("tilt") })
-        })
+        .filter(|f| core.lib.get(&f.profile).is_some_and(|p| p.needs_arm))
+        .map(|f| (f.id, f.name.clone(), f.armed))
         .collect();
     if !lasers.is_empty() {
         theme::card().show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.label(RichText::new("レーザー").font(theme::bold(13.0)));
-            for LaserRow { id, name, armed, pan, tilt } in lasers {
+            for (id, name, armed) in lasers {
                 ui.horizontal(|ui| {
-                    let (text, fill) = if armed { ("ARM中", theme::DANGER) } else { ("ARM", theme::WIDGET) };
-                    if ui.add(egui::Button::new(RichText::new(text).small().color(Color32::WHITE)).fill(fill).min_size(vec2(52.0, 0.0))).on_hover_text("出力を許可します(OFFの間は安全値=レーザーOFF)").clicked()
+                    if arm_button(ui, armed).clicked()
                         && let Some(i) = core.project.fixture_index(id) {
                         core.project.fixtures[i].armed = !armed;
                     }
                     ui.add(egui::Label::new(RichText::new(&name).small()).truncate());
                 });
-                let Some(i) = core.project.fixture_index(id) else { continue };
-                for (axis, ch) in [("X", pan), ("Y", tilt)] {
-                    let Some(ch) = ch else { continue };
-                    let mut v = core.project.fixtures[i].values.get(ch).copied().unwrap_or(0) as f32;
-                    ui.horizontal(|ui| {
-                        ui.add_sized([20.0, 18.0], egui::Label::new(RichText::new(axis).small().color(theme::TEXT_DIM)));
-                        ui.spacing_mut().slider_width = (ui.available_width() - 70.0).max(60.0);
-                        if ui.add(egui::Slider::new(&mut v, 0.0..=127.0).fixed_decimals(0)).changed() {
-                            core.set_attr(&Selector::Fixture(id), if axis == "X" { "pan" } else { "tilt" }, v);
-                            changed = true;
-                        }
-                    });
-                }
             }
         });
         ui.add_space(6.0);
@@ -185,4 +161,10 @@ pub(super) fn settings_panel(ui: &mut egui::Ui, core: &mut Core) -> bool {
         });
     });
     changed
+}
+
+/// レーザーのARMボタン(押すと出力を許可/禁止)
+pub(crate) fn arm_button(ui: &mut egui::Ui, armed: bool) -> egui::Response {
+    let (text, fill) = if armed { ("ARM中", theme::DANGER) } else { ("ARM", theme::WIDGET) };
+    ui.add(egui::Button::new(RichText::new(text).small().color(Color32::WHITE)).fill(fill).min_size(vec2(52.0, 0.0))).on_hover_text("出力を許可します(OFFの間は安全値=レーザーOFF)")
 }

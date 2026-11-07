@@ -119,15 +119,16 @@ fn ranged_channels_invert_only_inside_their_continuous_range() {
     p.add_fixture(&lib, LASER).unwrap(); // id1 アドレス1(17ch)
     p.add_fixture(&lib, LASER).unwrap(); // id2 アドレス18
     p.master_seeded = true;
-    p.pairs.push(Pair { name: "LR".into(), leader: 1, follower: 2, ..Pair::default() });
+    // レーザーのパンの128以上(自動の動き)は出力しないので、同じ形のX軸ロールで確かめる
+    p.pairs.push(Pair { name: "LR".into(), leader: 1, follower: 2, invert: vec!["x_roll".into()], ..Pair::default() });
     let mut c = Core::new(p, lib);
-    let pan_slot = 17 + 13; // 2台目のパン(ch14)
-    c.set_attr(&Selector::Fixture(1), "pan", 10.0); // 「位置 0〜127」
+    let roll_slot = 17 + 7; // 2台目のX軸ロール(ch8)
+    c.set_attr(&Selector::Fixture(1), "x_roll", 10.0); // 「角度」0〜127
     c.render();
-    assert_eq!(c.rt.frames[0][pan_slot], 117, "レーザーのパン位置は、0〜127の中で反転(127-10)");
-    c.set_attr(&Selector::Fixture(1), "pan", 150.0); // 「パン 右→左」のマクロ
+    assert_eq!(c.rt.frames[0][roll_slot], 117, "0〜127の中で反転(127-10)");
+    c.set_attr(&Selector::Fixture(1), "x_roll", 150.0); // 「ロール(A)」のマクロ
     c.render();
-    assert_eq!(c.rt.frames[0][pan_slot], 150, "マクロ(選択式)の値は反転しない");
+    assert_eq!(c.rt.frames[0][roll_slot], 150, "マクロ(選択式)の値は反転しない");
 }
 
 #[test]
