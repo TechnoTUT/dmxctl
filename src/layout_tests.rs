@@ -306,10 +306,12 @@ fn every_face_preset_moves_or_shows_a_pattern() {
     crate::layout::apply(&mut c.project, &lib);
     c.set_palette_color(crate::color::ColorRole::Main, [1.0, 0.0, 0.0]);
     c.set_palette_color(crate::color::ColorRole::Sub, [0.0, 0.0, 1.0]);
-    let mut seen: Vec<(String, Vec<Vec<Vec<[u8; 4]>>>)> = Vec::new();
+    // コマ → バー → ピクセル(RGBW)
+    type Frames = Vec<Vec<Vec<[u8; 4]>>>;
+    let mut seen: Vec<(String, Frames)> = Vec::new();
     for fx in FACE_SETS.iter().flat_map(|s| s.presets.iter()) {
         c.set_pixel_fx(fx.name, true);
-        let frames: Vec<Vec<Vec<[u8; 4]>>> = [0.3, 1.1, 2.7, 5.2]
+        let frames: Frames =[0.3, 1.1, 2.7, 5.2]
             .iter()
             .map(|&b| {
                 c.rt.beat = b * fx.beats.max(1.0) as f64 / 8.0;

@@ -3,6 +3,8 @@
 mod apcmini;
 mod audio;
 mod app;
+#[cfg(test)]
+mod binding_tests;
 mod color;
 mod engine;
 #[cfg(test)]

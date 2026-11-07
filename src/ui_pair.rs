@@ -52,12 +52,11 @@ impl App {
             .iter()
             .map(|p| {
                 let mut v: Vec<String> = Vec::new();
-                if let Some(fx) = core.project.fixtures.iter().find(|f| f.id == p.leader) {
-                    if let Some(m) = lib.mode(&fx.profile, fx.mode) {
-                        for c in m.channels.iter().filter(|c| c.fine_of.is_none() && c.category_name() == "動き") {
-                            if !v.contains(&c.attr) {
-                                v.push(c.attr.clone());
-                            }
+                if let Some(fx) = core.project.fixtures.iter().find(|f| f.id == p.leader)
+                    && let Some(m) = lib.mode(&fx.profile, fx.mode) {
+                    for c in m.channels.iter().filter(|c| c.fine_of.is_none() && c.category_name() == "動き") {
+                        if !v.contains(&c.attr) {
+                            v.push(c.attr.clone());
                         }
                     }
                 }

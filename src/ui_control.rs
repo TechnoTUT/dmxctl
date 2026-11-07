@@ -490,10 +490,9 @@ fn channel_row(ui: &mut egui::Ui, fx_id: u32, values: &mut [u8], mode: &Mode, ci
                 }
             });
             // 速度など範囲内の値に意味があるレンジは、その範囲でスライダーを出す
-            if let Some(r) = ch.range_of(v) {
-                if r.sweep && ui.add(Slider::new(&mut v, r.from..=r.to)).changed() {
-                    changed = true;
-                }
+            if let Some(r) = ch.range_of(v)
+                && r.sweep && ui.add(Slider::new(&mut v, r.from..=r.to)).changed() {
+                changed = true;
             }
             values[ci] = v;
         } else if let Some(fi) = mode.fine_of(ci) {

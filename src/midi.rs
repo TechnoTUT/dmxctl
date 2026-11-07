@@ -84,10 +84,9 @@ impl Midi {
         self.connected = Some(name.to_string());
         lock(core).rt.midi_status = format!("接続中: {name}");
 
-        if apcmini::is_apc_port(name) {
-            if let Err(e) = self.open_output_and_request_faders(core, name) {
-                lock(core).rt.midi_status = format!("接続中: {name} (フェーダー位置は動かすと反映: {e})");
-            }
+        if apcmini::is_apc_port(name)
+            && let Err(e) = self.open_output_and_request_faders(core, name) {
+            lock(core).rt.midi_status = format!("接続中: {name} (フェーダー位置は動かすと反映: {e})");
         }
         Ok(())
     }

@@ -21,11 +21,10 @@ impl App {
                     ui.selectable_value(&mut self.add_profile, i, format!("{} {}", p.manufacturer, p.name));
                 }
             });
-            if ui.button("＋ 機材を追加").clicked() {
-                if let Some(p) = lib.profiles.get(self.add_profile) {
-                    core.project.add_fixture(&lib, &p.id);
-                    changed = true;
-                }
+            if ui.button("＋ 機材を追加").clicked()
+                && let Some(p) = lib.profiles.get(self.add_profile) {
+                core.project.add_fixture(&lib, &p.id);
+                changed = true;
             }
             crate::theme::help(ui, &format!("機材定義は「機材定義」タブで作れます。{} に .json を置いても増やせます", crate::project::config_dir().join("fixtures").display()));
         });

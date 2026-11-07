@@ -153,7 +153,7 @@ pub fn encode(addr: &str, args: &[Arg]) -> Vec<u8> {
     fn put_str(v: &mut Vec<u8>, s: &str) {
         v.extend_from_slice(s.as_bytes());
         v.push(0);
-        while v.len() % 4 != 0 {
+        while !v.len().is_multiple_of(4) {
             v.push(0);
         }
     }
