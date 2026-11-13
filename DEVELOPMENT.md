@@ -34,6 +34,7 @@ target\release\dmxctl.exe
 ```
 bash ./scripts/build-mac.sh            # dist/mac/DMX Controller.app(ユニバーサル版)
 bash ./scripts/build-windows-mingw.sh  # dist/windows/dmxctl.exe(MacからWindows版)
+bash ./scripts/build-linux.sh          # dist/linux/dmxctl(Linuxの上で)
 cargo run --release                    # 開発中の確認
 ```
 

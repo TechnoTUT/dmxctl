@@ -79,7 +79,7 @@ fn main() -> eframe::Result {
         Some([w.parse::<f32>().ok()?, h.parse::<f32>().ok()?])
     });
     let options = eframe::NativeOptions {
-        viewport: eframe::egui::ViewportBuilder::default().with_inner_size(size.unwrap_or([1280.0, 800.0])).with_min_inner_size([960.0, 620.0]).with_title("DMX Controller"),
+        viewport: eframe::egui::ViewportBuilder::default().with_inner_size(size.unwrap_or([1280.0, 800.0])).with_min_inner_size([960.0, 620.0]).with_title("DMX Controller").with_app_id("dmxctl"),
         ..Default::default()
     };
     eframe::run_native("dmxctl", options, Box::new(|cc| Ok(Box::new(app::App::new(cc)))))

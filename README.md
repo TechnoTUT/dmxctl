@@ -37,7 +37,7 @@ TouchDesignerのような重い映像ソフトと同じPCで動かすことを�
 | パッチ / 機材定義 / 出力 / MIDI設定 | 準備・設定 |
 | モニター | 実際に送っているDMXの値を見る |
 
-設定は自動で保存されます(Mac: `~/Library/Application Support/dmxctl/`、Windows: `%APPDATA%\dmxctl\`)。
+設定は自動で保存されます(Mac: `~/Library/Application Support/dmxctl/`、Windows: `%APPDATA%\dmxctl\`、Linux: `~/.config/dmxctl/`)。
 
 ---
 
@@ -471,7 +471,7 @@ cargo run --release
 
 **MacからWindows版を作る**: MinGW-w64 を入れて(`brew install mingw-w64`)、`bash ./scripts/build-windows-mingw.sh`。`dist/windows/dmxctl.exe`(単体で動く。追加のDLLは不要)と配布用のzipができます。
 
-**Macが手元に無い場合**: GitHub に push すると、`.github/workflows/build.yml` により Mac 用と Windows 用がビルドされます(ビルドが通るかの確認)。`v` で始まるタグ(例: `v0.2.0`)を push すると、そのビルドの成果物(zip)が GitHub の Release に添付されます。
+**Macが手元に無い場合**: GitHub に push すると、`.github/workflows/build.yml` により Mac 用・Windows 用・Linux 用がビルドされます(ビルドが通るかの確認)。`v` で始まるタグ(例: `v0.2.0`)を push すると、そのビルドの成果物(zip / tar.gz)が GitHub の Release に添付されます。
 
 **Macでの違い・注意**
 
@@ -480,6 +480,30 @@ cargo run --release
 - USB-DMX(FT232系): Mac標準のドライバで `/dev/cu.usbserial-…` として見えます(「出力」タブのCOMポートの一覧に出ます)。D2XX を使う場合は FTDI の `libftd2xx.dylib` を入れてください
 - 簡易署名のアプリなので、ダウンロードしたものを初めて開くときは「開発元を確認できません」と出ます。Finderでアプリを右クリック →「開く」で開けます
 - 初めて Art-Net / Ableton Link / OSC を使うとき、「ローカルネットワーク上のデバイスの検索と接続」の許可を求められます。許可してください
+
+## Linux で使う
+
+Linux(X11 / Wayland のどちらでも)で動きます。作るのは Linux の上で行います。
+
+**Linuxで作る**
+
+1. Rust を入れる: https://rustup.rs
+2. ビルドに要るものを入れる
+   - Ubuntu / Debian: `sudo apt install build-essential pkg-config libasound2-dev libudev-dev`
+   - Fedora: `sudo dnf install gcc-c++ pkgconf alsa-lib-devel systemd-devel libatomic`
+   - Arch: `sudo pacman -S base-devel alsa-lib`
+3. `./scripts/build-linux.sh`
+4. `dist/linux/dmxctl` ができます(配布用の `DMX-Controller-linux.tar.gz` も同じ場所)。`./dmxctl` で起動
+
+**Linuxでの違い・注意**
+
+- 設定の保存場所: `~/.config/dmxctl/`(`XDG_CONFIG_HOME` があればその下)。中身は Windows / Mac と同じ
+- 保存のショートカットは Ctrl+S
+- 日本語フォント: Noto Sans CJK があればそれを使います(無ければ fontconfig が選ぶ日本語フォント)。文字が□になるときは `sudo apt install fonts-noto-cjk` など
+- USB-DMX(FT232系): 標準のドライバで `/dev/ttyUSB0` などとして見えます。開けないときは `sudo usermod -aG dialout $USER` のあとログインし直してください
+- D2XX を使う場合は FTDI の `libftd2xx.so` を入れ、標準のドライバを外します(`sudo rmmod ftdi_sio`)。ふつうは COMポート方式で十分です
+- MIDI・音声入力は ALSA を使います(PipeWire / PulseAudio の環境でもそのまま動きます)
+- メニューに出したいときは、`dmxctl` を PATH の通った場所に置き、`dmxctl.desktop` を `~/.local/share/applications/` にコピー
 
 ## USB-DMX(FT232系)について
 

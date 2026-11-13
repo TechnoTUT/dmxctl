@@ -89,10 +89,18 @@ pub fn setup_fonts(ctx: &egui::Context) {
         ("/Library/Fonts/Arial Unicode.ttf", ""),
         ("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"),
         ("/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc", "/usr/share/fonts/noto-cjk/NotoSansCJK-Bold.ttc"),
+        ("/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc", "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Bold.ttc"),
+        ("/usr/share/fonts/google-noto-sans-cjk-fonts/NotoSansCJK-Regular.ttc", "/usr/share/fonts/google-noto-sans-cjk-fonts/NotoSansCJK-Bold.ttc"),
+        ("/usr/share/fonts/opentype/ipafont-gothic/ipagp.ttf", ""),
+        ("/usr/share/fonts/truetype/takao-gothic/TakaoPGothic.ttf", ""),
+        ("/usr/share/fonts/truetype/vlgothic/VL-PGothic-Regular.ttf", ""),
     ];
+    // Linuxで上のどれも無いときは、fontconfigに日本語フォントを聞く
+    let found = std::iter::once_with(fontconfig_jp).flatten().map(|f| (f, String::new()));
+    let candidates = JP_FONTS.iter().map(|&(r, b)| (r.to_string(), b.to_string())).chain(found);
     let mut bold_list: Vec<String> = Vec::new();
-    for (regular, bold) in JP_FONTS {
-        let Ok(bytes) = std::fs::read(regular) else { continue };
+    for (regular, bold) in candidates {
+        let Ok(bytes) = std::fs::read(&regular) else { continue };
         fonts.font_data.insert("jp".into(), Arc::new(egui::FontData::from_owned(bytes)));
         // 通常の文字は日本語フォントを先頭にして字の太さを揃える。等幅(数値表示)は既定フォントを優先し、日本語だけ補う
         if let Some(list) = fonts.families.get_mut(&FontFamily::Proportional) {
@@ -101,7 +109,7 @@ pub fn setup_fonts(ctx: &egui::Context) {
         if let Some(list) = fonts.families.get_mut(&FontFamily::Monospace) {
             list.push("jp".into());
         }
-        if let Ok(b) = std::fs::read(bold) {
+        if let Ok(b) = std::fs::read(&bold) {
             fonts.font_data.insert("jp_bold".into(), Arc::new(egui::FontData::from_owned(b)));
             bold_list.push("jp_bold".into());
         }
@@ -114,6 +122,16 @@ pub fn setup_fonts(ctx: &egui::Context) {
     bold_list.dedup();
     fonts.families.insert(FontFamily::Name("bold".into()), bold_list);
     ctx.set_fonts(fonts);
+}
+
+/// fontconfig(fc-match)が選ぶ日本語フォントのファイル。Linux以外・見つからないときはNone
+fn fontconfig_jp() -> Option<String> {
+    if cfg!(any(windows, target_os = "macos")) {
+        return None;
+    }
+    let out = std::process::Command::new("fc-match").args(["-f", "%{file}", "sans-serif:lang=ja"]).output().ok()?;
+    let path = String::from_utf8(out.stdout).ok()?.trim().to_string();
+    (!path.is_empty()).then_some(path)
 }
 
 /// 色・余白・角の丸みを設定する(OSの明るい/暗い設定によらず、常に暗いテーマ)

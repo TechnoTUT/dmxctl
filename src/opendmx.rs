@@ -134,7 +134,14 @@ impl SerialLink {
             .flow_control(serialport::FlowControl::None)
             .timeout(Duration::from_millis(200))
             .open()
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| {
+                // Linuxでは、ふつうのユーザーはシリアルポートを開けないことがある(dialoutグループに入れる)
+                if cfg!(target_os = "linux") && e.kind() == serialport::ErrorKind::Io(std::io::ErrorKind::PermissionDenied) {
+                    format!("{e}(sudo usermod -aG dialout $USER のあと、ログインし直してください)")
+                } else {
+                    e.to_string()
+                }
+            })?;
         // Enttec Open DMXの参照実装に合わせ、RTSをLow(送信側)にしておく
         let _ = p.write_request_to_send(false);
         let _ = p.clear_break();
@@ -201,7 +208,7 @@ impl D2xxApi {
         } else if cfg!(target_os = "macos") {
             &["libftd2xx.dylib", "/usr/local/lib/libftd2xx.dylib", "/opt/homebrew/lib/libftd2xx.dylib"]
         } else {
-            &["libftd2xx.so"]
+            &["libftd2xx.so", "/usr/local/lib/libftd2xx.so", "/usr/lib/libftd2xx.so"]
         };
         // Macのアプリ(.app)に同梱したもの(Contents/Frameworks)を最初に探す
         let bundled = std::env::current_exe().ok().and_then(|exe| Some(exe.parent()?.parent()?.join("Frameworks").join("libftd2xx.dylib"))).filter(|p| cfg!(target_os = "macos") && p.exists());
