@@ -16,8 +16,10 @@ mod stage;
 
 use board::{control_info, controller_map};
 use editor::{control_editor, EditorOut};
-use pad::{action_color, button_cell, effect_path, fader_cell, legend, pad_text, readout, Info, Preview, Readout};
+use pad::{button_cell, effect_path, fader_cell, legend, pad_text, readout, Info, Preview, Readout};
 use settings::settings_panel;
+pub(crate) use pad::action_color;
+pub(crate) use stage::tempo_color_preview;
 pub(crate) use settings::arm_button;
 use stage::stage_panel;
 

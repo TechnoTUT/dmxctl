@@ -59,7 +59,7 @@ pub(super) fn energy_color(e: Option<Energy>) -> Color32 {
     }
 }
 
-pub(super) fn action_color(a: &Action, p: &Project) -> Color32 {
+pub(crate) fn action_color(a: &Action, p: &Project) -> Color32 {
     match a {
         Action::SetValue { .. } => COL_SET,
         Action::Scene { .. } => COL_SCENE,
@@ -79,6 +79,14 @@ pub(super) fn action_color(a: &Action, p: &Project) -> Color32 {
         Action::Arm { .. } => COL_DARK,
         Action::SwapBeats { .. } => COL_SWAP,
         Action::BarCount { .. } => COL_PIXEL,
+        // 動きは種類ごとに色分け(APCのLEDと同じ: 形=オレンジ / 1周の長さ=黄 / 揃え方=ピンク / 向き=水色)
+        Action::Motion { op } => match op {
+            crate::motion::MotionOp::Beats(_) => COL_LEVEL,
+            crate::motion::MotionOp::Spread(_) => COL_PAIR,
+            crate::motion::MotionOp::Position(_) => COL_POSITION,
+            _ => COL_FX,
+        },
+        Action::KeyPage { .. } => COL_PAGE,
     }
 }
 
@@ -176,6 +184,8 @@ pub(super) fn pad_text(a: &Action, meta: &SelMeta, core: &Core) -> (String, Stri
         })),
         Action::SwapBeats { beats } => (s("入れ替え"), format!("{beats}拍ごと")),
         Action::BarCount { count } => (s("LEDバー"), format!("{count}本")),
+        Action::Motion { op } => (s(op.group()), op.label()),
+        Action::KeyPage { op } => (s("模様セット"), s(if *op == PageOp::Prev { "◀ 前" } else { "次 ▶" })),
     }
 }
 

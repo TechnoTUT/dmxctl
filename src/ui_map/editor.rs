@@ -30,6 +30,7 @@ pub(super) fn control_editor(ui: &mut egui::Ui, core: &mut Core, ctl: Ctl, page:
             None => "現在の値: (まだ動かしていません)".to_string(),
         },
         TriggerKind::Note => if core.rt.notes_down[num as usize] { "押されています" } else { "離されています" }.to_string(),
+        TriggerKind::Key => String::new(),
     };
     ui.label(RichText::new(live).small().color(theme::TEXT_DIM));
     ui.add_space(4.0);

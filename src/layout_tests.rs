@@ -115,7 +115,7 @@ fn recommended_layout_fills_the_controller_without_conflicts() {
     // どのページでも、1つのコントロールに1つの割り当て
     for page in 0..2u8 {
         let mut seen = HashSet::new();
-        for b in c.project.bindings.iter().filter(|b| b.on_page(page)) {
+        for b in c.project.bindings.iter().filter(|b| b.on_page(page) && b.trigger.is_some_and(|t| t.kind != TriggerKind::Key)) {
             let t = b.trigger.unwrap();
             assert!(seen.insert((t.kind == TriggerKind::Cc, t.number)), "ページ{} で重複: {}", page + 1, b.name);
         }
@@ -132,10 +132,12 @@ fn recommended_layout_fills_the_controller_without_conflicts() {
         Action::Effect { name, .. } => name.clone(),
         a => panic!("{row}段{col}列: {a:?}"),
     };
-    assert_eq!((0..8).map(|k| effect_at(4, k)).collect::<Vec<_>>(), ["円運動", "8の字", "パン揺れ", "チルト揺れ", "ワイパー", "クロス", "バラバラ", "高速円"]);
+    let shapes: Vec<String> = (0..8).map(|k| binding_at(&c, Ctl::Pad(pad_note(4, k))).unwrap().name.clone()).collect();
+    assert_eq!(shapes, ["止める", "円", "8の字", "左右", "前後", "クロス", "ランダム", "ウェーブ"]);
+    assert!(!c.project.effects.iter().any(|e| e.attr == "pan" || e.attr == "tilt"), "動きのエフェクトは作らない");
     assert_eq!(effect_at(5, 0), "点灯チェイス");
     assert!(matches!(&binding_at(&c, Ctl::Pad(pad_note(6, 0))).unwrap().action, Action::SetValue { attr, .. } if attr == "rotation"));
-    assert!(!c.project.bindings.iter().any(|b| matches!(b.action, Action::Color { color: Some(_), .. })), "色のパッドは無い");
+    assert!(!c.project.bindings.iter().any(|b| matches!(b.action, Action::Color { color: Some(_), .. }) && b.trigger.is_some_and(|t| t.kind != TriggerKind::Key)), "色のパッドは無い(キーボードのShiftの段だけ)");
     // トラックボタン=機種ごとの消灯(LEDバーはまとめて1つ、レーザーも)
     let mutes: Vec<String> = (0..8u8)
         .filter_map(|i| binding_at(&c, Ctl::Track(i)))
@@ -490,25 +492,66 @@ fn real_moves_demo() {
 }
 
 #[test]
-fn moving_head_effects_are_one_at_a_time() {
+fn moving_head_motion_combines_shape_rate_and_spread() {
+    use crate::motion::{Shape, Spread};
     let mut c = rig();
     let lib = c.lib.clone();
     crate::layout::apply(&mut c.project, &lib);
-    let on = |c: &Core| {
-        let mut v: Vec<String> = c.project.effects.iter().filter(|e| e.enabled).map(|e| e.name.clone()).collect();
-        v.dedup();
-        v
-    };
-    press(&mut c, Ctl::Pad(pad_note(4, 0))); // 円運動
-    assert_eq!(on(&c), ["円運動"]);
-    press(&mut c, Ctl::Pad(pad_note(4, 3))); // チルト揺れ: 円運動はOFFに
-    assert_eq!(on(&c), ["チルト揺れ"]);
-    // 明るさの動き(点灯チェイス)は、動きと別のチャンネルなので一緒に使える
+    // 1ページ目5段目=形、2ページ目4段目=1周の長さ(5つ)と揃え方(3つ)
+    press(&mut c, Ctl::Pad(pad_note(4, 1)));
+    assert_eq!(c.project.motion.shape, Shape::Circle);
+    press(&mut c, Ctl::Scene(4));
+    let names: Vec<String> = (0..8).map(|k| binding_on(&c, Ctl::Pad(pad_note(3, k)), 1).unwrap().name.clone()).collect();
+    assert_eq!(names, ["4小節", "2小節", "1小節", "2拍", "1拍", "揃える", "ずらす", "左右対称"]);
+    press(&mut c, Ctl::Pad(pad_note(3, 4)));
+    press(&mut c, Ctl::Pad(pad_note(3, 7)));
+    assert_eq!((c.project.motion.beats, c.project.motion.spread), (1.0, Spread::Mirror));
+    press(&mut c, Ctl::Scene(4));
+    // 形は1つずつ。明るさのエフェクト(点灯チェイス)は一緒に使える
     press(&mut c, Ctl::Pad(pad_note(5, 0)));
-    assert_eq!(on(&c), ["チルト揺れ", "点灯チェイス"]);
-    // 同じボタンをもう一度でOFF
-    press(&mut c, Ctl::Pad(pad_note(4, 3)));
-    assert_eq!(on(&c), ["点灯チェイス"]);
+    press(&mut c, Ctl::Pad(pad_note(4, 4)));
+    assert_eq!(c.project.motion.shape, Shape::TiltSweep);
+    assert!(c.project.effects.iter().any(|e| e.name == "点灯チェイス" && e.enabled));
+    // 光るのは選んでいるものだけ
+    let lit = |c: &Core, row: u8, col: u8| crate::led::is_active(c, &binding_at(c, Ctl::Pad(pad_note(row, col))).unwrap().action);
+    assert!(lit(&c, 4, 4) && !lit(&c, 4, 1));
+    // 止める
+    press(&mut c, Ctl::Pad(pad_note(4, 0)));
+    assert_eq!(c.project.motion.shape, Shape::Still);
+}
+
+#[test]
+fn motion_moves_every_head_and_mirror_flips_the_right_half() {
+    use crate::motion::{Shape, Spread};
+    let mut c = rig();
+    let heads = c.motion_heads();
+    assert!(heads.len() >= 2, "ムービングが2台以上");
+    let pan = |c: &Core, i: usize| {
+        let f = &c.project.fixtures[i];
+        let m = c.lib.mode(&f.profile, f.mode).unwrap();
+        let ch = m.find_attr("pan").unwrap();
+        c.rt.frames[f.universe][f.address as usize - 1 + ch] as i32
+    };
+    // 止めているときは、パン/チルトはそのまま
+    c.render();
+    let still: Vec<i32> = heads.iter().map(|&i| pan(&c, i)).collect();
+    c.project.motion = crate::motion::Motion { shape: Shape::PanSweep, spread: Spread::Mirror, position: Some(3), size: 1.0, ..Default::default() };
+    let mut seen: Vec<Vec<i32>> = Vec::new();
+    for step in 0..8 {
+        c.rt.beat = step as f64 * 0.5;
+        c.render();
+        seen.push(heads.iter().map(|&i| pan(&c, i)).collect());
+    }
+    for (k, _) in heads.iter().enumerate() {
+        assert!(seen.iter().any(|v| v[k] != still[k]), "{k}台目が動かない: {seen:?}");
+    }
+    // 左右対称: 左端と右端は、いつも中心から逆向きにずれる(並びの中心で鏡写し)
+    let n = heads.len();
+    let center = 127.5;
+    for v in &seen {
+        let (l, r) = (v[0] as f64 - center, v[n - 1] as f64 - center);
+        assert!(l * r <= 4.0 * 4.0 || (l.abs() < 4.0 && r.abs() < 4.0), "左右対称になっていない: {v:?}");
+    }
 }
 
 #[test]
@@ -586,10 +629,10 @@ fn sixteen_bars_make_one_face() {
     press(&mut c, Ctl::Track(0));
     c.render();
     assert!(bars_out(&c).iter().flatten().all(|p| *p == [0, 0, 0, 0]));
-    // 2ページ目: 1本ずつの色の系統は2段(16本)、その下にほかの機材の段
+    // 2ページ目: 1本ずつの色の系統は2段(16本)、その下はムービングの動きの段(ほかの機材の段は入らない)
     press(&mut c, Ctl::Track(0));
     assert!(matches!(binding_on(&c, Ctl::Pad(pad_note(1, 0)), 1).unwrap().action, Action::Role { sel: Selector::Fixture(id), .. } if id == bar_ids(&c)[0]));
-    assert!(matches!(&binding_on(&c, Ctl::Pad(pad_note(3, 0)), 1).unwrap().action, Action::Role { sel: Selector::Fixture(id), .. } if c.project.fixtures[c.project.fixture_index(*id).unwrap()].profile == "stage-evolution/minispot30"));
+    assert!(matches!(&binding_on(&c, Ctl::Pad(pad_note(3, 0)), 1).unwrap().action, Action::Motion { .. }));
     assert!(matches!(binding_on(&c, Ctl::Pad(pad_note(2, 7)), 1).unwrap().action, Action::Role { sel: Selector::Fixture(id), .. } if id == bar_ids(&c)[15]));
     assert!(matches!(binding_on(&c, Ctl::Pad(pad_note(4, 0)), 1).unwrap().action, Action::Arm { .. }), "ARMの段は残る");
     assert!(matches!(binding_on(&c, Ctl::Pad(pad_note(6, 0)), 1).unwrap().action, Action::SwapBeats { .. }), "入れ替え間隔の段も残る");
@@ -625,4 +668,56 @@ fn switch_between_8_and_16_bars() {
     assert_eq!(c.bar_count(), (16, 16));
     c.render();
     assert!(bars_out(&c).iter().all(|b| b.iter().any(|p| p.iter().any(|&v| v > 0))));
+}
+
+#[test]
+fn keyboard_layout_runs_the_same_actions_by_row() {
+    use crate::keys::code;
+    use crate::motion::Shape;
+    let mut c = rig();
+    let lib = c.lib.clone();
+    let n = crate::layout::apply_keys(&mut c.project, &lib);
+    assert!(n >= 40, "{n}");
+    // 同じキー・同じセットに割り当ては1つ
+    let mut seen = HashSet::new();
+    for b in c.project.bindings.iter().filter(|b| b.trigger.is_some_and(|t| t.kind == TriggerKind::Key)) {
+        assert!(seen.insert((b.trigger.unwrap().number, b.page)), "重複: {}", b.name);
+    }
+    let tap = |c: &mut Core, k: u8| {
+        c.handle_key(k, true);
+        c.handle_key(k, false);
+    };
+    // 数字の段=LEDバーの模様。0で次のセットへ
+    tap(&mut c, code(0, 0));
+    assert!(c.project.pixel_fx.iter().any(|f| f.name == FACE_SETS[0].presets[0].name && f.enabled));
+    tap(&mut c, code(0, 9));
+    assert_eq!(c.rt.key_page, 1);
+    tap(&mut c, code(0, 0));
+    assert!(c.project.pixel_fx.iter().any(|f| f.name == FACE_SETS[1].presets[0].name && f.enabled));
+    // QWERTY=形、ASDF=1周の長さ、ZXCVの右=向き
+    tap(&mut c, code(1, 1));
+    tap(&mut c, code(2, 4));
+    tap(&mut c, code(3, 7));
+    let m = &c.project.motion;
+    assert_eq!((m.shape, m.beats, m.position), (Shape::Circle, 1.0, Some(1)));
+    // 大きさ(P/O)
+    let before = c.project.motion.size;
+    tap(&mut c, code(1, 9));
+    assert!(c.project.motion.size > before);
+    // Z=フラッシュは押している間だけ
+    c.handle_key(code(3, 0), true);
+    assert_eq!(c.rt.flash, Some(true));
+    c.handle_key(code(3, 0), false);
+    assert_eq!(c.rt.flash, None);
+    // Shift+数字=メイン色、Shift+QWERTY=サブ色、Shift+A=メイン⇄サブ
+    let sh = crate::keys::SHIFT;
+    tap(&mut c, code(0, 0) + sh);
+    tap(&mut c, code(1, 5) + sh);
+    use crate::color::NamedColor;
+    assert!(crate::color::same_rgb(c.project.palette.main, NamedColor::ALL[0].rgb()));
+    assert!(crate::color::same_rgb(c.project.palette.sub, NamedColor::ALL[5].rgb()));
+    tap(&mut c, code(2, 0) + sh);
+    assert!(c.rt.color_swapped);
+    // Shiftの段は、通常の段と別の割り当て
+    assert!(c.project.bindings.iter().any(|b| b.trigger.is_some_and(|t| t.kind == TriggerKind::Key && t.number == code(0, 0) + sh) && matches!(b.action, Action::Color { .. })));
 }

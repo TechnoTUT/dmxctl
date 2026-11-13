@@ -156,6 +156,8 @@ pub struct Scene {
 pub enum TriggerKind {
     Note,
     Cc,
+    /// パソコンのキーボード(番号は crate::keys のキーの番号)
+    Key,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -171,6 +173,7 @@ impl MidiTrigger {
         let k = match self.kind {
             TriggerKind::Note => "Note",
             TriggerKind::Cc => "CC",
+            TriggerKind::Key => return format!("キー {}", crate::keys::name(self.number)),
         };
         match self.channel {
             Some(c) => format!("{k} {} (ch{})", self.number, c + 1),
@@ -388,6 +391,10 @@ pub enum Action {
     SwapBeats { beats: f32 },
     /// LEDバーを何本使うか(パッチの順に先頭から。残りは使わない)
     BarCount { count: u8 },
+    /// ムービングの動き(形・1周の長さ・揃え方・向き・大きさ)
+    Motion { op: crate::motion::MotionOp },
+    /// キーボードの数字の段に出すLEDバーの模様のセットを切り替える
+    KeyPage { op: PageOp },
 }
 
 /// 色の系統の決め方
@@ -489,6 +496,8 @@ impl Action {
             Action::LiveColor { .. } => "NDIの色",
             Action::SwapBeats { .. } => "入れ替えの間隔",
             Action::BarCount { .. } => "LEDバーの本数",
+            Action::Motion { .. } => "ムービングの動き",
+            Action::KeyPage { .. } => "キーボードの模様セット",
         }
     }
 }
@@ -581,6 +590,8 @@ pub struct Project {
     pub led_true_color: bool,
     /// NDI(映像の平均色・音の色)をメイン色/サブ色に使う設定
     pub ndi: crate::ndi::NdiCfg,
+    /// ムービングの動き(形・1周の長さ・揃え方・向き)
+    pub motion: crate::motion::Motion,
 }
 
 impl Default for Project {
@@ -611,6 +622,7 @@ impl Default for Project {
             fade_secs: 3.0,
             led_true_color: true,
             ndi: crate::ndi::NdiCfg::default(),
+            motion: crate::motion::Motion::default(),
         }
     }
 }

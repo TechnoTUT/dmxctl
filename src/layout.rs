@@ -10,6 +10,8 @@ use crate::apcmini::{pad_note, Ctl};
 use crate::color::{ColorTarget, PaletteOp};
 use crate::fixture::Library;
 use crate::pixel::{PixelParam, FACE_SETS};
+use crate::keys;
+use crate::motion::{self, MotionOp};
 use crate::project::*;
 
 #[derive(Debug, Default, PartialEq)]
@@ -22,13 +24,15 @@ pub struct Report {
     pub presets: usize,
     /// 足したムービング用のエフェクト
     pub effects: usize,
+    /// キーボードの割り当て
+    pub keys: usize,
 }
 
 impl Report {
     pub fn text(&self) -> String {
         format!(
-            "おすすめ配置にしました: 割り当て {} 件(今までの {} 件は置き換え)/ LEDバーの模様 {} 件・エフェクト {} 件を追加",
-            self.bindings, self.removed, self.presets, self.effects
+            "おすすめ配置にしました: 割り当て {} 件(今までの {} 件は置き換え)・キーボード {} 件 / LEDバーの模様 {} 件・エフェクト {} 件を追加",
+            self.bindings, self.removed, self.keys, self.presets, self.effects
         )
     }
 }
@@ -57,6 +61,9 @@ impl Kind {
         Selector::Profile(self.profile.clone())
     }
 }
+
+/// 前の版のおすすめ配置で入れていた、ムービングの動きのエフェクト(今は「動き」のパッドで操作する)
+const OLD_MOVES: [&str; 8] = ["円運動", "8の字", "パン揺れ", "チルト揺れ", "ワイパー", "クロス", "バラバラ", "高速円"];
 
 /// 1ページ目(演出)と2ページ目(設定)
 const P1: Option<u8> = Some(0);
@@ -125,34 +132,9 @@ pub fn apply(p: &mut Project, lib: &Library) -> Report {
 
     if let Some(m) = kinds.iter().find(|k| k.attr("pan") && k.attr("tilt")) {
         let sel = m.sel();
-        // 動き(Pan/Tilt)
-        // チルトは128が真上。真上だけを照らし続けないよう、どの動きもチルトを大きく(上下に)振る
-        let moves = vec![
-            fx(&sel, "円運動", "pan", Wave::Sine, 64.0, 192.0, 8.0, 0.0, 0.0),
-            fx(&sel, "円運動", "tilt", Wave::Sine, 40.0, 216.0, 8.0, 90.0, 0.0),
-            fx(&sel, "8の字", "pan", Wave::Sine, 64.0, 192.0, 8.0, 0.0, 0.0),
-            fx(&sel, "8の字", "tilt", Wave::Sine, 40.0, 216.0, 4.0, 90.0, 0.0),
-            fx(&sel, "パン揺れ", "pan", Wave::Sine, 40.0, 216.0, 4.0, 0.0, 90.0),
-            fx(&sel, "パン揺れ", "tilt", Wave::Sine, 56.0, 200.0, 8.0, 0.0, 90.0),
-            fx(&sel, "チルト揺れ", "tilt", Wave::Sine, 24.0, 232.0, 4.0, 0.0, 90.0),
-            fx(&sel, "ワイパー", "pan", Wave::Triangle, 40.0, 216.0, 4.0, 0.0, 0.0),
-            fx(&sel, "ワイパー", "tilt", Wave::Triangle, 48.0, 208.0, 2.0, 0.0, 0.0),
-            fx(&sel, "クロス", "pan", Wave::Sine, 56.0, 200.0, 4.0, 0.0, 180.0),
-            fx(&sel, "クロス", "tilt", Wave::Sine, 40.0, 216.0, 4.0, 90.0, 180.0),
-            fx(&sel, "バラバラ", "pan", Wave::Random, 40.0, 216.0, 2.0, 0.0, 0.0),
-            fx(&sel, "バラバラ", "tilt", Wave::Random, 24.0, 232.0, 2.0, 0.0, 0.0),
-            // 速い円は、機械が追いつけるよう半径を小さく、1周2拍に
-            fx(&sel, "高速円", "pan", Wave::Sine, 100.0, 156.0, 2.0, 0.0, 0.0),
-            fx(&sel, "高速円", "tilt", Wave::Sine, 80.0, 176.0, 2.0, 90.0, 0.0),
-        ];
-        // 動きのプリセットは、前の版の同じ名前のものを置き換える(幅を広げた版にする)
-        let names: Vec<String> = moves.iter().map(|e| e.name.clone()).collect();
-        let had = p.effects.len();
-        p.effects.retain(|e| !names.contains(&e.name));
-        let replaced = had - p.effects.len();
-        rows[0] = add_fx(p, &mut r, moves).into_iter().map(effect).collect();
-        // 置き換えたぶんは「追加」に数えない
-        r.effects = r.effects.saturating_sub(replaced);
+        // 動き: 形のパッド(1周の長さ・揃え方は2ページ目。SPOT4と同じ組み合わせ方式)。前の版の動きのエフェクトは片付ける
+        p.effects.retain(|e| !(OLD_MOVES.contains(&e.name.as_str()) && (e.attr == "pan" || e.attr == "tilt")));
+        rows[0] = motion::SHAPES.iter().map(|&(s, n)| (n.to_string(), Action::Motion { op: MotionOp::Shape(s) })).collect();
         // 見た目(明るさ・ゴボ・カラーホイール)
         let mut looks = Vec::new();
         if m.attr("dimmer") {
@@ -283,6 +265,7 @@ pub fn apply(p: &mut Project, lib: &Library) -> Report {
     put(p, None, Ctl::Fader(7), "サブ 色相".into(), Action::Color { color: None, target: ColorTarget::Sub });
     put(p, None, Ctl::Fader(8), "全体光量".into(), Action::Master { mode: PadMode::Continuous, on: 100.0, off: 0.0 });
     p.master_seeded = true;
+    r.keys = apply_keys(p, lib);
 
     // ---- 2ページ目: 設定(右の列の5番目で 1ページ目 ⇄ 2ページ目) ----
     put(p, P1, Ctl::Scene(4), "設定ページへ".into(), Action::Page { op: PageOp::Go(1) });
@@ -340,9 +323,17 @@ pub fn apply(p: &mut Project, lib: &Library) -> Report {
     let (bar_singles, other_singles): (Vec<Labeled>, Vec<Labeled>) = singles.into_iter().partition(|(_, a)| is_bar(a));
     let mut rows2: Vec<Vec<Labeled>> = vec![row0];
     let bar_rows: Vec<Vec<Labeled>> = bar_singles.chunks(8).map(|c| c.to_vec()).take(2).collect();
-    let room = 3 - bar_rows.len();
+    let has_heads = kinds.iter().any(|k| k.attr("pan") && k.attr("tilt"));
+    // 全部で7段: 系統・LEDバー・その他の機材・(動き)・ARM・NDI/テンポ・入れ替え。動きの段を入れるぶん、1台ずつの段を減らす
+    let room = 7usize.saturating_sub(4 + bar_rows.len() + has_heads as usize);
     rows2.extend(bar_rows);
     rows2.extend(other_singles.chunks(8).map(|c| c.to_vec()).take(room));
+    if has_heads {
+        // 動きの1周の長さと揃え方(1ページ目の「形」と組み合わせる)
+        let mut mv: Vec<Labeled> = motion::RATES.iter().map(|&(b, n)| (n.to_string(), Action::Motion { op: MotionOp::Beats(b) })).collect();
+        mv.extend(motion::SPREADS.iter().map(|&(s, n)| (n.to_string(), Action::Motion { op: MotionOp::Spread(s) })));
+        rows2.push(mv);
+    }
     rows2.push(arms);
     rows2.push(sync);
     rows2.push(swaps);
@@ -357,6 +348,9 @@ pub fn apply(p: &mut Project, lib: &Library) -> Report {
     if let Some(k) = kinds.iter().find(|k| k.attr("pt_speed")) {
         // 上げるほど速く(0=最速)
         faders2.push((format!("{} 動きの速さ", k.name), Action::SetValue { sel: k.sel(), attr: "pt_speed".into(), mode: PadMode::Continuous, on: 0.0, off: 255.0 }));
+    }
+    if kinds.iter().any(|k| k.attr("pan") && k.attr("tilt")) {
+        faders2.push(("動きの大きさ".into(), Action::Motion { op: MotionOp::Size }));
     }
     for (i, (name, action)) in faders2.into_iter().take(6).enumerate() {
         put(p, P2, Ctl::Fader(i as u8), name, action);
@@ -376,6 +370,111 @@ pub fn apply(p: &mut Project, lib: &Library) -> Report {
         }
     }
     r
+}
+
+/// キーボードの割り当てを、キーボード用の配置にする(今までのキーボードの割り当ては置き換える。APCの割り当てはそのまま)。
+/// 段ごとに種類をそろえて、画面のキーボードの絵を見ればすぐ分かるようにする:
+/// 数字=LEDバーの模様(9/0でセットを切り替え) / QWERTY=動きの形と大きさ / ASDF=1周の長さ・揃え方・ゴボとカラー /
+/// ZXCV=押している間だけのアクセント・色の入れ替え・暗転 と ムービングの向き。戻り値=置いた数
+pub fn apply_keys(p: &mut Project, lib: &Library) -> usize {
+    crate::pixel::add_face_presets(p);
+    p.bindings.retain(|b| !b.trigger.is_some_and(|t| t.kind == TriggerKind::Key));
+    let mut n = 0;
+    let mut put = |p: &mut Project, row: usize, col: usize, page: Option<u8>, name: String, action: Action| {
+        p.bindings.push(Binding { name, trigger: Some(MidiTrigger { kind: TriggerKind::Key, channel: None, number: keys::code(row, col) }), action, page, osc: None });
+        n += 1;
+    };
+    let mode = |f: &FixtureInstance| lib.mode(&f.profile, f.mode);
+    let bars = p.fixtures.iter().any(|f| lib.info(&f.profile, f.mode).is_some_and(|i| !i.pixels.is_empty()));
+    // 動きで動かすムービング(ARMの要らない、パン/チルトのある機材)の機種
+    let head = p
+        .fixtures
+        .iter()
+        .find(|f| lib.get(&f.profile).is_some_and(|x| !x.needs_arm) && mode(f).is_some_and(|m| m.find_attr("pan").is_some() && m.find_attr("tilt").is_some()))
+        .and_then(|f| Some(Kind { profile: f.profile.clone(), name: String::new(), mode: mode(f)?.clone() }));
+    let strobe = p.fixtures.iter().any(|f| mode(f).is_some_and(|m| m.find_attr("strobe").is_some()));
+
+    // 数字の段: LEDバーの模様(セットごとに1〜8)
+    if bars {
+        for (set, fs) in FACE_SETS.iter().enumerate() {
+            for (col, fx) in fs.presets.iter().enumerate() {
+                put(p, 0, col, Some(set as u8), fx.name.to_string(), Action::Effect { name: fx.name.into(), mode: PadMode::Toggle });
+            }
+        }
+        put(p, 0, 8, None, "◀ 模様セット".into(), Action::KeyPage { op: PageOp::Prev });
+        put(p, 0, 9, None, "模様セット ▶".into(), Action::KeyPage { op: PageOp::Next });
+    }
+    if let Some(h) = &head {
+        // QWERTYの段: 動きの形と大きさ
+        for (col, &(s, name)) in motion::SHAPES.iter().enumerate() {
+            put(p, 1, col, None, name.into(), Action::Motion { op: MotionOp::Shape(s) });
+        }
+        put(p, 1, 8, None, MotionOp::SizeStep(-0.1).label(), Action::Motion { op: MotionOp::SizeStep(-0.1) });
+        put(p, 1, 9, None, MotionOp::SizeStep(0.1).label(), Action::Motion { op: MotionOp::SizeStep(0.1) });
+        // ASDFの段: 1周の長さ・揃え方・ゴボ/カラーの回転
+        for (col, &(b, name)) in motion::RATES.iter().enumerate() {
+            put(p, 2, col, None, name.into(), Action::Motion { op: MotionOp::Beats(b) });
+        }
+        for (col, &(s, name)) in motion::SPREADS.iter().enumerate() {
+            put(p, 2, 5 + col, None, name.into(), Action::Motion { op: MotionOp::Spread(s) });
+        }
+        let toggle = |attr: &str, keyword: &str| -> Option<Action> {
+            let on = h.value(attr, keyword)?;
+            Some(Action::SetValue { sel: h.sel(), attr: attr.into(), mode: PadMode::Toggle, on, off: h.default_of(attr) })
+        };
+        if let Some(a) = toggle("gobo", "ゴボホイール回転") {
+            put(p, 2, 8, None, "ゴボ回転".into(), a);
+        }
+        if let Some(a) = toggle("color", "レインボー") {
+            put(p, 2, 9, None, "カラー回転".into(), a);
+        }
+        // ZXCVの段の右側: 向き
+        for (i, name) in motion::POSITIONS.iter().enumerate() {
+            put(p, 3, 6 + i, None, (*name).into(), Action::Motion { op: MotionOp::Position(i as u8) });
+        }
+    }
+    // ZXCVの段の左側: 押している間だけのアクセントと、色・暗転
+    let mut accents: Vec<(&str, Action)> = vec![
+        ("フラッシュ 白", Action::Flash { white: true, mode: PadMode::Momentary }),
+        ("フラッシュ 色", Action::Flash { white: false, mode: PadMode::Momentary }),
+    ];
+    if strobe {
+        accents.push(("ストロボ", Action::SetValue { sel: Selector::All, attr: "strobe".into(), mode: PadMode::Momentary, on: 230.0, off: 0.0 }));
+    }
+    accents.push(("メイン⇄サブ", Action::Palette { op: crate::color::PaletteOp::Swap }));
+    accents.push(("自動入れ替え", Action::Palette { op: crate::color::PaletteOp::Auto }));
+    accents.push(("暗転フェード", Action::Fade { secs: p.fade_secs, mode: PadMode::Toggle }));
+    for (col, (name, action)) in accents.into_iter().take(6).enumerate() {
+        put(p, 3, col, None, name.into(), action);
+    }
+
+    // Shiftを押しながら: 色の段(番号に keys::SHIFT を足す。段の数え方は同じ)
+    use crate::color::{ColorTarget, NamedColor, PaletteOp};
+    let shift = (keys::SHIFT / 16) as usize;
+    for (col, c) in NamedColor::ALL.iter().enumerate().take(keys::COLS) {
+        put(p, shift, col, None, c.label().into(), Action::Color { color: Some(*c), target: ColorTarget::Main });
+        put(p, shift + 1, col, None, c.label().into(), Action::Color { color: Some(*c), target: ColorTarget::Sub });
+    }
+    let mut swaps: Vec<(String, Action)> = vec![
+        ("メイン⇄サブ".into(), Action::Palette { op: PaletteOp::Swap }),
+        ("自動入れ替え".into(), Action::Palette { op: PaletteOp::Auto }),
+        ("グラデーション".into(), Action::Palette { op: PaletteOp::Fade }),
+    ];
+    swaps.extend([1.0, 2.0, 4.0, 8.0, 16.0].iter().map(|&b| (format!("入れ替え {b}拍"), Action::SwapBeats { beats: b })));
+    for (col, (name, action)) in swaps.into_iter().enumerate() {
+        put(p, shift + 2, col, None, name, action);
+    }
+    let mut roles: Vec<(String, Action)> = vec![
+        ("全部メイン".into(), Action::Role { sel: Selector::All, op: RoleOp::Main }),
+        ("全部サブ".into(), Action::Role { sel: Selector::All, op: RoleOp::Sub }),
+    ];
+    if let Some(g) = p.groups.iter().find(|g| g.fixtures.iter().all(|id| p.fixture_index(*id).map(|i| &p.fixtures[i]).is_some_and(|f| lib.info(&f.profile, f.mode).is_some_and(|i| !i.pixels.is_empty()))) && !g.fixtures.is_empty()) {
+        roles.push(("LEDバー 1本おき".into(), Action::Role { sel: Selector::Group(g.name.clone()), op: RoleOp::Alternate }));
+    }
+    for (col, (name, action)) in roles.into_iter().enumerate() {
+        put(p, shift + 3, col, None, name, action);
+    }
+    n
 }
 
 /// LEDバー全部を指す対象。ちょうどそれだけを含むグループがあれば使い、無ければ「LEDバー」グループを作る

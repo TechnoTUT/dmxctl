@@ -5,6 +5,7 @@
 //!   **MIDIチャンネル=明るさ/点滅**(ch0=10% ch1=25% ch2=50% ch3=65% ch4=75% ch5=90% ch6=100% ...)
 //! - ボタン(単色): 常にch0のNote On、ベロシティ 0=消灯 / 1=点灯 / 2=点滅
 
+use crate::motion::MotionOp;
 use crate::apcmini::Ctl;
 use crate::engine::{lock, Core, Shared};
 use crate::project::*;
@@ -178,6 +179,14 @@ fn base_color(core: &Core, action: &Action) -> u8 {
         Action::LiveColor { .. } => C_LIGHT_BLUE,
         Action::SwapBeats { .. } => C_MAGENTA,
         Action::BarCount { .. } => C_WHITE,
+        // 動きは種類ごとに色分け(形=オレンジ / 1周の長さ=黄 / 揃え方=ピンク / 向き=水色)
+        Action::Motion { op } => match op {
+            MotionOp::Shape(_) | MotionOp::Size | MotionOp::SizeStep(_) => C_ORANGE,
+            MotionOp::Beats(_) => C_YELLOW,
+            MotionOp::Spread(_) => C_PINK,
+            MotionOp::Position(_) => C_LIGHT_BLUE,
+        },
+        Action::KeyPage { .. } => C_WHITE,
     }
 }
 
@@ -275,6 +284,17 @@ pub fn is_active(core: &Core, action: &Action) -> bool {
             cfg.enabled && *source == if *role == crate::color::ColorRole::Sub { cfg.sub } else { cfg.main }
         }
         Action::BarCount { count } => core.bar_count().0 == *count as usize,
+        Action::Motion { op } => {
+            let m = &core.project.motion;
+            match *op {
+                MotionOp::Shape(s) => m.shape == s,
+                MotionOp::Beats(b) => (m.beats - b).abs() < 1e-3,
+                MotionOp::Spread(s) => m.spread == s,
+                MotionOp::Position(p) => m.position == Some(p),
+                MotionOp::Size | MotionOp::SizeStep(_) => false,
+            }
+        }
+        Action::KeyPage { .. } => false,
         Action::SwapBeats { beats } => core.project.palette.auto && (core.project.palette.auto_beats - beats).abs() < 1e-3,
         Action::Color { color: None, .. } | Action::Tempo { .. } | Action::Master { .. } | Action::Level { .. } | Action::Pixel { .. } => false,
     }

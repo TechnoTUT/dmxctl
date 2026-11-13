@@ -79,6 +79,8 @@ impl Core {
 
     pub fn recall_position(&mut self, name: &str) {
         let Some(p) = self.project.positions.iter().find(|s| s.name == name).cloned() else { return };
+        // 位置プリセットを中心にして動かす(「向き」は外す)
+        self.yield_motion(true);
         self.apply_values(&p.values, p.fade);
         self.rt.last_position = Some(p.name);
     }

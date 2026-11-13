@@ -66,6 +66,8 @@ cargo test --release
 | `src/ndi.rs` | NDI受信(映像の平均色・音の色) |
 | `src/ui_map.rs` | MIDI画面(メイン画面)。`src/ui_map/` に図の描画(`pad.rs`)と右のパネル(`stage.rs` / `settings.rs`) |
 | `src/ui_laser.rs` | レーザータブ(位置・大きさ・動いてよい範囲をマウスで合わせる) |
+| `src/motion.rs` / `src/engine/motion.rs` | ムービングの動き(SPOT4方式: 形×1周の長さ×揃え方×向き。傾きで計算) / それをパン/チルトに書き込む(`render`の中、エフェクトの後) |
+| `src/keys.rs` / `src/ui_keys.rs` | キーボードの割り当て(`TriggerKind::Key`。番号=段×16+位置) / キーボードタブ(キーの絵) |
 | `src/theme.rs` | 見た目(色・フォント) |
 | `src/opendmx.rs` / `src/output.rs` | USB-DMX / Art-Net の出力 |
 

@@ -42,12 +42,14 @@ impl Core {
         let k = match m.kind {
             TriggerKind::Note => "Note",
             TriggerKind::Cc => "CC",
+            TriggerKind::Key => return self.handle_key(m.number, m.value > 0),
         };
         self.rt.last_midi = format!("{k} {} = {} (ch{})", m.number, m.value, m.channel + 1);
         let n = (m.number & 0x7F) as usize;
         match m.kind {
             TriggerKind::Note => self.rt.notes_down[n] = m.value > 0,
             TriggerKind::Cc => self.rt.cc_value[n] = Some(m.value),
+            TriggerKind::Key => {}
         }
 
         // MIDIラーン: 次に来たノートオン/CCをトリガとして登録
@@ -77,12 +79,41 @@ impl Core {
             .map(|(i, _)| i)
             .collect();
         let pressed = match m.kind {
-            TriggerKind::Note => m.value > 0,
+            TriggerKind::Note | TriggerKind::Key => m.value > 0,
             TriggerKind::Cc => m.value >= 64,
         };
         for i in hits {
             self.apply_binding(i, m.value as f32 / 127.0, pressed);
         }
+    }
+
+    /// キーボードのキー(crate::keys の番号)を押した/離した。
+    /// キーボードの割り当ては APC のページとは関係なく、数字の段だけ「模様のセット」(key_page)で切り替わる
+    pub fn handle_key(&mut self, number: u8, pressed: bool) {
+        self.rt.keys_down.retain(|k| *k != number);
+        if pressed {
+            self.rt.keys_down.push(number);
+        }
+        let page = self.rt.key_page;
+        let hits: Vec<usize> = self
+            .project
+            .bindings
+            .iter()
+            .enumerate()
+            .filter(|(i, b)| {
+                b.trigger.is_some_and(|t| t.kind == TriggerKind::Key && t.number == number)
+                    && (b.page.is_none_or(|p| p == page) || self.rt.pad_state.get(i) == Some(&true))
+            })
+            .map(|(i, _)| i)
+            .collect();
+        for i in hits {
+            self.apply_binding(i, if pressed { 1.0 } else { 0.0 }, pressed);
+        }
+    }
+
+    /// キーボードの割り当てにある「模様のセット」の数
+    pub fn key_pages(&self) -> u8 {
+        self.project.bindings.iter().filter(|b| b.trigger.is_some_and(|t| t.kind == TriggerKind::Key)).filter_map(|b| b.page).max().map(|p| p + 1).unwrap_or(1)
     }
 
     /// LEDバー(ピクセルを持つ機材)を、パッチの順に先頭から`count`本だけ使う
@@ -158,6 +189,14 @@ impl Core {
                 self.set_attr(&Selector::Fixture(id), &attr, v);
             }
         }
+        // ムービングのパン/チルトを動かすエフェクトを点けたら、動き(形・向き)は止める(上書きして効かなくなるので)
+        if on {
+            let heads: HashSet<usize> = self.motion_heads().into_iter().collect();
+            let moves = self.project.effects.iter().any(|e| e.name == name && (e.attr == "pan" || e.attr == "tilt") && self.resolve(&e.sel).iter().any(|i| heads.contains(i)));
+            if moves {
+                self.yield_motion(false);
+            }
+        }
         for e in self.project.effects.iter_mut().filter(|e| e.name == name) {
             e.enabled = on;
         }
@@ -196,6 +235,7 @@ impl Core {
             }
             Action::Pixel { param: PixelParam::Speed } => self.set_pixel_speed(crate::pixel::speed_step(v)),
             Action::Pixel { param: PixelParam::Skew } => self.rt.px_skew = v * crate::pixel::SKEW_FADER_MAX,
+            Action::Motion { op: crate::motion::MotionOp::Size } => self.motion_op(crate::motion::MotionOp::Size, v),
             // 押している間だけ個別
             Action::ColorScope { op: ScopeOp::HoldIndividual } => {
                 if edge.changed() {
@@ -327,6 +367,15 @@ impl Core {
                 };
             }
             Action::BarCount { count } => self.set_bar_count(count as usize),
+            Action::KeyPage { op } => {
+                let n = self.key_pages();
+                self.rt.key_page = match op {
+                    PageOp::Go(p) => p.min(n - 1),
+                    PageOp::Next => (self.rt.key_page + 1) % n,
+                    PageOp::Prev => (self.rt.key_page + n - 1) % n,
+                };
+            }
+            Action::Motion { op } => self.motion_op(op, v),
         }
     }
 

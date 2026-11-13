@@ -118,6 +118,8 @@ pub fn summary(a: &Action, meta: &SelMeta) -> String {
         Action::LiveColor { role, source } => format!("NDI {}\n{}", role.label(), source.label()),
         Action::SwapBeats { beats } => format!("入れ替え\n{beats}拍ごと"),
         Action::BarCount { count } => format!("LEDバー\n{count}本"),
+        Action::Motion { op } => format!("{}\n{}", op.group(), op.label()),
+        Action::KeyPage { op } => format!("模様セット\n{}", if *op == PageOp::Prev { "前へ" } else { "次へ" }),
     }
 }
 
@@ -408,6 +410,17 @@ pub fn binding_editor(ui: &mut egui::Ui, i: usize, b: &mut Binding, learn: Learn
                 Action::SwapBeats { beats } => {
                     out.changed |= ui.add(egui::DragValue::new(beats).range(0.25..=64.0).speed(0.05).suffix(" 拍ごと")).changed();
                 }
+                Action::Motion { op } => {
+                    egui::ComboBox::from_id_salt(format!("bmot{i}")).selected_text(format!("{} {}", op.group(), op.label())).width(150.0).show_ui(ui, |ui| {
+                        for o in crate::motion::MotionOp::all() {
+                            out.changed |= ui.selectable_value(op, o, format!("{} {}", o.group(), o.label())).changed();
+                        }
+                    });
+                }
+                Action::KeyPage { op } => {
+                    out.changed |= ui.selectable_value(op, PageOp::Prev, "前のセット").changed();
+                    out.changed |= ui.selectable_value(op, PageOp::Next, "次のセット").changed();
+                }
                 Action::BarCount { count } => {
                     out.changed |= ui.add(egui::DragValue::new(count).range(1..=32).suffix(" 本")).changed();
                     ui.label(RichText::new("パッチの順に先頭から使います(残りは消える)").weak());
@@ -516,6 +529,10 @@ fn action_kind_combo(ui: &mut egui::Ui, i: usize, action: &mut Action, cx: &Edit
         }
         if ui.selectable_label(is(action, "NDIの色"), "NDIの色(映像・音)").clicked() && !is(action, "NDIの色") {
             *action = Action::LiveColor { role: crate::color::ColorRole::Main, source: crate::ndi::LiveSource::Video };
+            changed = true;
+        }
+        if ui.selectable_label(is(action, "ムービングの動き"), "ムービングの動き(形・1周・揃え方・向き)").clicked() && !is(action, "ムービングの動き") {
+            *action = Action::Motion { op: crate::motion::MotionOp::Shape(crate::motion::Shape::Circle) };
             changed = true;
         }
         if ui.selectable_label(is(action, "LEDバーの本数"), "LEDバーの本数").clicked() && !is(action, "LEDバーの本数") {

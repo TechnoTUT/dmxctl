@@ -8,6 +8,7 @@
 //! - `binding`: MIDIの受信と割り当ての実行
 
 mod binding;
+mod motion;
 mod pair;
 mod palette;
 mod scene;
@@ -130,6 +131,15 @@ pub struct Runtime {
     /// NDIから作った、今のメイン色/サブ色(NDIを使っていなければNone)。保存しない
     pub live_main: Option<[f32; 3]>,
     pub live_sub: Option<[f32; 3]>,
+    /// ムービングの動きの位置(1で1周)と、それを進めるための前回の拍
+    pub motion_phase: f64,
+    pub motion_beat: Option<f64>,
+    /// ムービングごとの、前回のPanの角度(度)。次の向きの選び方に使う
+    pub motion_pan: HashMap<u32, f64>,
+    /// キーボードで押しているキー(crate::keys の番号)
+    pub keys_down: Vec<u8>,
+    /// キーボードの数字の段に出す、LEDバーの模様のセット
+    pub key_page: u8,
 }
 
 impl Runtime {
@@ -186,6 +196,11 @@ impl Runtime {
             ndi: crate::ndi::NdiState::default(),
             live_main: None,
             live_sub: None,
+            motion_phase: 0.0,
+            motion_beat: None,
+            motion_pan: HashMap::new(),
+            keys_down: Vec::new(),
+            key_page: 0,
         }
     }
 }
@@ -364,6 +379,9 @@ impl Core {
                 }
             }
         }
+
+        // ムービングの動き(形・1周の長さ・揃え方・向き)
+        self.render_motion(&mut vals);
 
         // ピクセルエフェクト(LEDバー)
         self.render_pixel_fx(&mut vals);

@@ -51,42 +51,7 @@ pub(super) fn stage_panel(ui: &mut egui::Ui, core: &mut Core) {
         ui.add_space(6.0);
     }
 
-    // メイン/サブ色: 色見本と、色相フェーダーと同じ並びの色相の帯(目印=フェーダーの位置)
-    theme::card().show(ui, |ui| {
-        ui.set_width(ui.available_width());
-        for (label, role, target) in [("メイン", crate::color::ColorRole::Main, crate::color::ColorTarget::Main), ("サブ", crate::color::ColorRole::Sub, crate::color::ColorTarget::Sub)] {
-            let c = core.role_rgb(role).unwrap_or([0.0; 3]);
-            // この色の色相フェーダー(割り当てがあれば、その実機の位置)
-            let fader = core.project.bindings.iter().find_map(|b| match (&b.action, b.trigger) {
-                (Action::Color { color: None, target: t }, Some(tr)) if *t == target && tr.kind == TriggerKind::Cc => Some(tr.number),
-                _ => None,
-            });
-            let pos = fader.and_then(|n| core.rt.cc_value[n as usize]).map(|v| v as f32 / 127.0);
-            ui.horizontal(|ui| {
-                let (r, _) = ui.allocate_exact_size(vec2(26.0, 18.0), Sense::hover());
-                ui.painter().rect_filled(r, 4.0, rgb32(c, 1.0));
-                ui.painter().rect_stroke(r, 4.0, Stroke::new(1.0, alpha(Color32::WHITE, 0.15)), StrokeKind::Inside);
-                let w = ui.available_width() - 4.0;
-                let (bar, resp) = ui.allocate_exact_size(vec2(w, 18.0), Sense::hover());
-                hue_bar(ui.painter(), bar);
-                // 目印: フェーダーの位置(まだ動かしていなければ、今の色の色相)
-                let (t, known) = match pos {
-                    Some(t) => (t, true),
-                    None => (hue_of(c) / 360.0, false),
-                };
-                let x = bar.min.x + bar.width() * t.clamp(0.0, 1.0);
-                let mark = Rect::from_center_size(pos2(x, bar.center().y), vec2(6.0, bar.height() + 6.0));
-                ui.painter().rect_filled(mark, 1.5, if known { Color32::WHITE } else { alpha(Color32::WHITE, 0.55) });
-                ui.painter().rect_stroke(mark, 1.5, Stroke::new(1.0, Color32::BLACK), StrokeKind::Outside);
-                let tip = match (fader, pos) {
-                    (Some(n), Some(t)) => format!("{label}の色相フェーダー(CC {n}): {:.0}°", t * 360.0),
-                    (Some(n), None) => format!("{label}の色相フェーダー(CC {n})はまだ動かしていません。目印は今の色の色相"),
-                    (None, _) => format!("{label}の色相フェーダーは割り当てがありません。目印は今の色の色相"),
-                };
-                resp.on_hover_text(tip);
-            });
-        }
-    });
+    color_card(ui, core);
     ui.add_space(6.0);
 
     // 機材ごとの今の色
@@ -147,6 +112,52 @@ pub(super) fn stage_panel(ui: &mut egui::Ui, core: &mut Core) {
     if stray > 0 {
         ui.label(RichText::new(format!("この図に載らない割り当てが {stray} 件あります(未設定、または別のMIDI機器/チャンネル)。「MIDI設定」タブで確認できます。")).small().color(theme::WARN));
     }
+}
+
+/// テンポと、メイン/サブ色だけのプレビュー(キーボードタブの右下)
+pub(crate) fn tempo_color_preview(ui: &mut egui::Ui, core: &mut Core) {
+    tempo_card(ui, core);
+    ui.add_space(6.0);
+    color_card(ui, core);
+}
+
+/// メイン/サブ色: 色見本と、色相フェーダーと同じ並びの色相の帯(目印=フェーダーの位置)
+fn color_card(ui: &mut egui::Ui, core: &Core) {
+    theme::card().show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        for (label, role, target) in [("メイン", crate::color::ColorRole::Main, crate::color::ColorTarget::Main), ("サブ", crate::color::ColorRole::Sub, crate::color::ColorTarget::Sub)] {
+            let c = core.role_rgb(role).unwrap_or([0.0; 3]);
+            // この色の色相フェーダー(割り当てがあれば、その実機の位置)
+            let fader = core.project.bindings.iter().find_map(|b| match (&b.action, b.trigger) {
+                (Action::Color { color: None, target: t }, Some(tr)) if *t == target && tr.kind == TriggerKind::Cc => Some(tr.number),
+                _ => None,
+            });
+            let pos = fader.and_then(|n| core.rt.cc_value[n as usize]).map(|v| v as f32 / 127.0);
+            ui.horizontal(|ui| {
+                let (r, _) = ui.allocate_exact_size(vec2(26.0, 18.0), Sense::hover());
+                ui.painter().rect_filled(r, 4.0, rgb32(c, 1.0));
+                ui.painter().rect_stroke(r, 4.0, Stroke::new(1.0, alpha(Color32::WHITE, 0.15)), StrokeKind::Inside);
+                let w = ui.available_width() - 4.0;
+                let (bar, resp) = ui.allocate_exact_size(vec2(w, 18.0), Sense::hover());
+                hue_bar(ui.painter(), bar);
+                // 目印: フェーダーの位置(まだ動かしていなければ、今の色の色相)
+                let (t, known) = match pos {
+                    Some(t) => (t, true),
+                    None => (hue_of(c) / 360.0, false),
+                };
+                let x = bar.min.x + bar.width() * t.clamp(0.0, 1.0);
+                let mark = Rect::from_center_size(pos2(x, bar.center().y), vec2(6.0, bar.height() + 6.0));
+                ui.painter().rect_filled(mark, 1.5, if known { Color32::WHITE } else { alpha(Color32::WHITE, 0.55) });
+                ui.painter().rect_stroke(mark, 1.5, Stroke::new(1.0, Color32::BLACK), StrokeKind::Outside);
+                let tip = match (fader, pos) {
+                    (Some(n), Some(t)) => format!("{label}の色相フェーダー(CC {n}): {:.0}°", t * 360.0),
+                    (Some(n), None) => format!("{label}の色相フェーダー(CC {n})はまだ動かしていません。目印は今の色の色相"),
+                    (None, _) => format!("{label}の色相フェーダーは割り当てがありません。目印は今の色の色相"),
+                };
+                resp.on_hover_text(tip);
+            });
+        }
+    });
 }
 
 /// テンポ: BPM・拍の位置・TAP・頭出し

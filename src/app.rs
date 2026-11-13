@@ -18,6 +18,7 @@ pub enum Tab {
     Profiles,
     Pairs,
     Laser,
+    Keys,
     Scenes,
     Effects,
     Sequence,
@@ -27,8 +28,9 @@ pub enum Tab {
 }
 
 /// タブ。先頭の`LIVE_TABS`個が本番で使う画面、残りが準備・設定
-const TABS: [(Tab, &str); 12] = [
+const TABS: [(Tab, &str); 13] = [
     (Tab::Map, "MIDI"),
+    (Tab::Keys, "キーボード"),
     (Tab::Control, "コントロール"),
     (Tab::Effects, "エフェクト"),
     (Tab::Scenes, "シーン"),
@@ -41,7 +43,7 @@ const TABS: [(Tab, &str); 12] = [
     (Tab::Midi, "MIDI設定"),
     (Tab::Monitor, "モニター"),
 ];
-const LIVE_TABS: usize = 6;
+const LIVE_TABS: usize = 7;
 
 pub const RED: Color32 = crate::theme::DANGER;
 pub const WARN: Color32 = crate::theme::WARN;
@@ -88,7 +90,10 @@ pub struct App {
     /// コントロールタブの色ボタンの操作先(全体/個別スイッチ・メイン色・サブ色)
     pub color_edit: crate::color::ColorTarget,
     /// キーボードのF/Gでフラッシュ中(離したら止める)
-    key_flash: bool,
+    /// キーボードタブの絵をマウスで押しているキー
+    pub(crate) key_mouse: Option<u8>,
+    /// キーボードタブで、色の段(Shift)を出したままにする
+    pub(crate) key_color_view: bool,
     pub ctx: egui::Context,
     /// 診断表示(環境変数 DMXCTL_PERF=1): 描画1回あたりの時間
     perf: Option<Perf>,
@@ -171,7 +176,9 @@ impl App {
             pos_name: String::new(),
             pos_fade: 0.5,
             color_edit: crate::color::ColorTarget::Scope,
-            key_flash: false,
+            key_mouse: None,
+            // 開発・確認用: DMXCTL_KEY_COLOR=1 で、キーボードタブを色の段で開く
+            key_color_view: std::env::var_os("DMXCTL_KEY_COLOR").is_some(),
             ctx: cc.egui_ctx.clone(),
             perf: std::env::var_os("DMXCTL_PERF").map(|_| Perf { frames: 0, ui_time: Duration::ZERO, frame_cpu: 0.0, since: Instant::now(), text: String::new() }),
             shot: crate::shot::Shot::from_env(),
@@ -468,15 +475,11 @@ impl App {
 /// キーボードショートカットの一覧(画面の説明用)
 pub const SHORTCUTS: &[(&str, &str)] = &[
     ("Space", "TAP(タップテンポ)"),
-    ("R", "頭出し(小節の頭へ)"),
-    ("1〜8", "パッドのページ"),
-    ("← / →", "前 / 次のページ"),
-    ("F(押している間)", "フラッシュ(白で全開)"),
-    ("G(押している間)", "フラッシュ(今の色のまま全開)"),
-    ("S", "メイン⇄サブ入れ替え"),
-    ("A", "拍で自動入れ替え ON/OFF"),
-    ("D", "暗転フェード(暗転⇄復帰)"),
+    ("Enter", "頭出し(小節の頭へ)"),
+    ("← / →", "前 / 次のページ(APC)"),
     ("Esc", "ブラックアウト ON/OFF"),
+    ("数字・英字の4段", "キーボードの割り当て(「キーボード」タブに絵があります)"),
+    ("Shift+数字・英字", "色(メイン色・サブ色・入れ替え・系統)"),
     (if cfg!(target_os = "macos") { "⌘S" } else { "Ctrl+S" }, "保存"),
 ];
 
@@ -493,9 +496,14 @@ impl App {
                 // 日本語入力中でも効くよう、キーの位置で判定する
                 let key = physical_key.unwrap_or(key);
                 if !pressed {
-                    if matches!(key, egui::Key::F | egui::Key::G) && self.key_flash {
-                        c.rt.flash = None;
-                        self.key_flash = false;
+                    // 押したキーは、文字入力中でも必ず離す(押している間だけのフラッシュなどが残らないように)
+                    // Shiftを先に離しても、押したときの割り当て(色の段など)を離す
+                    if let Some(code) = crate::keys::from_key(key) {
+                        for k in [code, code + crate::keys::SHIFT] {
+                            if c.rt.keys_down.contains(&k) {
+                                c.handle_key(k, false);
+                            }
+                        }
                     }
                     continue;
                 }
@@ -505,36 +513,23 @@ impl App {
                 match key {
                     egui::Key::Escape => c.rt.blackout = !c.rt.blackout,
                     egui::Key::S if modifiers.command => save = true,
-                    _ if typing || modifiers.command || modifiers.alt => {}
+                    _ if typing || modifiers.command || modifiers.alt || modifiers.ctrl => {}
                     egui::Key::Space => c.tap(),
-                    egui::Key::R => c.resync(),
+                    egui::Key::Enter => c.resync(),
                     egui::Key::ArrowLeft => c.rt.page = (c.rt.page + PAGES - 1) % PAGES,
                     egui::Key::ArrowRight => c.rt.page = (c.rt.page + 1) % PAGES,
-                    egui::Key::F | egui::Key::G => {
-                        c.rt.flash = Some(key == egui::Key::F);
-                        self.key_flash = true;
-                    }
-                    egui::Key::S => c.swap_palette(),
-                    egui::Key::A => {
-                        let on = !c.project.palette.auto;
-                        c.set_palette_auto(on);
-                    }
-                    egui::Key::D => {
-                        let secs = c.project.fade_secs;
-                        c.toggle_fade(secs);
-                    }
                     k => {
-                        let pages = [egui::Key::Num1, egui::Key::Num2, egui::Key::Num3, egui::Key::Num4, egui::Key::Num5, egui::Key::Num6, egui::Key::Num7, egui::Key::Num8];
-                        if let Some(p) = pages.iter().position(|x| *x == k) {
-                            c.rt.page = (p as u8).min(PAGES - 1);
+                        if let Some(code) = crate::keys::from_key(k) {
+                            c.handle_key(if modifiers.shift { code + crate::keys::SHIFT } else { code }, true);
                         }
                     }
                 }
             }
-            // キーを押したまま他のウィンドウへ移ると離したことが届かないので、フラッシュを止める
-            if !focused && self.key_flash {
-                c.rt.flash = None;
-                self.key_flash = false;
+            // キーを押したまま他のウィンドウへ移ると離したことが届かないので、押しているキーを全部離す
+            if !focused {
+                for code in c.rt.keys_down.clone() {
+                    c.handle_key(code, false);
+                }
             }
         }
         if save {
@@ -582,6 +577,7 @@ impl App {
             Tab::Profiles => self.tab_profiles(ui),
             Tab::Pairs => self.tab_pairs(ui),
             Tab::Laser => self.tab_laser(ui),
+            Tab::Keys => self.tab_keys(ui),
             Tab::Scenes => self.tab_scenes(ui),
             Tab::Effects => self.tab_effects(ui),
             Tab::Sequence => self.tab_sequence(ui),

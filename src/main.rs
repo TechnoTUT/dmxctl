@@ -10,6 +10,7 @@ mod engine;
 #[cfg(test)]
 mod engine_tests;
 mod fixture;
+mod keys;
 mod layout;
 #[cfg(test)]
 mod layout_tests;
@@ -39,6 +40,7 @@ mod safety_tests;
 #[cfg(test)]
 mod sync_tests;
 mod midi;
+mod motion;
 mod ndi;
 mod opendmx;
 mod osc;
@@ -49,6 +51,7 @@ mod shot;
 mod theme;
 mod ui_binding;
 mod ui_control;
+mod ui_keys;
 mod ui_laser;
 mod ui_map;
 mod ui_midi;
