@@ -111,9 +111,10 @@ struct Perf {
 }
 
 impl App {
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        crate::theme::setup_fonts(&cc.egui_ctx);
-        crate::theme::apply(&cc.egui_ctx);
+    /// 画面の土台(eframe / KMSDRM)によらず、eguiのContextだけで作る
+    pub fn new(egui_ctx: &egui::Context) -> Self {
+        crate::theme::setup_fonts(egui_ctx);
+        crate::theme::apply(egui_ctx);
 
         let (lib, lib_errors) = Library::load(&config_dir().join("fixtures"));
         let lib = Arc::new(lib);
@@ -179,7 +180,7 @@ impl App {
             key_mouse: None,
             // 開発・確認用: DMXCTL_KEY_COLOR=1 で、キーボードタブを色の段で開く
             key_color_view: std::env::var_os("DMXCTL_KEY_COLOR").is_some(),
-            ctx: cc.egui_ctx.clone(),
+            ctx: egui_ctx.clone(),
             perf: std::env::var_os("DMXCTL_PERF").map(|_| Perf { frames: 0, ui_time: Duration::ZERO, frame_cpu: 0.0, since: Instant::now(), text: String::new() }),
             shot: crate::shot::Shot::from_env(),
         };
@@ -205,7 +206,7 @@ impl App {
         }
         if !app.midi_choice.is_empty() && app.midi_ports.contains(&app.midi_choice) {
             let name = app.midi_choice.clone();
-            match app.midi.connect(&app.core, cc.egui_ctx.clone(), &name) {
+            match app.midi.connect(&app.core, egui_ctx.clone(), &name) {
                 Ok(()) => lock(&app.core).project.midi_input = name,
                 Err(e) => app.notice = e,
             }
@@ -588,9 +589,10 @@ impl App {
     }
 }
 
-impl eframe::App for App {
-    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
-        if let (Some(p), Some(cpu)) = (self.perf.as_mut(), frame.info().cpu_usage) {
+impl App {
+    /// 1フレームぶんの画面。cpu_usage は前のフレームのCPU時間(秒。分からなければNone)
+    pub fn frame(&mut self, ui: &mut egui::Ui, cpu_usage: Option<f32>) {
+        if let (Some(p), Some(cpu)) = (self.perf.as_mut(), cpu_usage) {
             p.frame_cpu += cpu;
         }
         self.ui_timed(ui);
@@ -599,8 +601,8 @@ impl eframe::App for App {
         }
     }
 
-    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        // 終了時は先にブラックアウトを数フレーム送ってから止める(レーザーを出しっぱなしにしない)
+    /// 終了時は先にブラックアウトを数フレーム送ってから止める(レーザーを出しっぱなしにしない)
+    pub fn shutdown(&mut self) {
         {
             let mut c = lock(&self.core);
             c.rt.blackout = true;
@@ -614,6 +616,16 @@ impl eframe::App for App {
         self.midi.disconnect();
         self.engine.stop();
         self.save();
+    }
+}
+
+impl eframe::App for App {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        self.frame(ui, frame.info().cpu_usage);
+    }
+
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.shutdown();
     }
 }
 
