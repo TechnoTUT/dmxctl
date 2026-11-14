@@ -93,6 +93,11 @@ pub fn run() -> Result<(), String> {
         });
     }
     let mut app = App::new(&ctx);
+    if !can_read_input() {
+        let msg = "キーボード・マウスを読めません(/dev/input の権限が無い)。`sudo usermod -aG input $USER` のあとログインし直してください。終了は Ctrl+C(起動した端末で)";
+        eprintln!("{msg}");
+        app.notice = msg.into();
+    }
 
     let mut pump = sdl.event_pump()?;
     video.text_input().start();
@@ -168,6 +173,14 @@ pub fn run() -> Result<(), String> {
     app.shutdown();
     painter.destroy();
     Ok(())
+}
+
+/// 入力の装置(/dev/input/event*)を1つでも開けるか。開けないとSDLはキー・マウスを受け取れない
+fn can_read_input() -> bool {
+    let Ok(rd) = std::fs::read_dir("/dev/input") else { return false };
+    rd.flatten()
+        .filter(|e| e.file_name().to_str().is_some_and(|n| n.starts_with("event")))
+        .any(|e| std::fs::File::open(e.path()).is_ok())
 }
 
 /// 次に描く時刻を、より早いほうに
