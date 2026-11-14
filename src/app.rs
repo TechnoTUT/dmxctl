@@ -19,6 +19,13 @@ pub fn no_desktop() -> bool {
     NO_DESKTOP.load(Ordering::Relaxed)
 }
 
+/// 動いているものを描き直す間隔。普段は映像ソフトと同じPCで動かす前提でCPUを節約するために間引くが、
+/// デスクトップ環境の無い画面(KMSDRM)では同じPCに映像ソフトは載らないので、約30fpsでなめらかに描く
+/// (eguiは頼んだ時刻より1フレーム分(1/60秒)早めに描くので、33msに1/60秒を足して頼む)
+pub fn anim_interval(saving: Duration) -> Duration {
+    if no_desktop() { saving.min(Duration::from_millis(50)) } else { saving }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
     Control,
@@ -599,11 +606,11 @@ impl App {
         // MIDI画面は、エフェクトなどで色が動いている間は8fpsで「今の色」とパッドのプレビューを追従する
         // (プレビューはメッシュでまとめて描くので、1回の描画は他のタブと大きく変わらない)
         if focused && animated && self.tab == Tab::Map {
-            idle = idle.min(Duration::from_millis(125));
+            idle = idle.min(anim_interval(Duration::from_millis(125)));
         }
         // モニター表示中/フェード中は10fps。描画1回ぶんのCPUは内容によらず約12〜16msかかるので、回数を減らすのが一番効く
         // (DMXの出力は画面と別スレッドで40Hz固定なので、画面の更新頻度は出力に影響しない)
-        ui.ctx().request_repaint_after(if busy { Duration::from_millis(if focused { 100 } else { 250 }) } else { idle });
+        ui.ctx().request_repaint_after(if busy { if focused { anim_interval(Duration::from_millis(100)) } else { Duration::from_millis(250) } } else { idle });
         self.shortcuts(ui, focused);
         self.autosave();
         // NDIの受信は、設定(パッド・画面)でONにしている間だけ動かす

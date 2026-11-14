@@ -347,7 +347,7 @@ pub(super) fn button_cell(ui: &mut egui::Ui, rect: Rect, ctl: Ctl, info: &Info, 
         draw_preview(p, rect, &info.preview, info.active, accent);
         if resp.hovered() {
             // マウスを乗せている間は、なめらかに動かす
-            ui.ctx().request_repaint_after(std::time::Duration::from_millis(66));
+            ui.ctx().request_repaint_after(crate::app::anim_interval(std::time::Duration::from_millis(66)));
         }
     }
     // 種類の色の細い線(実機のLEDの代わり)。実際の色のパッドは全体が色なので付けない
