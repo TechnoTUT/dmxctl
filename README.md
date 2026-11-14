@@ -471,7 +471,7 @@ cargo run --release
 
 **MacからWindows版を作る**: MinGW-w64 を入れて(`brew install mingw-w64`)、`bash ./scripts/build-windows-mingw.sh`。`dist/windows/dmxctl.exe`(単体で動く。追加のDLLは不要)と配布用のzipができます。
 
-**Macが手元に無い場合**: GitHub に push すると、`.github/workflows/build.yml` により Mac 用・Windows 用・Linux 用がビルドされます(ビルドが通るかの確認)。`v` で始まるタグ(例: `v0.2.0`)を push すると、そのビルドの成果物(zip / tar.gz)が GitHub の Release に添付されます。
+**Macが手元に無い場合**: GitHub で PR を作ると、`.github/workflows/build.yml` により Mac 用・Windows 用・Linux 用がビルドされます(ビルドが通るかの確認。ただの push ではテストだけ)。`v` で始まるタグ(例: `v0.2.0`)を push すると、そのビルドの成果物(zip / tar.gz)が GitHub の Release に添付されます。
 
 **Macでの違い・注意**
 
@@ -494,6 +494,8 @@ Linux(X11 / Wayland のどちらでも)で動きます。**デスクトップ環
    - Arch: `sudo pacman -S base-devel alsa-lib sdl2`
 3. `./scripts/build-linux.sh`
 4. `dist/linux/dmxctl` ができます(配布用の `DMX-Controller-linux.tar.gz` も同じ場所)。`./dmxctl` で起動
+
+GitHub の Release に付いている Linux 版(`DMX-Controller-linux.tar.gz`)は Ubuntu 26.04 で作っているので、それと同じかより新しい Linux(Ubuntu 26.04 以降など)で動きます。Debian 13 や Ubuntu 24.04 など古めの Linux では起動できない(`GLIBC_2.xx not found` と出る)ので、上の手順でそのPCの上で作ってください。
 
 - `build-linux.sh` は、デスクトップ環境の無い画面にも出せるよう SDL2 を使う機能(`kmsdrm`)を入れて作ります。そのため、動かすPCにも SDL2 が要ります(Ubuntu / Debian: `sudo apt install libsdl2-2.0-0`。デスクトップ環境のあるPCにはたいてい入っています)
 - SDL2 を使わずに作るときは `DMXCTL_NO_KMSDRM=1 ./scripts/build-linux.sh`(または `cargo build --release`)。この場合はデスクトップ環境の上でだけ動きます
