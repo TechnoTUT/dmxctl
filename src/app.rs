@@ -19,11 +19,14 @@ pub fn no_desktop() -> bool {
     NO_DESKTOP.load(Ordering::Relaxed)
 }
 
-/// 動いているものを描き直す間隔。普段は映像ソフトと同じPCで動かす前提でCPUを節約するために間引くが、
-/// デスクトップ環境の無い画面(KMSDRM)では同じPCに映像ソフトは載らないので、約30fpsでなめらかに描く
+/// 動いているもの(拍で動く点・色の追従・フェード・モニター)を描き直す間隔。約30fps。
 /// (eguiは頼んだ時刻より1フレーム分(1/60秒)早めに描くので、33msに1/60秒を足して頼む)
-pub fn anim_interval(saving: Duration) -> Duration {
-    if no_desktop() { saving.min(Duration::from_millis(50)) } else { saving }
+pub const SMOOTH: Duration = Duration::from_millis(50);
+
+/// このウィンドウが前面か。前面でない(映像ソフトなどを前に出している)ときは、描き直しを減らしてCPUを譲る。
+/// デスクトップ環境の無い画面(KMSDRM)では他のアプリが前に出ることは無いので、いつも前面
+pub fn in_front(ui: &egui::Ui) -> bool {
+    no_desktop() || ui.input(|i| i.focused)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -591,8 +594,9 @@ impl App {
 
     fn ui_body(&mut self, ui: &mut egui::Ui) {
         // DMXの出力は別スレッドなので、画面の更新頻度は出力に影響しない。
-        // 普段は操作時とMIDI入力時だけ描画し、フェード中/モニター表示中だけ30fpsで更新する(グラフィックPCと同居するためCPUを節約)
-        // 拍の表示は、次の拍の頭で1回だけ更新する(毎フレーム描き直さない)
+        // 前面のときは、動いているもの(フェード・モニター・色の追従・パッドの軌跡の点)を約30fpsでなめらかに描く。
+        // 前面でないとき(映像ソフトを前に出しているとき)は、グラフィックPCと同居するためCPUを節約して4fpsに減らす。
+        // 何も動いていなければ、操作時とMIDI入力時、それと拍の表示が変わる次の拍の頭だけ描く
         let (busy, to_beat, animated) = {
             let c = lock(&self.core);
             let p = &c.project;
@@ -600,17 +604,16 @@ impl App {
             let animated = p.effects.iter().any(|e| e.enabled) || p.pixel_fx.iter().any(|e| e.enabled) || p.chases.iter().any(|e| e.enabled) || p.palette.auto;
             (self.tab == Tab::Monitor || !c.rt.fades.is_empty() || c.fading(), (1.0 - c.beat_now().rem_euclid(1.0)) * 60.0 / p.bpm.max(1.0) as f64, animated)
         };
-        // 他のアプリ(映像など)を前に出して使っているとき(このウィンドウが前面でないとき)は、表示の更新をさらに減らす
-        let focused = ui.input(|i| i.focused);
-        let mut idle = if focused { Duration::from_millis(500).min(Duration::from_secs_f64(to_beat.max(0.0) + 0.01)) } else { Duration::from_millis(1000) };
-        // MIDI画面は、エフェクトなどで色が動いている間は8fpsで「今の色」とパッドのプレビューを追従する
+        let focused = in_front(ui);
+        // 拍の表示は、前面でなくても次の拍の頭で更新する(拍を飛ばさない)
+        let mut idle = Duration::from_secs_f64(to_beat.max(0.0) + 0.01).min(Duration::from_millis(if focused { 500 } else { 1000 }));
+        // MIDI画面は、エフェクトなどで色が動いている間は「今の色」とパッドのプレビューを追従する
         // (プレビューはメッシュでまとめて描くので、1回の描画は他のタブと大きく変わらない)
         if focused && animated && self.tab == Tab::Map {
-            idle = idle.min(anim_interval(Duration::from_millis(125)));
+            idle = idle.min(SMOOTH);
         }
-        // モニター表示中/フェード中は10fps。描画1回ぶんのCPUは内容によらず約12〜16msかかるので、回数を減らすのが一番効く
         // (DMXの出力は画面と別スレッドで40Hz固定なので、画面の更新頻度は出力に影響しない)
-        ui.ctx().request_repaint_after(if busy { if focused { anim_interval(Duration::from_millis(100)) } else { Duration::from_millis(250) } } else { idle });
+        ui.ctx().request_repaint_after(if busy { if focused { SMOOTH } else { Duration::from_millis(250) } } else { idle });
         self.shortcuts(ui, focused);
         self.autosave();
         // NDIの受信は、設定(パッド・画面)でONにしている間だけ動かす

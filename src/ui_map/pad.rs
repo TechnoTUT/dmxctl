@@ -345,9 +345,11 @@ pub(super) fn button_cell(ui: &mut egui::Ui, rect: Rect, ctl: Ctl, info: &Info, 
     let has_preview = !small && !matches!(info.preview, Preview::None);
     if has_preview {
         draw_preview(p, rect, &info.preview, info.active, accent);
-        if resp.hovered() {
-            // マウスを乗せている間は、なめらかに動かす
-            ui.ctx().request_repaint_after(crate::app::anim_interval(std::time::Duration::from_millis(66)));
+        // 軌跡の上の点は拍に合わせて動き続けるので、前面のときはなめらかに描き直す
+        // (前面でないときは、マウスを乗せている間だけ)
+        let moving = matches!(&info.preview, Preview::Path { now, .. } if !now.is_empty());
+        if (moving && crate::app::in_front(ui)) || resp.hovered() {
+            ui.ctx().request_repaint_after(crate::app::SMOOTH);
         }
     }
     // 種類の色の細い線(実機のLEDの代わり)。実際の色のパッドは全体が色なので付けない
