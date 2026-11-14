@@ -76,6 +76,7 @@ pub fn run() -> Result<(), String> {
     let gl = unsafe { glow::Context::from_loader_function(|s| video.gl_get_proc_address(s) as *const _) };
     let mut painter = egui_glow::Painter::new(Arc::new(gl), "", None, true).map_err(|e| format!("描画の準備ができませんでした: {e}"))?;
 
+    crate::app::NO_DESKTOP.store(true, std::sync::atomic::Ordering::Relaxed);
     let ctx = egui::Context::default();
     // 次に描く時刻。別スレッドからの依頼は、すぐ描くなら合図を送ってループを起こす
     let wake_at: Arc<Mutex<Option<Instant>>> = Arc::new(Mutex::new(None));
