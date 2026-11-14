@@ -11,6 +11,8 @@ mod engine;
 mod engine_tests;
 mod fixture;
 mod keys;
+#[cfg(all(target_os = "linux", feature = "kmsdrm"))]
+mod kmsdrm;
 mod layout;
 #[cfg(test)]
 mod layout_tests;
