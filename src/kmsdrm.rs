@@ -75,6 +75,14 @@ pub fn run() -> Result<(), String> {
     window.gl_make_current(&gl_ctx)?;
     let _ = video.gl_set_swap_interval(SwapInterval::VSync);
     let gl = unsafe { glow::Context::from_loader_function(|s| video.gl_get_proc_address(s) as *const _) };
+    // 診断(DMXCTL_PERF=1): 使っているGPU(llvmpipe / softpipe ならソフトウェア描画で遅い)と、1秒ごとのフレームの内訳
+    let perf = std::env::var_os("DMXCTL_PERF").is_some();
+    if perf {
+        use glow::HasContext;
+        let (renderer, version) = unsafe { (gl.get_parameter_string(glow::RENDERER), gl.get_parameter_string(glow::VERSION)) };
+        eprintln!("GPU: {renderer} / {version} / ドライバ: {}", video.current_video_driver());
+    }
+    let mut stats = FrameStats::default();
     let mut painter = egui_glow::Painter::new(Arc::new(gl), "", None, true).map_err(|e| format!("描画の準備ができませんでした: {e}"))?;
 
     crate::app::NO_DESKTOP.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -147,6 +155,7 @@ pub fn run() -> Result<(), String> {
         *wake_at.lock().unwrap_or_else(|e| e.into_inner()) = None;
         let t = Instant::now();
         let out = ctx.run_ui(raw, |ui| app.frame(ui, cpu));
+        let t_ui = t.elapsed();
         for cmd in out.platform_output.commands {
             if let OutputCommand::CopyText(s) = cmd {
                 let _ = video.clipboard().set_clipboard_text(&s);
@@ -157,6 +166,7 @@ pub fn run() -> Result<(), String> {
         painter.clear([pw, ph], ctx.global_style().visuals.panel_fill.to_normalized_gamma_f32());
         painter.paint_and_update_textures([pw, ph], out.pixels_per_point, &prims, &mut textures);
         cpu = Some(t.elapsed().as_secs_f32());
+        let t_paint = t.elapsed();
 
         if let Some(vo) = out.viewport_output.get(&ViewportId::ROOT) {
             for c in &vo.commands {
@@ -175,6 +185,9 @@ pub fn run() -> Result<(), String> {
             }
         }
         window.gl_swap_window();
+        if perf {
+            stats.add(t_ui, t_paint - t_ui, t.elapsed() - t_paint);
+        }
     }
     app.shutdown();
     painter.destroy();
@@ -195,6 +208,32 @@ fn touch_kind(touch_id: i64) -> touch::Kind {
     match unsafe { sdl2::sys::SDL_GetTouchDeviceType(touch_id) } {
         T::SDL_TOUCH_DEVICE_DIRECT => touch::Kind::Screen,
         _ => touch::Kind::Pad,
+    }
+}
+
+/// 診断用: 1秒ごとに、描いた回数と1回あたりの時間(UI・描画・画面の切り替え待ち)を出す
+#[derive(Default)]
+struct FrameStats {
+    since: Option<Instant>,
+    frames: u32,
+    ui: std::time::Duration,
+    paint: std::time::Duration,
+    swap: std::time::Duration,
+}
+
+impl FrameStats {
+    fn add(&mut self, ui: std::time::Duration, paint: std::time::Duration, swap: std::time::Duration) {
+        let since = *self.since.get_or_insert_with(Instant::now);
+        self.frames += 1;
+        self.ui += ui;
+        self.paint += paint;
+        self.swap += swap;
+        if since.elapsed().as_secs_f32() >= 1.0 {
+            let n = self.frames as f32;
+            let ms = |d: std::time::Duration| d.as_secs_f32() * 1000.0 / n;
+            eprintln!("{} fps  UI {:.1}ms  描画 {:.1}ms  切り替え {:.1}ms", self.frames, ms(self.ui), ms(self.paint), ms(self.swap));
+            *self = FrameStats::default();
+        }
     }
 }
 
