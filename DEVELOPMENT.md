@@ -100,6 +100,6 @@ DMXCTL_SHEET_DIR=保存先 cargo test --release preset_sheet -- --ignored       
 - **USB-DMXが開けない(Resource busy)**: QLC+ など別の照明ソフトが使っていないか確認する
 - **NDIのライブラリは同梱しない**(配布条件のため)。インストール済みの NDI Tools のものを読み込む
 - **D2XX**: Mac版は `third_party/ftd2xx/mac/libftd2xx.dylib` をアプリに同梱。Windowsは FTDIドライバの `ftd2xx.dll`
-- **レーザーの安全処理**(`engine.rs` の `guard_values` / `emergency_stop`): 機材定義の `forbid`(オートショー・サウンド・パン/チルトの自動の動き)と、機材ごとの `limits`(動いてよい範囲)は、出力の直前に必ず直す。内蔵の定義を上書きしても `forbid` は引き継ぐ。落ちたとき・終了のシグナル・シャットダウン(Windowsは見えないウィンドウで `WM_ENDSESSION` を受ける。`watch_windows_shutdown`)では、安全なフレーム(レーザーOFF・明るさ0)を約0.3秒送ってから終わる
+- **レーザーの安全処理**(`engine.rs` の `guard_values` / `emergency_stop`): 機材定義の `forbid`(オートショー・サウンド・パン/チルトの自動の動き)と、機材ごとの `limits`(動いてよい範囲)は、出力の直前に必ず直す。内蔵の定義を上書きしても `forbid` は引き継ぐ。落ちたとき・終了のシグナル・シャットダウン(Windowsは見えないウィンドウで `WM_ENDSESSION` を受ける。`watch_windows_shutdown`)・Mac/Linuxで画面を通らずに exit() したとき(`atexit`)では、安全なフレーム(レーザーOFF・明るさ0)を約0.3秒送ってから終わる
 - **ムービングのチルト**: 128が真上。動きのプリセットはチルトを大きく振る作り
 - 実行中のアプリは5秒ごとに設定を自動保存するので、`project.json` を直接書き換えるときは先にアプリを閉じる

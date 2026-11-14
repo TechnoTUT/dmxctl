@@ -552,6 +552,8 @@ impl Core {
 pub static EMERGENCY: AtomicBool = AtomicBool::new(false);
 /// 安全なフレームを送り終えたら、プロセスを終了する(終了のシグナルを受けたとき)
 static EXIT_AFTER_SAFE: AtomicBool = AtomicBool::new(false);
+/// 出力スレッドが動いている間だけ立つ(終了時の安全停止を、出力スレッドが送れるときだけ待つため)
+static ENGINE_RUNNING: AtomicBool = AtomicBool::new(false);
 /// 安全なフレームを送る回数(40Hzで約0.3秒)
 const SAFE_TICKS: u32 = 12;
 
@@ -589,6 +591,15 @@ pub fn install_safety_hooks() {
         libc::signal(libc::SIGINT, h);
         libc::signal(libc::SIGTERM, h);
         libc::signal(libc::SIGHUP, h);
+        // 画面を通らずにプロセスが終わるとき(Linuxでログアウト時に画面のサーバーが先に落ちて、
+        // ウィンドウのライブラリが exit() するなど)も、出力スレッドが動いていれば安全なフレームを送ってから終わる
+        extern "C" fn on_exit() {
+            if ENGINE_RUNNING.load(Ordering::SeqCst) && !EMERGENCY.load(Ordering::SeqCst) {
+                emergency_stop(false);
+                std::thread::sleep(TICK * (SAFE_TICKS + 2));
+            }
+        }
+        libc::atexit(on_exit);
     }
     // Windows: Ctrl+C / Ctrl+Break / コンソールを閉じた / ログオフ / シャットダウン。
     // コンソールがあるとき(開発用のデバッグビルド)だけ届く。リリース版はウィンドウだけのアプリ
@@ -739,6 +750,14 @@ impl Engine {
 }
 
 fn run(core: Shared, stop: Arc<AtomicBool>) {
+    struct Running;
+    impl Drop for Running {
+        fn drop(&mut self) {
+            ENGINE_RUNNING.store(false, Ordering::SeqCst);
+        }
+    }
+    ENGINE_RUNNING.store(true, Ordering::SeqCst);
+    let _running = Running;
     let mut cfgs: Vec<OutputCfg> = Vec::new();
     let mut outs: Vec<Box<dyn Output>> = Vec::new();
     let mut gen_seen = u64::MAX;
