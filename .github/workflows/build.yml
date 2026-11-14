@@ -29,8 +29,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
+      # テストだけのジョブなので、最適化しない設定で作る(リリース設定よりビルドが3割ほど速い)
       - name: テスト
-        run: cargo test --release
+        run: cargo test
 
   mac:
     if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/v')
