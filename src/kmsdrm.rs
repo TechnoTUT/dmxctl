@@ -3,6 +3,7 @@
 //! egui を OpenGL ES(egui_glow)で描く。アプリ本体(`App`)は eframe のときと同じものを使う
 
 mod keys;
+mod touch;
 
 use crate::app::App;
 use eframe::egui::{self, pos2, vec2, Event, MouseWheelUnit, OutputCommand, PointerButton, Pos2, Rect, TouchPhase, ViewportCommand, ViewportId};
@@ -104,7 +105,8 @@ pub fn run() -> Result<(), String> {
     let start = Instant::now();
     // KMSDRMでは画面の大きさは変わらないので、拡大率は最初に一度だけ決める
     let (pw, ph) = window.drawable_size();
-    let mut input = Input { mods: egui::Modifiers::default(), focused: true, ppp: scale(pw, ph), quit: false };
+    let mut input = Input { mods: egui::Modifiers::default(), focused: true, ppp: scale(pw, ph), quit: false, touch: touch::Touch::new(pw as f32, ph as f32), warp: None };
+    let mouse = sdl.mouse();
     // 次のフレームに渡すもの(撮った画面など)
     let mut pending: Vec<Event> = Vec::new();
     let mut cpu: Option<f32> = None;
@@ -121,6 +123,10 @@ pub fn run() -> Result<(), String> {
         let mut raw = egui::RawInput { events: std::mem::take(&mut pending), ..Default::default() };
         for ev in first.into_iter().chain(pump.poll_iter()) {
             input.translate(ev, &mut raw.events, &video);
+        }
+        // 指の入力で動かしたカーソルを、SDLのカーソルにも反映する(押し込むクリックがその位置になるように)
+        if let Some((x, y)) = input.warp.take() {
+            mouse.warp_mouse_in_window(&window, x, y);
         }
         if input.quit {
             break;
@@ -183,6 +189,15 @@ fn can_read_input() -> bool {
         .any(|e| std::fs::File::open(e.path()).is_ok())
 }
 
+/// 指の入力の装置が、タッチパネルかトラックパッドか
+fn touch_kind(touch_id: i64) -> touch::Kind {
+    use sdl2::sys::SDL_TouchDeviceType as T;
+    match unsafe { sdl2::sys::SDL_GetTouchDeviceType(touch_id) } {
+        T::SDL_TOUCH_DEVICE_DIRECT => touch::Kind::Screen,
+        _ => touch::Kind::Pad,
+    }
+}
+
 /// 次に描く時刻を、より早いほうに
 fn request_at(wake_at: &Mutex<Option<Instant>>, at: Instant) {
     let mut w = wake_at.lock().unwrap_or_else(|e| e.into_inner());
@@ -198,6 +213,10 @@ struct Input {
     /// 画面の拡大率(SDLの座標はピクセル、eguiは論理座標)
     ppp: f32,
     quit: bool,
+    /// 指の入力(タッチパネル・トラックパッド)をマウスの操作に直す
+    touch: touch::Touch,
+    /// SDLのカーソルを動かす先(ピクセル)
+    warp: Option<(i32, i32)>,
 }
 
 impl Input {
@@ -205,12 +224,46 @@ impl Input {
         pos2(x as f32 / self.ppp, y as f32 / self.ppp)
     }
 
+    fn apply_touch(&mut self, acts: Vec<touch::Action>, out: &mut Vec<Event>) {
+        for a in acts {
+            match a {
+                touch::Action::MoveTo(x, y) => {
+                    out.push(Event::PointerMoved(pos2(x / self.ppp, y / self.ppp)));
+                    self.warp = Some((x as i32, y as i32));
+                }
+                touch::Action::Button { pressed, secondary } => {
+                    let (x, y) = self.touch.cursor();
+                    let button = if secondary { PointerButton::Secondary } else { PointerButton::Primary };
+                    out.push(Event::PointerButton { pos: pos2(x / self.ppp, y / self.ppp), button, pressed, modifiers: self.mods });
+                }
+                touch::Action::Scroll(x, y) => {
+                    out.push(Event::MouseWheel { unit: MouseWheelUnit::Point, delta: vec2(x, y) / self.ppp, phase: TouchPhase::Move, modifiers: self.mods });
+                }
+            }
+        }
+    }
+
     fn translate(&mut self, ev: SdlEvent, out: &mut Vec<Event>, video: &sdl2::VideoSubsystem) {
         match ev {
             SdlEvent::Quit { .. } => self.quit = true,
             SdlEvent::Window { win_event: WindowEvent::FocusGained, .. } => self.focused = true,
             SdlEvent::Window { win_event: WindowEvent::FocusLost, .. } => self.focused = false,
-            SdlEvent::MouseMotion { x, y, .. } => out.push(Event::PointerMoved(self.pos(x, y))),
+            SdlEvent::MouseMotion { x, y, .. } => {
+                self.touch.set_cursor(x as f32, y as f32);
+                out.push(Event::PointerMoved(self.pos(x, y)));
+            }
+            SdlEvent::FingerDown { touch_id, finger_id, x, y, .. } => {
+                let acts = self.touch.down(touch_kind(touch_id), (touch_id, finger_id), x, y, Instant::now());
+                self.apply_touch(acts, out);
+            }
+            SdlEvent::FingerMotion { touch_id, finger_id, x, y, dx, dy, .. } => {
+                let acts = self.touch.motion(touch_kind(touch_id), (touch_id, finger_id), x, y, dx, dy);
+                self.apply_touch(acts, out);
+            }
+            SdlEvent::FingerUp { touch_id, finger_id, x, y, .. } => {
+                let acts = self.touch.up(touch_kind(touch_id), (touch_id, finger_id), x, y, Instant::now());
+                self.apply_touch(acts, out);
+            }
             SdlEvent::MouseButtonDown { mouse_btn, x, y, .. } | SdlEvent::MouseButtonUp { mouse_btn, x, y, .. } => {
                 let pressed = matches!(ev, SdlEvent::MouseButtonDown { .. });
                 let button = match mouse_btn {
