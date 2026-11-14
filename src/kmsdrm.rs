@@ -29,13 +29,19 @@ pub fn wanted() -> bool {
 }
 
 /// 画面の拡大率。`DMXCTL_SCALE=1.5` などで指定、無ければ画面の大きさから決める
-/// (ウィンドウ版の既定の大きさ 1280×800 が収まる倍率を、0.25刻みで)
+/// (大きい画面: ウィンドウ版の既定の大きさ 1280×800 が収まる倍率を0.25刻みで。
+/// 小さい画面: 一番小さいウィンドウ 960×620 が収まるなら等倍、収まらなければ縮める)
 fn scale(w: u32, h: u32) -> f32 {
     if let Some(s) = std::env::var("DMXCTL_SCALE").ok().and_then(|v| v.parse::<f32>().ok()).filter(|s| s.is_finite()) {
         return s.clamp(0.5, 4.0);
     }
-    let fit = (w as f32 / 1280.0).min(h as f32 / 800.0);
-    ((fit * 4.0).floor() / 4.0).clamp(0.75, 4.0)
+    let (w, h) = (w as f32, h as f32);
+    let fit = (w / 1280.0).min(h / 800.0);
+    if fit >= 1.0 {
+        return ((fit * 4.0).floor() / 4.0).min(4.0);
+    }
+    let fit_min = (w / 960.0).min(h / 620.0);
+    ((fit_min * 20.0).floor() / 20.0).clamp(0.5, 1.0)
 }
 
 pub fn run() -> Result<(), String> {
@@ -90,7 +96,9 @@ pub fn run() -> Result<(), String> {
     let mut pump = sdl.event_pump()?;
     video.text_input().start();
     let start = Instant::now();
-    let mut input = Input { mods: egui::Modifiers::default(), focused: true, ppp: 1.0, quit: false };
+    // KMSDRMでは画面の大きさは変わらないので、拡大率は最初に一度だけ決める
+    let (pw, ph) = window.drawable_size();
+    let mut input = Input { mods: egui::Modifiers::default(), focused: true, ppp: scale(pw, ph), quit: false };
     // 次のフレームに渡すもの(撮った画面など)
     let mut pending: Vec<Event> = Vec::new();
     let mut cpu: Option<f32> = None;
@@ -104,7 +112,6 @@ pub fn run() -> Result<(), String> {
             None => Some(pump.wait_event()),
         };
         let (pw, ph) = window.drawable_size();
-        input.ppp = scale(pw, ph);
         let mut raw = egui::RawInput { events: std::mem::take(&mut pending), ..Default::default() };
         for ev in first.into_iter().chain(pump.poll_iter()) {
             input.translate(ev, &mut raw.events, &video);
@@ -246,6 +253,8 @@ mod tests {
         assert_eq!(scale(1280, 800), 1.0);
         assert_eq!(scale(1920, 1080), 1.25);
         assert_eq!(scale(3840, 2160), 2.5);
-        assert_eq!(scale(1024, 600), 0.75);
+        assert_eq!(scale(1366, 768), 1.0);
+        assert_eq!(scale(1024, 600), 0.95);
+        assert_eq!(scale(800, 480), 0.75);
     }
 }
