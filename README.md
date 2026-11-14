@@ -495,7 +495,7 @@ Linux(X11 / Wayland のどちらでも)で動きます。**デスクトップ環
 3. `./scripts/build-linux.sh`
 4. `dist/linux/dmxctl` ができます(配布用の `DMX-Controller-linux.tar.gz` も同じ場所)。`./dmxctl` で起動
 
-GitHub の Release に付いている Linux 版(`DMX-Controller-linux.tar.gz`)は Ubuntu 26.04 で作っているので、それと同じかより新しい Linux(Ubuntu 26.04 以降など)で動きます。Debian 13 や Ubuntu 24.04 など古めの Linux では起動できない(`GLIBC_2.xx not found` と出る)ので、上の手順でそのPCの上で作ってください。
+GitHub の Release に付いている Linux 版(`DMX-Controller-linux.tar.gz`)は Debian 13 の中で作っているので、**Debian 13 以降**で動きます(今のところ Ubuntu 24.04 以降でも動きます)。それより古い Linux では起動できない(`GLIBC_2.xx not found` と出る)ので、上の手順でそのPCの上で作ってください。
 
 - `build-linux.sh` は、デスクトップ環境の無い画面にも出せるよう SDL2 を使う機能(`kmsdrm`)を入れて作ります。そのため、動かすPCにも SDL2 が要ります(Ubuntu / Debian: `sudo apt install libsdl2-2.0-0`。デスクトップ環境のあるPCにはたいてい入っています)
 - SDL2 を使わずに作るときは `DMXCTL_NO_KMSDRM=1 ./scripts/build-linux.sh`(または `cargo build --release`)。この場合はデスクトップ環境の上でだけ動きます
