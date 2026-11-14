@@ -483,17 +483,20 @@ cargo run --release
 
 ## Linux で使う
 
-Linux(X11 / Wayland のどちらでも)で動きます。作るのは Linux の上で行います。
+Linux(X11 / Wayland のどちらでも)で動きます。**デスクトップ環境の無いLinux**(コンソールだけのPC・Raspberry Pi など)でも、画面に直接(KMS/DRM)出して使えます([デスクトップ環境の無いLinuxで使う](#デスクトップ環境の無いlinuxで使うkmsdrm))。作るのは Linux の上で行います。
 
 **Linuxで作る**
 
 1. Rust を入れる: https://rustup.rs
 2. ビルドに要るものを入れる
-   - Ubuntu / Debian: `sudo apt install build-essential pkg-config libasound2-dev libudev-dev`
-   - Fedora: `sudo dnf install gcc-c++ pkgconf alsa-lib-devel systemd-devel libatomic`
-   - Arch: `sudo pacman -S base-devel alsa-lib`
+   - Ubuntu / Debian: `sudo apt install build-essential pkg-config libasound2-dev libudev-dev libsdl2-dev`
+   - Fedora: `sudo dnf install gcc-c++ pkgconf alsa-lib-devel systemd-devel libatomic SDL2-devel`
+   - Arch: `sudo pacman -S base-devel alsa-lib sdl2`
 3. `./scripts/build-linux.sh`
 4. `dist/linux/dmxctl` ができます(配布用の `DMX-Controller-linux.tar.gz` も同じ場所)。`./dmxctl` で起動
+
+- `build-linux.sh` は、デスクトップ環境の無い画面にも出せるよう SDL2 を使う機能(`kmsdrm`)を入れて作ります。そのため、動かすPCにも SDL2 が要ります(Ubuntu / Debian: `sudo apt install libsdl2-2.0-0`。デスクトップ環境のあるPCにはたいてい入っています)
+- SDL2 を使わずに作るときは `DMXCTL_NO_KMSDRM=1 ./scripts/build-linux.sh`(または `cargo build --release`)。この場合はデスクトップ環境の上でだけ動きます
 
 **Linuxでの違い・注意**
 
@@ -506,6 +509,57 @@ Linux(X11 / Wayland のどちらでも)で動きます。作るのは Linux の�
 - メニューに出したいときは、`dmxctl` を PATH の通った場所に置き、`dmxctl.desktop` を `~/.local/share/applications/` にコピー
 - ファイアウォール(ufw / firewalld)を有効にしている場合は、使う機能のUDPポートを開けてください: OSC受信(既定 9000)、Ableton Link(20808)。Art-Netの送信だけなら不要です
 - 終了のシグナル(Ctrl+C・`kill`・ログアウト・シャットダウン)を受けたときも、安全な値(レーザーOFF・明るさ0)を送ってから止まります
+
+### デスクトップ環境の無いLinuxで使う(KMS/DRM)
+
+デスクトップ環境(X11 / Wayland)が無いPCでは、`dmxctl` を **コンソール(tty)から起動するだけ** で、画面全体に直接表示します(SDL2 の KMSDRM を使用)。照明卓専用の小さなPCや Raspberry Pi で、余計なものを入れずに動かせます。
+
+**準備**
+
+1. `./scripts/build-linux.sh` で作ったもの(`kmsdrm` 機能入り)を使います。動かすPCに SDL2(`libsdl2-2.0-0`)、OpenGL ES の動くGPUドライバ(Mesa。ふつうは入っています)、日本語フォント(`fonts-noto-cjk`)を入れます
+2. 画面とキーボード・マウスを使えるよう、ユーザーを `video` と `input` のグループに入れて、ログインし直します
+
+   ```
+   sudo usermod -aG video,input,dialout $USER
+   ```
+
+   (`dialout` は USB-DMX 用)。`input` に入っていないと、画面は出てもキーボード・マウスが効きません(画面下に知らせが出ます)
+
+3. コンソールにログインして `./dmxctl` で起動します。SSH から起動することもできます(画面はそのPCにつないだモニターに出ます)
+
+**操作・違い**
+
+- 画面全体に表示します。拡大率は画面の大きさから自動で決めます(1920×1080 なら1.25倍)。変えたいときは `DMXCTL_SCALE=1.5 ./dmxctl` のように指定します
+- **終了**: 「ファイル」メニューの「終了」、または Ctrl+Q(閉じるボタンが無いため)。起動した端末での Ctrl+C でも安全に止まります
+- ファイルを選ぶ画面(別名で保存・開く)は出せないので、「ファイル」メニューには出ません。設定は今までどおり自動保存され、「バックアップから戻す」は一覧から選べます
+- タッチパネルは、マウスと同じように使えます
+- 日本語入力(IME)は使えません。名前の欄などには英数字を入力してください
+- 他のアプリ(デスクトップ環境など)が画面を使っている間は起動できません
+- KMSDRMを使うかどうかは、ふつうは自動で決まります(環境変数 `DISPLAY` と `WAYLAND_DISPLAY` が無ければ使う)。`--kmsdrm` か `DMXCTL_KMSDRM=1` で必ず使い、`DMXCTL_KMSDRM=0` で使いません
+
+**電源を入れたら自動で起動する(例)**
+
+1. tty1 に自動ログインする
+
+   ```
+   sudo systemctl edit getty@tty1
+   ```
+
+   で開いたところに次を書いて保存します(`ユーザー名` は自分のもの)
+
+   ```
+   [Service]
+   ExecStart=
+   ExecStart=-/sbin/agetty --autologin ユーザー名 --noclear %I $TERM
+   ```
+
+2. `~/.bash_profile` の最後に、tty1 のときだけ起動するよう書きます(`dmxctl` を置いた場所に合わせる)
+
+   ```
+   if [ "$(tty)" = /dev/tty1 ]; then ~/dmxctl/dmxctl; fi
+   ```
+
+   アプリを終了するとコンソールに戻ります(`~/dmxctl/dmxctl` の前に `exec` を付けると、終了しても自動でもう一度起動します)
 
 ## USB-DMX(FT232系)について
 
