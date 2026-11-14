@@ -590,7 +590,9 @@ pub fn install_safety_hooks() {
         libc::signal(libc::SIGTERM, h);
         libc::signal(libc::SIGHUP, h);
     }
-    // Windows: Ctrl+C / Ctrl+Break / コンソールを閉じた / ログオフ / シャットダウン(コンソールから起動したとき)
+    // Windows: Ctrl+C / Ctrl+Break / コンソールを閉じた / ログオフ / シャットダウン。
+    // コンソールがあるとき(開発用のデバッグビルド)だけ届く。リリース版はウィンドウだけのアプリ
+    // (main.rs の windows_subsystem)でコンソールが無いので、何もしない(ウィンドウを閉じたときは on_exit で安全停止)
     #[cfg(windows)]
     unsafe {
         #[link(name = "kernel32")]
