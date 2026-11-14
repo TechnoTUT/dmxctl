@@ -590,6 +590,29 @@ pub fn install_safety_hooks() {
         libc::signal(libc::SIGTERM, h);
         libc::signal(libc::SIGHUP, h);
     }
+    // Windows: Ctrl+C / Ctrl+Break / コンソールを閉じた / ログオフ / シャットダウン。
+    // コンソールがあるとき(開発用のデバッグビルド)だけ届く。リリース版はウィンドウだけのアプリ
+    // (main.rs の windows_subsystem)でコンソールが無いので、何もしない(ウィンドウを閉じたときは on_exit で安全停止)
+    #[cfg(windows)]
+    unsafe {
+        #[link(name = "kernel32")]
+        unsafe extern "system" {
+            fn SetConsoleCtrlHandler(handler: Option<unsafe extern "system" fn(u32) -> i32>, add: i32) -> i32;
+            fn ExitProcess(code: u32) -> !;
+        }
+        unsafe extern "system" fn on_ctrl(_: u32) -> i32 {
+            // 2回目(出力スレッドが動いていないときなど)は、すぐに終了する
+            if EMERGENCY.load(Ordering::SeqCst) {
+                unsafe { ExitProcess(130) };
+            }
+            emergency_stop(true);
+            // この関数から戻ると、コンソールを閉じたとき等はWindowsがプロセスを終わらせてしまうので、
+            // 出力スレッドが安全なフレームを送り終えて終了するまで待つ
+            std::thread::sleep(TICK * (SAFE_TICKS + 8));
+            1
+        }
+        SetConsoleCtrlHandler(Some(on_ctrl), 1);
+    }
 }
 
 /// 出力スレッド。40Hzでフレームを合成して各出力へ送る
