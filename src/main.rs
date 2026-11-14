@@ -75,6 +75,15 @@ fn main() -> eframe::Result {
     }
     // 落ちたとき・終了のシグナルを受けたときに、安全な値(レーザーOFF・明るさ0)を送ってから終わる
     engine::install_safety_hooks();
+    // デスクトップ環境の無いLinux(またはDMXCTL_KMSDRM=1 / --kmsdrm)では、画面に直接(KMS/DRM)出す
+    #[cfg(all(target_os = "linux", feature = "kmsdrm"))]
+    if kmsdrm::wanted() {
+        if let Err(e) = kmsdrm::run() {
+            eprintln!("{e}");
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
     // 開発・確認用: DMXCTL_SIZE=幅x高さ でウィンドウの大きさを指定
     let size = std::env::var("DMXCTL_SIZE").ok().and_then(|s| {
         let (w, h) = s.split_once('x')?;
