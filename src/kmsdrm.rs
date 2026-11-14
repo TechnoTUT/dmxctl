@@ -219,11 +219,21 @@ struct FrameStats {
     ui: std::time::Duration,
     paint: std::time::Duration,
     swap: std::time::Duration,
+    /// 一番長くかかったフレーム・一番長く空いたフレームの間隔(カクつきの手がかり)
+    longest: std::time::Duration,
+    gap: std::time::Duration,
+    last: Option<Instant>,
 }
 
 impl FrameStats {
     fn add(&mut self, ui: std::time::Duration, paint: std::time::Duration, swap: std::time::Duration) {
         let since = *self.since.get_or_insert_with(Instant::now);
+        let now = Instant::now();
+        if let Some(last) = self.last {
+            self.gap = self.gap.max(now - last);
+        }
+        self.last = Some(now);
+        self.longest = self.longest.max(ui + paint + swap);
         self.frames += 1;
         self.ui += ui;
         self.paint += paint;
@@ -231,8 +241,16 @@ impl FrameStats {
         if since.elapsed().as_secs_f32() >= 1.0 {
             let n = self.frames as f32;
             let ms = |d: std::time::Duration| d.as_secs_f32() * 1000.0 / n;
-            eprintln!("{} fps  UI {:.1}ms  描画 {:.1}ms  切り替え {:.1}ms", self.frames, ms(self.ui), ms(self.paint), ms(self.swap));
-            *self = FrameStats::default();
+            eprintln!(
+                "{} fps  UI {:.1}ms  描画 {:.1}ms  切り替え {:.1}ms  最長 {:.0}ms  最大の間隔 {:.0}ms",
+                self.frames,
+                ms(self.ui),
+                ms(self.paint),
+                ms(self.swap),
+                self.longest.as_secs_f32() * 1000.0,
+                self.gap.as_secs_f32() * 1000.0
+            );
+            *self = FrameStats { last: self.last, ..FrameStats::default() };
         }
     }
 }
