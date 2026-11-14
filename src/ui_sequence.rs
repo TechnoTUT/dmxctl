@@ -226,7 +226,7 @@ impl App {
             if ui.button("×2").clicked() {
                 core.set_bpm(core.project.bpm * 2.0);
             }
-            let beat = core.rt.beat;
+            let beat = core.beat_now();
             ui.label(RichText::new(format!("{}小節 {}拍目", beat.floor() as i64 / BEATS_PER_BAR + 1, (beat.floor() as i64).rem_euclid(BEATS_PER_BAR) + 1)).weak());
         });
         ui.separator();

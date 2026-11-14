@@ -210,7 +210,7 @@ fn tempo_card(ui: &mut egui::Ui, core: &mut Core) {
             ui.add_space(4.0);
             let side = box_rect.height();
             let gap = (side * 0.2).max(4.0);
-            let in_bar = (core.rt.beat.floor() as i64).rem_euclid(BEATS_PER_BAR);
+            let in_bar = (core.beat_now().floor() as i64).rem_euclid(BEATS_PER_BAR);
             let (rect, _) = ui.allocate_exact_size(vec2(BEATS_PER_BAR as f32 * (side + gap), side), Sense::hover());
             for b in 0..BEATS_PER_BAR {
                 let r = Rect::from_min_size(pos2(rect.min.x + b as f32 * (side + gap), rect.min.y), vec2(side, side));

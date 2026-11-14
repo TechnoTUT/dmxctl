@@ -598,7 +598,7 @@ impl App {
             let p = &c.project;
             // 色や値がひとりでに変わっているか(マップの「今の色」を追従させるため)
             let animated = p.effects.iter().any(|e| e.enabled) || p.pixel_fx.iter().any(|e| e.enabled) || p.chases.iter().any(|e| e.enabled) || p.palette.auto;
-            (self.tab == Tab::Monitor || !c.rt.fades.is_empty() || c.fading(), (1.0 - c.rt.beat.rem_euclid(1.0)) * 60.0 / p.bpm.max(1.0) as f64, animated)
+            (self.tab == Tab::Monitor || !c.rt.fades.is_empty() || c.fading(), (1.0 - c.beat_now().rem_euclid(1.0)) * 60.0 / p.bpm.max(1.0) as f64, animated)
         };
         // 他のアプリ(映像など)を前に出して使っているとき(このウィンドウが前面でないとき)は、表示の更新をさらに減らす
         let focused = ui.input(|i| i.focused);
