@@ -77,7 +77,7 @@ cargo test --release --features kmsdrm   # Linux: KMSDRMの部分(キーの変�
 | `src/ui_laser.rs` | レーザータブ(位置・大きさ・動いてよい範囲をマウスで合わせる) |
 | `src/motion.rs` / `src/engine/motion.rs` | ムービングの動き(SPOT4方式: 形×1周の長さ×揃え方×向き。傾きで計算) / それをパン/チルトに書き込む(`render`の中、エフェクトの後) |
 | `src/ui_auto.rs` | オートタブ: オートの設定と、フレーズごとの見た目のプリセット(`AutoPreset` / `PhraseLook`。project.rs)の表 |
-| `src/engine/auto.rs` | オート: 曲の情報(OSCの色・明るさ・フレーズ)が届いているか、届かないときの待機の見た目(薄い水色。出力の直前、フラッシュの後に重ねる)、フレーズのプリセットの見た目(`apply_look`) |
+| `src/engine/auto.rs` | オート: 曲の情報(OSCの色・明るさ・フレーズ)が届いているか、届かないときの待機の見た目(薄い水色。出力の直前、フラッシュの後に重ねる)、フレーズのプリセットの見た目(`apply_look`)、BLTの様子(`blt_state`。Linkの仲間・曲の情報が無ければ知らせる) |
 | `src/keys.rs` / `src/ui_keys.rs` | キーボードの割り当て(`TriggerKind::Key`。番号=段×16+位置) / キーボードタブ(キーの絵) |
 | `src/theme.rs` | 見た目(色・フォント) |
 | `src/opendmx.rs` / `src/output.rs` | USB-DMX / Art-Net の出力 |

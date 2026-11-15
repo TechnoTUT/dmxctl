@@ -16,6 +16,7 @@ mod scene;
 mod tempo;
 
 pub use pair::{apply_pair, PairView};
+pub use auto::BltState;
 pub use scene::Fade;
 pub use tempo::{ClockIn, ClockMsg};
 
@@ -161,6 +162,8 @@ pub struct Runtime {
     pub wave_color_off: bool,
     /// オート: プリセットでONにしたエフェクト(次のフレーズでOFFに戻すため)
     pub auto_fx: Vec<String>,
+    /// オート: 最後に Beat Link Trigger の気配(Linkの仲間がいる・曲の情報が届いた)があった時刻。起動時は起動した時刻
+    pub blt_seen: Instant,
     /// 最後に受けたフレーズ(/dmx/phrase。Beat Link Triggerなどから)
     pub phrase: String,
     /// ムービングの動きの位置(1で1周)と、それを進めるための前回の拍
@@ -243,6 +246,7 @@ impl Runtime {
             auto_bright: None,
             wave_color_off: false,
             auto_fx: Vec::new(),
+            blt_seen: Instant::now(),
             phrase: String::new(),
             motion_phase: 0.0,
             motion_beat: None,

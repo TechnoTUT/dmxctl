@@ -629,3 +629,31 @@ fn phrase_presets_decide_motion_color_brightness_scene_and_effects() {
     assert_eq!(old.presets.len(), 2);
     assert_eq!(old.presets[0].looks.len(), PHRASES.len());
 }
+
+#[test]
+fn auto_warns_when_beat_link_trigger_is_missing() {
+    let mut c = core();
+    c.project.auto.enabled = true;
+    // 起動直後はまだ知らせない
+    assert_eq!(c.blt_state(), BltState::Unknown);
+    // 60秒、Linkの仲間も曲の情報も無い → 知らせる
+    c.rt.blt_seen = Instant::now() - Duration::from_secs(61);
+    assert!(matches!(c.blt_state(), BltState::Missing(_)));
+    assert!(c.blt_state().message().contains("blt-start.sh"));
+    // 曲の情報が届いた → 受信中、気配も新しくなる
+    c.handle_osc(&msg("/dmx/level", vec![Arg::Float(0.5)]));
+    assert_eq!(c.blt_state(), BltState::Receiving);
+    c.render();
+    assert!(c.rt.blt_seen.elapsed() < Duration::from_secs(1));
+    // 再生が止まった(曲の情報が来ない)が、Linkの仲間はいる → 再生待ち(知らせない)
+    c.rt.auto_last = Some(Instant::now() - Duration::from_secs(30));
+    c.project.tempo_source = TempoSource::Link;
+    c.rt.link_peers = 1;
+    assert_eq!(c.blt_state(), BltState::Waiting);
+    // 0秒にすると知らせない
+    c.rt.link_peers = 0;
+    c.project.tempo_source = TempoSource::Internal;
+    c.rt.blt_seen = Instant::now() - Duration::from_secs(1000);
+    c.project.auto.alert_secs = 0.0;
+    assert_eq!(c.blt_state(), BltState::Unknown);
+}

@@ -393,9 +393,9 @@ impl App {
 
     fn status_bar(&mut self, ui: &mut egui::Ui) {
         use crate::theme;
-        let (midi, last, outs) = {
+        let (midi, last, outs, blt) = {
             let c = lock(&self.core);
-            (c.rt.midi_status.clone(), c.rt.last_midi.clone(), c.rt.output_status.clone())
+            (c.rt.midi_status.clone(), c.rt.last_midi.clone(), c.rt.output_status.clone(), c.project.auto.enabled.then(|| c.blt_state()))
         };
         ui.add_space(3.0);
         ui.horizontal(|ui| {
@@ -425,6 +425,22 @@ impl App {
             };
             let detail = outs.iter().enumerate().map(|(i, s)| format!("出力{}: {s}", i + 1)).collect::<Vec<_>>().join("\n");
             ui.label(RichText::new(text).small().color(if bad > 0 { theme::WARN } else { theme::TEXT_DIM })).on_hover_text(detail);
+            // オート中は、Beat Link Trigger の様子(見つからなければ目立たせる。押すとオートタブへ)
+            if let Some(state) = blt {
+                use crate::engine::BltState;
+                ui.separator();
+                let (color, text) = match state {
+                    BltState::Receiving => (theme::OK, "BLT 受信中".to_string()),
+                    BltState::Waiting => (theme::TEXT_DIM, "BLT 再生待ち".to_string()),
+                    BltState::Missing(_) => (theme::WARN, "⚠ BLTが見つかりません".to_string()),
+                    BltState::Unknown => (theme::TEXT_FAINT, "BLT 待機中".to_string()),
+                };
+                theme::dot(ui, color);
+                let resp = ui.add(egui::Label::new(RichText::new(text).small().color(if matches!(state, BltState::Missing(_)) { theme::WARN } else { theme::TEXT_DIM })).sense(egui::Sense::click()));
+                if resp.on_hover_text(state.message()).clicked() {
+                    self.tab = Tab::Auto;
+                }
+            }
             if let Some(p) = &self.perf {
                 ui.separator();
                 ui.label(RichText::new(&p.text).small().color(theme::TEXT_FAINT));
@@ -682,10 +698,11 @@ impl App {
         println!("dmxctl: 画面なしで起動しました(設定: {} / OSC受信ポート {port} / テンポ: Ableton Link / オート: ON)", app.project_path.display());
         let mut last = String::new();
         let mut beat_report = Instant::now();
+        let mut blt_report: Option<Instant> = None;
         loop {
             std::thread::sleep(Duration::from_millis(250));
             app.autosave();
-            let (ndi_on, state, bpm, peers, osc) = {
+            let (ndi_on, state, bpm, peers, osc, blt) = {
                 let c = lock(&app.core);
                 let state = if c.manual_active() {
                     "手動優先(MIDI・キーボードで操作中)".to_string()
@@ -694,8 +711,17 @@ impl App {
                 } else {
                     "待機(薄い水色)".to_string()
                 };
-                (c.project.ndi.enabled, state, c.project.bpm, c.rt.link_peers, c.rt.osc_status.clone())
+                (c.project.ndi.enabled, state, c.project.bpm, c.rt.link_peers, c.rt.osc_status.clone(), c.blt_state())
             };
+            // BLTが見つからないときは、見つからなくなったときと、その後10分ごとに知らせる
+            let missing = matches!(blt, crate::engine::BltState::Missing(_));
+            if missing && blt_report.is_none_or(|t: Instant| t.elapsed() > Duration::from_secs(600)) {
+                eprintln!("{}", blt.message());
+                blt_report = Some(Instant::now());
+            } else if !missing && blt_report.is_some() {
+                println!("Beat Link Trigger が見つかりました");
+                blt_report = None;
+            }
             if ndi_on != app.ndi.is_some() {
                 app.ndi = ndi_on.then(|| crate::ndi::NdiService::start(app.core.clone(), None));
             }
