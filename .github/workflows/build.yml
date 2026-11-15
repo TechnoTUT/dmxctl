@@ -27,7 +27,7 @@ jobs:
     if: github.event_name == 'push' || github.event_name == 'schedule'
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: Swatinem/rust-cache@v2
       # テストだけのジョブなので、最適化しない設定で作る(リリース設定よりビルドが3割ほど速い)
       - name: テスト
@@ -37,11 +37,11 @@ jobs:
     if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/v')
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: Swatinem/rust-cache@v2
       - name: Macアプリをビルド
         run: chmod +x scripts/build-mac.sh && ./scripts/build-mac.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: DMX-Controller-mac
           path: dist/mac/DMX-Controller-mac.zip
@@ -50,7 +50,7 @@ jobs:
     if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/v')
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: Swatinem/rust-cache@v2
       - name: Windows版をビルド
         run: cargo build --release
@@ -59,7 +59,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force dist/windows | Out-Null
           Compress-Archive -Force -Path target/release/dmxctl.exe -DestinationPath dist/windows/DMX-Controller-windows.zip
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: DMX-Controller-windows
           path: dist/windows/DMX-Controller-windows.zip
@@ -68,7 +68,7 @@ jobs:
     # pushのたびにテスト(Ubuntu 26.04)。テストだけなので最適化しない設定で作る
     runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: Swatinem/rust-cache@v2
       - name: 開発用ライブラリを入れる
         run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libasound2-dev libudev-dev libsdl2-dev
@@ -85,7 +85,7 @@ jobs:
     steps:
       - name: 開発用ライブラリを入れる
         run: apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git build-essential pkg-config libasound2-dev libudev-dev libsdl2-dev
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Linux版をビルド
@@ -95,7 +95,7 @@ jobs:
           ldd dist/linux/dmxctl
           if ldd dist/linux/dmxctl | grep -q libSDL2; then echo "dmxctl が libSDL2 を必要としています"; exit 1; fi
           ldd dist/linux/dmxctl-kmsdrm | grep libSDL2
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: DMX-Controller-linux
           path: dist/linux/DMX-Controller-linux.tar.gz
@@ -108,7 +108,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true

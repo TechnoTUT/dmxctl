@@ -780,9 +780,37 @@ impl Default for Project {
 
 impl Project {
     pub fn load(path: &Path) -> anyhow::Result<Project> {
+        Ok(Project::load_lenient(path)?.0)
+    }
+
+    /// 読む。新しい版で保存したファイル(この版が知らない動きの形などがある)でも、
+    /// 読めない項目だけを既定値にして(配列なら、その要素を飛ばして)読む。飛ばした項目の場所も返す
+    pub fn load_lenient(path: &Path) -> anyhow::Result<(Project, Vec<String>)> {
         let s = std::fs::read_to_string(path)?;
         // メモ帳などで保存されたBOM付きUTF-8も読めるようにする
-        Ok(serde_json::from_str(s.trim_start_matches('\u{feff}'))?)
+        Project::from_json_lenient(s.trim_start_matches('\u{feff}'))
+    }
+
+    pub fn from_json_lenient(s: &str) -> anyhow::Result<(Project, Vec<String>)> {
+        // JSONとして壊れているものは読まない(どこを飛ばせばよいか分からないので)
+        let mut v: serde_json::Value = serde_json::from_str(s)?;
+        let mut skipped = Vec::new();
+        for _ in 0..200 {
+            match serde_path_to_error::deserialize::<_, Project>(&v) {
+                Ok(p) => return Ok((p, skipped)),
+                Err(e) => {
+                    let path = e.path().clone();
+                    if !remove_at(&mut v, &path) {
+                        return Err(e.into_inner().into());
+                    }
+                    // 中身を飛ばしても読めず、それを含む項目ごと飛ばしたときは、外側だけを記録する
+                    let p = path.to_string();
+                    skipped.retain(|s: &String| !(s.starts_with(&p) && matches!(s.as_bytes().get(p.len()), Some(b'.' | b'['))));
+                    skipped.push(p);
+                }
+            }
+        }
+        anyhow::bail!("読めない項目が多すぎます")
     }
 
     /// 読めなかった保存ファイルを、自動保存で上書きされる前に別名で退避する
@@ -877,6 +905,48 @@ impl Project {
             limits: BTreeMap::new(),
         });
         Some(id)
+    }
+}
+
+/// `path` の場所の項目を消す(構造体の項目なら既定値に、配列なら要素ごと)。
+/// 最後が「enumの種類」などで消せなければ、1つ上を消す。消せたら true
+fn remove_at(v: &mut serde_json::Value, path: &serde_path_to_error::Path) -> bool {
+    use serde_path_to_error::Segment;
+    let segs: Vec<&Segment> = path.iter().collect();
+    // 消せる場所(オブジェクトの項目・配列の要素)まで、末尾から戻る
+    let Some(last) = segs.iter().rposition(|s| matches!(s, Segment::Map { .. } | Segment::Seq { .. })) else { return false };
+    let mut cur = v;
+    for s in &segs[..last] {
+        cur = match s {
+            Segment::Map { key } => match cur.get_mut(key.as_str()) {
+                Some(x) => x,
+                None => return false,
+            },
+            Segment::Seq { index } => match cur.get_mut(*index) {
+                Some(x) => x,
+                None => return false,
+            },
+            // enumの中身(外側のキーが種類名のオブジェクト)は、そのまま下りる
+            Segment::Enum { variant } => {
+                if cur.get(variant.as_str()).is_some() {
+                    cur.get_mut(variant.as_str()).expect("直前に確かめた")
+                } else {
+                    cur
+                }
+            }
+            Segment::Unknown => return false,
+        };
+    }
+    match segs[last] {
+        Segment::Map { key } => cur.as_object_mut().is_some_and(|o| o.remove(key.as_str()).is_some()),
+        Segment::Seq { index } => cur.as_array_mut().is_some_and(|a| {
+            let ok = *index < a.len();
+            if ok {
+                a.remove(*index);
+            }
+            ok
+        }),
+        _ => false,
     }
 }
 
@@ -984,6 +1054,29 @@ pub fn default_project_path() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn newer_files_load_by_skipping_what_this_version_does_not_know() {
+        // 新しい版で保存したファイル: 知らない動きの形と、知らない種類の割り当てがある
+        let mut p = Project::default();
+        p.bpm = 133.0;
+        p.bindings.push(Binding { name: "ok".into(), trigger: None, action: Action::Blackout { mode: PadMode::Toggle }, page: None, osc: None });
+        p.bindings.push(Binding { name: "new".into(), trigger: None, action: Action::Blackout { mode: PadMode::Toggle }, page: None, osc: None });
+        let mut v = serde_json::to_value(&p).unwrap();
+        v["motion"]["shape"] = "Hyperspace".into();
+        v["bindings"][1]["action"] = serde_json::json!({"Teleport": {"to": 3}});
+        let (q, skipped) = Project::from_json_lenient(&v.to_string()).unwrap();
+        assert_eq!(q.bpm, 133.0, "ほかの項目はそのまま");
+        assert_eq!(q.motion.shape, crate::motion::Shape::Still, "知らない形は既定値");
+        assert_eq!(q.bindings.len(), 1, "知らない割り当ては飛ばす");
+        assert_eq!(q.bindings[0].name, "ok");
+        assert_eq!(skipped.len(), 2, "{skipped:?}");
+        // 今の版のファイルは何も飛ばさない
+        let (_, none) = Project::from_json_lenient(&serde_json::to_string(&p).unwrap()).unwrap();
+        assert!(none.is_empty());
+        // JSONとして壊れているものは読まない
+        assert!(Project::from_json_lenient("{ broken").is_err());
+    }
 
     #[test]
     fn project_roundtrip() {

@@ -146,8 +146,14 @@ impl App {
         let mut notice = lib_errors.join(" / ");
         // 起動のたびに、前回の保存ファイルをバックアップに残す(うっかり消した割り当てなどを戻せるように)
         backup_to(&path, &backup_dir(), BACKUP_KEEP);
-        let mut project = match Project::load(&path) {
-            Ok(p) => p,
+        let mut project = match Project::load_lenient(&path) {
+            Ok((p, skipped)) if skipped.is_empty() => p,
+            // 新しい版で保存したファイル: 読めない項目だけ既定値にして読む(元のファイルは別名で残す)
+            Ok((p, skipped)) => {
+                let saved = Project::backup_broken(&path).map(|p| format!("元のファイルは {} に残しました。", p.display())).unwrap_or_default();
+                notice = format!("この版では読めない項目を既定値にしました({})。新しい版で保存したファイルかもしれません。{saved}", skipped.join(", "));
+                p
+            }
             // 初めての起動: おすすめのMIDI配置で始める
             Err(_) if !path.exists() => {
                 let mut p = Project::starter(&lib);
