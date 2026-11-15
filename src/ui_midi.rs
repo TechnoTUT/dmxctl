@@ -61,9 +61,19 @@ impl App {
     }
 
     fn osc_row(&mut self, ui: &mut egui::Ui) {
-        let (mut on, port, status, last, mut smooth, phrase, osc_rgb) = {
+        let (mut on, port, status, last, mut smooth, phrase, osc_rgb, mut depth, level) = {
             let c = lock(&self.core);
-            (c.project.osc_enabled, c.project.osc_port, c.rt.osc_status.clone(), c.rt.last_osc.clone(), c.project.osc_rgb_secs, c.rt.phrase.clone(), c.rt.osc_rgb.map(|o| o.map(|o| o.current)))
+            (
+                c.project.osc_enabled,
+                c.project.osc_port,
+                c.rt.osc_status.clone(),
+                c.rt.last_osc.clone(),
+                c.project.osc_rgb_secs,
+                c.rt.phrase.clone(),
+                c.rt.osc_rgb.map(|o| o.map(|o| o.current)),
+                c.project.osc_level_depth,
+                c.rt.osc_level.map(|o| o.current[0]),
+            )
         };
         let mut apply = false;
         ui.horizontal_wrapped(|ui| {
@@ -102,6 +112,21 @@ impl App {
             }
             if !phrase.is_empty() {
                 ui.label(RichText::new(format!("フレーズ: {phrase}")).weak());
+            }
+        });
+        // /dmx/level(波形の大きさなど)で明るさを変えるときの効き具合
+        ui.horizontal_wrapped(|ui| {
+            ui.label("OSCの明るさ(/dmx/level)の効き具合");
+            if ui.add(egui::Slider::new(&mut depth, 0.0..=1.0).custom_formatter(|v, _| format!("{:.0}%", v * 100.0))).on_hover_text("受けた明るさが0のとき、全体光量をどこまで下げるか(100%で真っ暗、0%で効かない)").changed() {
+                let mut c = lock(&self.core);
+                c.project.osc_level_depth = depth;
+                c.dirty = true;
+            }
+            if let Some(l) = level {
+                ui.add(egui::ProgressBar::new(l.clamp(0.0, 1.0)).desired_width(80.0).text(format!("{:.0}%", l * 100.0)));
+                if ui.small_button("明るさをやめる").clicked() {
+                    lock(&self.core).rt.osc_level = None;
+                }
             }
         });
         egui::CollapsingHeader::new("OSCで使えるアドレス").id_salt("osc_help").show(ui, |ui| {

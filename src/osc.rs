@@ -65,6 +65,8 @@ pub const ADDRESSES: &[(&str, &str)] = &[
     ("/dmx/main/rgb/at  f f f 秒", "先読みした色: その秒数後にちょうどこの色になるよう、まっすぐ近づける(遅れなく出すため。/dmx/sub/rgb/at も)"),
     ("/dmx/rgb/smooth  f", "RGBで受けた色へ近づける速さ(秒。0ですぐ。標準 0.5)"),
     ("/dmx/rgb/off", "RGBで受けた色をやめて、パレットの色に戻す(手で色を選んでも戻る)"),
+    ("/dmx/level  f [秒]", "明るさ(0〜1。波形の大きさなど)。全体光量に掛ける。なめらかに近づく。/dmx/level/at f 秒 で先読み"),
+    ("/dmx/level/depth  f", "明るさの効き具合(0=効かない〜1=0まで暗くなる。標準 0.7)。/dmx/level/off でやめる"),
     ("/dmx/phrase  s", "曲のフレーズ(intro / verse / chorus / bridge / up / down / outro)。/dmx/phrase/<名前> に割り当てた動作を実行、無ければ同じ名前のシーンを呼び出す"),
     ("/dmx/swap  f", "メイン⇄サブ入れ替え(値なし/1で入れ替え)。/dmx/swap/auto f で自動入れ替えON/OFF"),
     ("/dmx/effect  s f", "エフェクトのON/OFF(名前, 1/0)"),
@@ -355,6 +357,23 @@ impl Core {
                     }
                 }
             }
+            ["level", rest @ ..] if rest.is_empty() || rest == ["at"] => {
+                let nums: Vec<f32> = m.args.iter().filter_map(|a| a.num()).collect();
+                if let [v, more @ ..] = nums.as_slice() {
+                    if rest.is_empty() {
+                        self.osc_level(*v, more.first().copied(), None);
+                    } else {
+                        self.osc_level(*v, None, Some(more.first().copied().unwrap_or(0.3)));
+                    }
+                }
+            }
+            ["level", "depth"] => {
+                if let Some(v) = num {
+                    self.project.osc_level_depth = v.clamp(0.0, 1.0);
+                    self.dirty = true;
+                }
+            }
+            ["level", "off"] if press => self.rt.osc_level = None,
             ["rgb", "smooth"] => {
                 if let Some(v) = num {
                     self.project.osc_rgb_secs = v.clamp(0.0, 30.0);

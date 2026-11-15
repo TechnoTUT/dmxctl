@@ -133,6 +133,8 @@ pub struct Runtime {
     pub live_sub: Option<[f32; 3]>,
     /// OSCのRGB(/dmx/main/rgb・/dmx/sub/rgb)で受けた色。[メイン, サブ]。保存しない
     pub osc_rgb: [Option<OscRgb>; 2],
+    /// OSCで受けた明るさ(/dmx/level。波形の大きさなど)。全体光量に掛ける。保存しない
+    pub osc_level: Option<OscGlide<1>>,
     /// 最後に受けたフレーズ(/dmx/phrase。Beat Link Triggerなどから)
     pub phrase: String,
     /// ムービングの動きの位置(1で1周)と、それを進めるための前回の拍
@@ -201,6 +203,7 @@ impl Runtime {
             live_main: None,
             live_sub: None,
             osc_rgb: [None, None],
+            osc_level: None,
             phrase: String::new(),
             motion_phase: 0.0,
             motion_beat: None,
@@ -403,7 +406,9 @@ impl Core {
 
         // 全体光量: 各機材のディマー(無ければ色の強さのチャンネル)に掛ける
         // 暗転フェードと機材ごとの明るさ(フェーダー)も、全体光量と同じところにかける
-        let master = self.rt.master * self.rt.dim;
+        // OSCで受けた明るさ(波形の大きさなど)も同じところにかける。効き具合(depth)が0なら効かない
+        let level = self.rt.osc_level.as_mut().map(|o| o.step(now)[0]).map(|l| 1.0 - self.project.osc_level_depth.clamp(0.0, 1.0) * (1.0 - l.clamp(0.0, 1.0))).unwrap_or(1.0);
+        let master = self.rt.master * self.rt.dim * level;
         if master < 0.9999 || !self.rt.level.is_empty() {
             for (i, fx) in self.project.fixtures.iter().enumerate() {
                 let master = master * self.rt.level.get(&fx.id).copied().unwrap_or(1.0);
@@ -553,11 +558,11 @@ impl Core {
     }
 }
 
-/// OSCで受けた色。受けた色(target)へ、今の色(current)を少しずつ近づける
+/// OSCで受けた値(色・明るさ)。受けた値(target)へ、今の値(current)を少しずつ近づける
 #[derive(Debug, Clone, Copy)]
-pub struct OscRgb {
-    pub target: [f32; 3],
-    pub current: [f32; 3],
+pub struct OscGlide<const N: usize> {
+    pub target: [f32; N],
+    pub current: [f32; N],
     /// 近づける速さ(秒。だいたいこの時間で6割ほど近づく。0ならすぐ)
     pub secs: f32,
     /// この時刻にちょうど target になるよう、まっすぐ近づける(/dmx/main/rgb/at。先読みした色を遅れなく出す)。
@@ -566,9 +571,21 @@ pub struct OscRgb {
     pub last: Instant,
 }
 
-impl OscRgb {
-    /// `now`まで進めた今の色
-    pub fn step(&mut self, now: Instant) -> [f32; 3] {
+/// OSCで受けた色(RGB)
+pub type OscRgb = OscGlide<3>;
+
+impl<const N: usize> OscGlide<N> {
+    /// 受けた値を、`secs`の速さ(または`due`の時刻にちょうど)で目指す。初めてなら`from`から
+    pub fn aim(slot: &mut Option<Self>, target: [f32; N], from: [f32; N], secs: f32, due: Option<Instant>, now: Instant) {
+        let o = slot.get_or_insert(OscGlide { target, current: from, secs, due, last: now });
+        o.step(now);
+        o.target = target;
+        o.secs = secs;
+        o.due = due;
+    }
+
+    /// `now`まで進めた今の値
+    pub fn step(&mut self, now: Instant) -> [f32; N] {
         let dt = now.saturating_duration_since(self.last).as_secs_f32();
         let remain = self.due.map(|d| d.saturating_duration_since(self.last).as_secs_f32());
         self.last = now;
@@ -578,7 +595,7 @@ impl OscRgb {
             None if self.secs <= 0.0 => 1.0,
             None => 1.0 - (-dt / self.secs).exp(),
         };
-        for c in 0..3 {
+        for c in 0..N {
             self.current[c] += (self.target[c] - self.current[c]) * k;
         }
         self.current

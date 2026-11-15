@@ -434,6 +434,8 @@ DMXで **RGBRGBRGB…** とピクセルが並んでいるLEDバーを扱えま�
 | `/dmx/main/rgb f f f [秒]` / `/dmx/sub/rgb f f f [秒]` | メイン色 / サブ色をRGBで(0〜1。0〜255でもよい)。受けた色へ**なめらかに**近づく。4つ目の数値で近づく速さ(秒) |
 | `/dmx/main/rgb/at f f f 秒` / `/dmx/sub/rgb/at …` | 先読みした色: その秒数後に**ちょうどその色**になるよう、まっすぐ近づく(遅れを打ち消す用。Beat Link Trigger の例を参照) |
 | `/dmx/rgb/smooth f` / `/dmx/rgb/off` | RGBで受けた色へ近づく標準の速さ(秒。0ですぐ。画面でも変えられる)/ RGBの色をやめてパレットの色に戻す |
+| `/dmx/level f [秒]` / `/dmx/level/at f 秒` | 明るさ(0〜1。波形の大きさなど)。全体光量に掛ける。色と同じく、なめらかに / 先読みで近づく |
+| `/dmx/level/depth f` / `/dmx/level/off` | 明るさの効き具合(0=効かない〜1=0のとき真っ暗。標準 0.7。画面でも変えられる)/ やめる |
 | `/dmx/phrase s` | 曲のフレーズ(`intro` / `verse` / `chorus` / `bridge` / `up` / `down` / `outro`)。下の [Beat Link Trigger との連携](#beat-link-trigger-との連携) を参照 |
 | `/dmx/effect s f` / `/dmx/chase s f` | エフェクト / チェイスのON/OFF(名前, 1/0) |
 | `/dmx/page i` | パッドのページ(1〜8) |
@@ -450,6 +452,7 @@ DMXで **RGBRGBRGB…** とピクセルが並んでいるLEDバーを扱えま�
 - **テンポ**: BLT の Ableton Link の機能でマスタープレイヤーのテンポと拍を Link に流し、このアプリのテンポの元を「Ableton Link」にします([テンポの同期](#テンポの同期))
 - **波形の色 → メイン色**: BLT から、**少し先の位置**の波形の色を `/dmx/main/rgb/at r g b 秒` で送ります。このアプリは「その秒数後にちょうどその色」になるよう、まっすぐ色を変えていきます。BLT が状態を受ける間隔(約0.2秒)・ネットワーク・照明の反応の遅れを先読みで打ち消すので、曲と色がずれません。次の色が届くと、そこからまたつながるので、途切れずになめらかに変わります
   - 先読みしない `/dmx/main/rgb` でも使えます(受けた色へなめらかに近づく。そのぶん少し遅れます)
+- **波形の大きさ → 明るさ**: 同じように `/dmx/level/at 大きさ 秒` で送ると、曲の大きい所で明るく、静かな所で暗くなります(全体光量に掛ける)。どこまで暗くするかは「MIDI/OSC」タブの「効き具合」(標準70%。100%なら無音で真っ暗)
 - **フレーズ → 照明の切り替え**: BLT から `/dmx/phrase` にフレーズの名前を送ります。次のどちらかが動きます
   1. `/dmx/phrase/<名前>` を OSC アドレスに付けた割り当て(例: `/dmx/phrase/chorus` にストロボのパッドの動作)。OSCラーンで、BLT から1回送って登録してもよい
   2. 割り当てが無ければ、同じ名前のシーン。英語(`chorus`)でも日本語(`サビ`・`イントロ`・`バース`・`ブリッジ`・`アップ`・`ダウン`・`アウトロ`)でもよい。`verse2` のような番号つきは `verse` / `バース` として扱います
@@ -475,11 +478,14 @@ BLT 側の設定例です(BLT の式は Clojure。関数の名前などは BLT �
           start (org.deepsymmetry.beatlink.Util/timeToHalfFrame ahead)
           segs  (range (max 0 (- start 8)) (min (+ start 8) (.getFrameCount detail)))  ; その前後 約0.1秒を平均
           cols  (map #(.segmentColor detail % false) segs)
-          avg   (fn [f] (/ (reduce + (map f cols)) (max 1 (count cols)) 255.0))]
+          avg   (fn [f] (/ (reduce + (map f cols)) (max 1 (count cols)) 255.0))
+          ;; 波形の高さ(0〜31)の平均を 0〜1 に
+          size  (/ (reduce + (map #(.segmentHeight detail % false) segs)) (max 1 (count segs)) 31.0)]
       (when (seq cols)
         (osc/osc-send (:dmx @globals) "/dmx/main/rgb/at"
                       (float (avg #(.getRed %))) (float (avg #(.getGreen %))) (float (avg #(.getBlue %)))
-                      (float (- lead light)))))))
+                      (float (- lead light)))
+        (osc/osc-send (:dmx @globals) "/dmx/level/at" (float (min 1.0 size)) (float (- lead light)))))))
 ```
 
 フレーズは、BLT の **Show** に **Phrase Trigger** を作り(サビ用・イントロ用など)、その「Started」の式で送ります。

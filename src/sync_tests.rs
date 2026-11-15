@@ -462,3 +462,36 @@ fn osc_rgb_at_reaches_the_lookahead_color_exactly_on_time() {
     c.render();
     assert_eq!(c.role_rgb(ColorRole::Main), Some([0.0, 0.0, 1.0]));
 }
+
+#[test]
+fn osc_level_scales_the_overall_brightness() {
+    let mut c = core();
+    c.handle_osc(&msg("/dmx/fixture/1/dimmer", vec![Arg::Float(1.0)]));
+    let out = |c: &mut Core| {
+        c.render();
+        let i = c.project.fixture_index(SPOT).unwrap();
+        let fx = &c.project.fixtures[i];
+        let info = c.lib.info(&fx.profile, fx.mode).unwrap();
+        let ch = info.master[0];
+        c.rt.frames[fx.universe][fx.address as usize - 1 + ch] as f32
+    };
+    assert_eq!(out(&mut c), 255.0);
+    // 効き具合100%: 0.5 で半分。すぐ(速さ0)
+    c.handle_osc(&msg("/dmx/level/depth", vec![Arg::Float(1.0)]));
+    c.handle_osc(&msg("/dmx/level", vec![Arg::Float(0.5), Arg::Float(0.0)]));
+    assert!((out(&mut c) - 127.5).abs() <= 1.0);
+    // 効き具合50%: 0 でも半分まで
+    c.handle_osc(&msg("/dmx/level/depth", vec![Arg::Float(0.5)]));
+    c.handle_osc(&msg("/dmx/level", vec![Arg::Float(0.0), Arg::Float(0.0)]));
+    assert!((out(&mut c) - 127.5).abs() <= 1.0);
+    // 先読み: 1秒後に1.0 → 0.5秒で中間
+    c.handle_osc(&msg("/dmx/level/at", vec![Arg::Float(1.0), Arg::Float(1.0)]));
+    let o = c.rt.osc_level.as_mut().unwrap();
+    o.last -= Duration::from_millis(500);
+    o.due = o.due.map(|d| d - Duration::from_millis(500));
+    let v = out(&mut c);
+    assert!((v - 191.0).abs() <= 3.0, "{v}");
+    // やめると元の明るさ
+    c.handle_osc(&msg("/dmx/level/off", vec![]));
+    assert_eq!(out(&mut c), 255.0);
+}

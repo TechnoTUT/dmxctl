@@ -110,11 +110,15 @@ impl Core {
         let due = at.map(|a| now + Duration::from_secs_f32(a.clamp(0.0, 30.0)));
         // 初めてなら、今出している色から近づける
         let from = self.rt.live_main.filter(|_| slot == 0).or(self.rt.live_sub.filter(|_| slot == 1)).unwrap_or(if slot == 0 { self.project.palette.main } else { self.project.palette.sub });
-        let o = self.rt.osc_rgb[slot].get_or_insert(OscRgb { target: rgb, current: from, secs, due, last: now });
-        o.step(now);
-        o.target = rgb;
-        o.secs = secs;
-        o.due = due;
+        OscRgb::aim(&mut self.rt.osc_rgb[slot], rgb, from, secs, due, now);
+    }
+
+    /// OSCで明るさ(0〜1)を受けた。速さ・先読みは osc_rgb と同じ
+    pub fn osc_level(&mut self, v: f32, secs: Option<f32>, at: Option<f32>) {
+        let now = Instant::now();
+        let secs = secs.unwrap_or(self.project.osc_rgb_secs).clamp(0.0, 30.0);
+        let due = at.map(|a| now + Duration::from_secs_f32(a.clamp(0.0, 30.0)));
+        OscGlide::aim(&mut self.rt.osc_level, [v.clamp(0.0, 1.0)], [1.0], secs, due, now);
     }
 
     /// メインとサブを入れ替える

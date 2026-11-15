@@ -582,6 +582,8 @@ pub struct Project {
     pub osc_port: u16,
     /// OSCのRGBで受けた色へ近づける速さ(秒)
     pub osc_rgb_secs: f32,
+    /// OSCで受けた明るさ(/dmx/level)の効き具合(0=効かない〜1=0まで暗くなる)
+    pub osc_level_depth: f32,
     /// メイン色とサブ色
     pub palette: Palette,
     /// LEDバーのピクセルエフェクト(名前は通常のエフェクトと共通で、同じ名前ならまとめてON/OFF)
@@ -620,6 +622,7 @@ impl Default for Project {
             osc_enabled: false,
             osc_port: 9000,
             osc_rgb_secs: 0.5,
+            osc_level_depth: 0.7,
             palette: Palette::default(),
             pixel_fx: Vec::new(),
             fade_secs: 3.0,
