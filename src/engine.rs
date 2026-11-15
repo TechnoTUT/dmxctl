@@ -7,6 +7,7 @@
 //! - `scene`: シーン・位置プリセット・フェード
 //! - `binding`: MIDIの受信と割り当ての実行
 
+mod auto;
 mod binding;
 mod motion;
 mod pair;
@@ -131,6 +132,37 @@ pub struct Runtime {
     /// NDIから作った、今のメイン色/サブ色(NDIを使っていなければNone)。保存しない
     pub live_main: Option<[f32; 3]>,
     pub live_sub: Option<[f32; 3]>,
+    /// OSCのRGB(/dmx/main/rgb・/dmx/sub/rgb)で受けた色。[メイン, サブ]。保存しない
+    pub osc_rgb: [Option<OscRgb>; 2],
+    /// OSCで受けた明るさ(/dmx/level。波形の大きさなど)。全体光量に掛ける。保存しない
+    pub osc_level: Option<OscGlide<1>>,
+    /// オート: 最後に曲の情報(色・明るさ・フレーズ)が届いた時刻
+    pub auto_last: Option<Instant>,
+    /// オート: 前のフレームで、つながっていたか
+    pub auto_was_online: bool,
+    /// オート: 待機の見た目(薄い水色)の混ぜ具合(0=本番〜1=待機)
+    pub idle_mix: f32,
+    /// オート: 最後にMIDIコントローラー・キーボードで操作した時刻(手動優先)
+    pub manual_last: Option<Instant>,
+    /// オート: 今使っている組み込みの動き(フレーズの名前)
+    pub auto_key: String,
+    /// オート: 最後にフレーズが届いたときの拍(フレーズの情報が来ない曲かどうか)
+    pub phrase_beat: Option<f64>,
+    /// オート: 盛り上がり(OSCの明るさを数秒でならしたもの。0〜1)と、最後に見た16拍のかたまり
+    pub energy: f32,
+    pub energy_block: i64,
+    /// オート: 最後に受けた明るさ(盛り上がりの元。手動優先の間も覚えておく)
+    pub energy_input: Option<f32>,
+    /// オート: サビに入った瞬間の全開を、この拍で戻す
+    pub accent_until: Option<f64>,
+    /// オート: プリセットの明るさ(全体光量に掛ける)
+    pub auto_bright: Option<OscGlide<1>>,
+    /// オート: プリセットで「波形の色を使わない」にしているフレーズの間
+    pub wave_color_off: bool,
+    /// オート: プリセットでONにしたエフェクト(次のフレーズでOFFに戻すため)
+    pub auto_fx: Vec<String>,
+    /// 最後に受けたフレーズ(/dmx/phrase。Beat Link Triggerなどから)
+    pub phrase: String,
     /// ムービングの動きの位置(1で1周)と、それを進めるための前回の拍
     pub motion_phase: f64,
     pub motion_beat: Option<f64>,
@@ -196,6 +228,22 @@ impl Runtime {
             ndi: crate::ndi::NdiState::default(),
             live_main: None,
             live_sub: None,
+            osc_rgb: [None, None],
+            osc_level: None,
+            auto_last: None,
+            auto_was_online: false,
+            idle_mix: 0.0,
+            manual_last: None,
+            auto_key: String::new(),
+            phrase_beat: None,
+            energy: 0.0,
+            energy_block: i64::MIN,
+            energy_input: None,
+            accent_until: None,
+            auto_bright: None,
+            wave_color_off: false,
+            auto_fx: Vec::new(),
+            phrase: String::new(),
             motion_phase: 0.0,
             motion_beat: None,
             motion_pan: HashMap::new(),
@@ -349,6 +397,7 @@ impl Core {
         let dt = self.rt.last_beat_t.map(|t| now.duration_since(t).as_secs_f64().min(0.5)).unwrap_or(0.0);
         self.rt.last_beat_t = Some(now);
         self.sync_beat(now, dt);
+        self.run_auto(dt);
         self.run_palette_auto();
         self.run_live_colors();
         self.step_dim(dt);
@@ -397,7 +446,11 @@ impl Core {
 
         // 全体光量: 各機材のディマー(無ければ色の強さのチャンネル)に掛ける
         // 暗転フェードと機材ごとの明るさ(フェーダー)も、全体光量と同じところにかける
-        let master = self.rt.master * self.rt.dim;
+        // OSCで受けた明るさ(波形の大きさなど)も同じところにかける。効き具合(depth)が0なら効かない
+        let level = self.rt.osc_level.as_mut().map(|o| o.step(now)[0]).map(|l| 1.0 - self.project.osc_level_depth.clamp(0.0, 1.0) * (1.0 - l.clamp(0.0, 1.0))).unwrap_or(1.0);
+        // オートのプリセットの明るさ(曲の情報が届いている間)
+        let bright = if self.project.auto.enabled && self.rt.auto_was_online { self.rt.auto_bright.as_mut().map(|o| o.step(now)[0]).unwrap_or(1.0) } else { 1.0 };
+        let master = self.rt.master * self.rt.dim * level * bright;
         if master < 0.9999 || !self.rt.level.is_empty() {
             for (i, fx) in self.project.fixtures.iter().enumerate() {
                 let master = master * self.rt.level.get(&fx.id).copied().unwrap_or(1.0);
@@ -427,6 +480,9 @@ impl Core {
                 flash_values(mode, &info, &mut vals[i], white);
             }
         }
+
+        // オートで曲の情報が届いていないときは、薄い水色で待つ(ブラックアウトとARMは下で優先される)
+        self.apply_idle(&mut vals);
 
         for f in self.rt.frames.iter_mut() {
             *f = [0; 512];
@@ -544,6 +600,50 @@ impl Core {
             safe_values(mode, &info, &mut f[base..base + n]);
         }
         frames
+    }
+}
+
+/// OSCで受けた値(色・明るさ)。受けた値(target)へ、今の値(current)を少しずつ近づける
+#[derive(Debug, Clone, Copy)]
+pub struct OscGlide<const N: usize> {
+    pub target: [f32; N],
+    pub current: [f32; N],
+    /// 近づける速さ(秒。だいたいこの時間で6割ほど近づく。0ならすぐ)
+    pub secs: f32,
+    /// この時刻にちょうど target になるよう、まっすぐ近づける(/dmx/main/rgb/at。先読みした色を遅れなく出す)。
+    /// None なら secs の速さで近づく
+    pub due: Option<Instant>,
+    pub last: Instant,
+}
+
+/// OSCで受けた色(RGB)
+pub type OscRgb = OscGlide<3>;
+
+impl<const N: usize> OscGlide<N> {
+    /// 受けた値を、`secs`の速さ(または`due`の時刻にちょうど)で目指す。初めてなら`from`から
+    pub fn aim(slot: &mut Option<Self>, target: [f32; N], from: [f32; N], secs: f32, due: Option<Instant>, now: Instant) {
+        let o = slot.get_or_insert(OscGlide { target, current: from, secs, due, last: now });
+        o.step(now);
+        o.target = target;
+        o.secs = secs;
+        o.due = due;
+    }
+
+    /// `now`まで進めた今の値
+    pub fn step(&mut self, now: Instant) -> [f32; N] {
+        let dt = now.saturating_duration_since(self.last).as_secs_f32();
+        let remain = self.due.map(|d| d.saturating_duration_since(self.last).as_secs_f32());
+        self.last = now;
+        let k = match remain {
+            // 着く時刻までの残りのうち、今回進んだぶんだけ近づく(着く時刻を過ぎたらその色)
+            Some(r) => if r <= dt { 1.0 } else { dt / r },
+            None if self.secs <= 0.0 => 1.0,
+            None => 1.0 - (-dt / self.secs).exp(),
+        };
+        for c in 0..N {
+            self.current[c] += (self.target[c] - self.current[c]) * k;
+        }
+        self.current
     }
 }
 

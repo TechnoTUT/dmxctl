@@ -383,3 +383,249 @@ fn old_project_files_load_with_new_fields_defaulted() {
     let s = serde_json::to_string(&p.bindings[0]).unwrap();
     assert!(!s.contains("page") && !s.contains("osc"), "{s}");
 }
+
+#[test]
+fn osc_rgb_glides_to_the_received_color_and_yields_to_manual_colors() {
+    use crate::color::{ColorRole, ColorTarget, NamedColor};
+    let mut c = core();
+    // 速さ0: すぐその色。0〜255で送ってきても同じ
+    c.handle_osc(&msg("/dmx/main/rgb", vec![Arg::Int(255), Arg::Int(0), Arg::Int(0), Arg::Float(0.0)]));
+    c.render();
+    assert_eq!(c.role_rgb(ColorRole::Main), Some([1.0, 0.0, 0.0]));
+    // 速さ1秒: 1秒たつと6割ほど近づく(いきなり変わらない)
+    c.handle_osc(&msg("/dmx/main/rgb", vec![Arg::Float(0.0), Arg::Float(0.0), Arg::Float(1.0), Arg::Float(1.0)]));
+    let o = c.rt.osc_rgb[0].as_mut().unwrap();
+    o.last -= Duration::from_secs(1);
+    c.render();
+    let [r, _, b] = c.role_rgb(ColorRole::Main).unwrap();
+    assert!((b - 0.632).abs() < 0.02 && (r - 0.368).abs() < 0.02, "{r} {b}");
+    // 標準の速さは /dmx/rgb/smooth で変えられる
+    c.handle_osc(&msg("/dmx/rgb/smooth", vec![Arg::Float(2.0)]));
+    assert_eq!(c.project.osc_rgb_secs, 2.0);
+    // 手で色を選んだら、OSCの色はやめる
+    c.apply_named_color(NamedColor::Green, ColorTarget::Main);
+    c.render();
+    assert!(c.rt.osc_rgb[0].is_none());
+    assert_eq!(c.role_rgb(ColorRole::Main), Some(NamedColor::Green.rgb()));
+    // /dmx/rgb/off でも戻る
+    c.handle_osc(&msg("/dmx/sub/rgb", vec![Arg::Float(1.0), Arg::Float(1.0), Arg::Float(0.0), Arg::Float(0.0)]));
+    c.render();
+    assert_eq!(c.role_rgb(ColorRole::Sub), Some([1.0, 1.0, 0.0]));
+    c.handle_osc(&msg("/dmx/rgb/off", vec![]));
+    c.render();
+    assert_eq!(c.role_rgb(ColorRole::Sub), Some(c.project.palette.sub));
+}
+
+#[test]
+fn osc_phrase_runs_bindings_or_recalls_a_scene_of_the_same_name() {
+    let mut c = core();
+    c.project.scenes.push(Scene { name: "サビ".into(), fade: 0.0, values: Vec::new() });
+    // 番号つき・大文字でも、日本語の名前のシーンを呼び出す
+    c.handle_osc(&msg("/dmx/phrase", vec![Arg::Str("Chorus".into())]));
+    assert_eq!(c.rt.last_scene.as_deref(), Some("サビ"));
+    assert_eq!(c.rt.phrase, "Chorus");
+    // /dmx/phrase/<名前> に割り当てた動作があれば、それを実行する(アドレスに名前を入れて送ってきても同じ)
+    c.project.bindings.push(Binding {
+        name: "intro".into(),
+        trigger: None,
+        action: Action::SetValue { sel: Selector::Fixture(SPOT), attr: "dimmer".into(), mode: PadMode::Toggle, on: 255.0, off: 0.0 },
+        page: None,
+        osc: Some("/dmx/phrase/intro".into()),
+    });
+    c.handle_osc(&msg("/dmx/phrase", vec![Arg::Str("intro".into())]));
+    assert_eq!(dimmer(&c), 255.0);
+    c.handle_osc(&msg("/dmx/phrase/verse2", vec![]));
+    assert_eq!(c.rt.phrase, "verse2");
+    // フレーズの終わりの0では何もしない
+    c.handle_osc(&msg("/dmx/phrase", vec![Arg::Str("intro".into()), Arg::Float(0.0)]));
+    assert_eq!(dimmer(&c), 255.0);
+}
+
+#[test]
+fn osc_rgb_at_reaches_the_lookahead_color_exactly_on_time() {
+    use crate::color::ColorRole;
+    let mut c = core();
+    c.handle_osc(&msg("/dmx/main/rgb", vec![Arg::Float(1.0), Arg::Float(0.0), Arg::Float(0.0), Arg::Float(0.0)]));
+    c.render();
+    // 1秒後に青: 0.5秒たてば半分
+    c.handle_osc(&msg("/dmx/main/rgb/at", vec![Arg::Float(0.0), Arg::Float(0.0), Arg::Float(1.0), Arg::Float(1.0)]));
+    let o = c.rt.osc_rgb[0].as_mut().unwrap();
+    o.last -= Duration::from_millis(500);
+    o.due = o.due.map(|d| d - Duration::from_millis(500));
+    c.render();
+    let [r, _, b] = c.role_rgb(ColorRole::Main).unwrap();
+    assert!((r - 0.5).abs() < 0.02 && (b - 0.5).abs() < 0.02, "{r} {b}");
+    // 着く時刻を過ぎたら、ちょうどその色のまま
+    let o = c.rt.osc_rgb[0].as_mut().unwrap();
+    o.last -= Duration::from_secs(2);
+    o.due = o.due.map(|d| d - Duration::from_secs(2));
+    c.render();
+    assert_eq!(c.role_rgb(ColorRole::Main), Some([0.0, 0.0, 1.0]));
+}
+
+#[test]
+fn osc_level_scales_the_overall_brightness() {
+    let mut c = core();
+    c.handle_osc(&msg("/dmx/fixture/1/dimmer", vec![Arg::Float(1.0)]));
+    let out = |c: &mut Core| {
+        c.render();
+        let i = c.project.fixture_index(SPOT).unwrap();
+        let fx = &c.project.fixtures[i];
+        let info = c.lib.info(&fx.profile, fx.mode).unwrap();
+        let ch = info.master[0];
+        c.rt.frames[fx.universe][fx.address as usize - 1 + ch] as f32
+    };
+    assert_eq!(out(&mut c), 255.0);
+    // 効き具合100%: 0.5 で半分。すぐ(速さ0)
+    c.handle_osc(&msg("/dmx/level/depth", vec![Arg::Float(1.0)]));
+    c.handle_osc(&msg("/dmx/level", vec![Arg::Float(0.5), Arg::Float(0.0)]));
+    assert!((out(&mut c) - 127.5).abs() <= 1.0);
+    // 効き具合50%: 0 でも半分まで
+    c.handle_osc(&msg("/dmx/level/depth", vec![Arg::Float(0.5)]));
+    c.handle_osc(&msg("/dmx/level", vec![Arg::Float(0.0), Arg::Float(0.0)]));
+    assert!((out(&mut c) - 127.5).abs() <= 1.0);
+    // 先読み: 1秒後に1.0 → 0.5秒で中間
+    c.handle_osc(&msg("/dmx/level/at", vec![Arg::Float(1.0), Arg::Float(1.0)]));
+    let o = c.rt.osc_level.as_mut().unwrap();
+    o.last -= Duration::from_millis(500);
+    o.due = o.due.map(|d| d - Duration::from_millis(500));
+    let v = out(&mut c);
+    assert!((v - 191.0).abs() <= 3.0, "{v}");
+    // やめると元の明るさ
+    c.handle_osc(&msg("/dmx/level/off", vec![]));
+    assert_eq!(out(&mut c), 255.0);
+}
+
+#[test]
+fn auto_idles_in_pale_blue_without_song_info_and_follows_phrases_with_it() {
+    let mut c = core();
+    c.project.auto.enabled = true;
+    c.handle_osc(&msg("/dmx/fixture/1/dimmer", vec![Arg::Float(1.0)]));
+    let dim_out = |c: &mut Core| {
+        // 出力の刻みを0.5秒ずつ進めて描く
+        c.rt.last_beat_t = Some(Instant::now() - Duration::from_millis(500));
+        c.render();
+        let i = c.project.fixture_index(SPOT).unwrap();
+        let fx = &c.project.fixtures[i];
+        let info = c.lib.info(&fx.profile, fx.mode).unwrap();
+        c.rt.frames[fx.universe][fx.address as usize - 1 + info.master[0]] as f32
+    };
+    // 曲の情報が無い: 待機(明るさ35%)へなめらかに
+    for _ in 0..5 {
+        dim_out(&mut c);
+    }
+    assert!(!c.auto_online());
+    assert_eq!(c.rt.idle_mix, 1.0);
+    assert!((dim_out(&mut c) - 255.0 * 0.35).abs() <= 1.0);
+    // フレーズが届いた: 本番へ。割り当ても無いので組み込みの動き(サビ = クロス)
+    c.handle_osc(&msg("/dmx/phrase", vec![Arg::Str("chorus".into())]));
+    for _ in 0..5 {
+        dim_out(&mut c);
+    }
+    assert!(c.auto_online());
+    assert_eq!(c.rt.idle_mix, 0.0);
+    assert_eq!(c.project.motion.shape, crate::motion::Shape::Cross);
+    assert!(c.project.palette.auto);
+    assert_eq!(dim_out(&mut c), 255.0);
+    // 届かなくなった: 待機に戻り、ムービングは止まる
+    c.rt.auto_last = Some(Instant::now() - Duration::from_secs(10));
+    for _ in 0..5 {
+        dim_out(&mut c);
+    }
+    assert_eq!(c.rt.idle_mix, 1.0);
+    assert_eq!(c.project.motion.shape, crate::motion::Shape::Still);
+    // オートを切れば、待機の色にはならない
+    c.project.auto.enabled = false;
+    for _ in 0..5 {
+        dim_out(&mut c);
+    }
+    assert_eq!(dim_out(&mut c), 255.0);
+}
+
+#[test]
+fn auto_yields_to_the_operator_rotates_by_energy_and_accents_the_drop() {
+    use crate::motion::Shape;
+    let mut c = core();
+    c.project.auto.enabled = true;
+    let tick = |c: &mut Core| {
+        c.rt.last_beat_t = Some(Instant::now() - Duration::from_millis(500));
+        c.render();
+    };
+    // ビルドアップ → サビ: サビの頭の1拍だけ全開(今の色)
+    c.handle_osc(&msg("/dmx/phrase", vec![Arg::Str("up".into())]));
+    tick(&mut c);
+    c.handle_osc(&msg("/dmx/phrase", vec![Arg::Str("chorus".into())]));
+    assert_eq!(c.rt.flash, Some(false));
+    for _ in 0..4 {
+        tick(&mut c);
+    }
+    assert_eq!(c.rt.flash, None, "1拍で戻る");
+
+    // 手動優先: MIDIで操作したら、フレーズ・色が来ても変えない。待機にもならない
+    c.handle_midi(MidiMsg { kind: TriggerKind::Cc, channel: 0, number: 99, value: 10 });
+    assert!(c.manual_active());
+    c.handle_osc(&msg("/dmx/phrase", vec![Arg::Str("intro".into())]));
+    assert_eq!(c.project.motion.shape, Shape::Cross, "サビのまま");
+    c.handle_osc(&msg("/dmx/main/rgb", vec![Arg::Float(1.0), Arg::Float(0.0), Arg::Float(0.0)]));
+    assert!(c.rt.osc_rgb[0].is_none());
+    c.rt.auto_last = Some(Instant::now() - Duration::from_secs(10));
+    tick(&mut c);
+    assert_eq!(c.rt.idle_mix, 0.0);
+    // 手動優先が終わったら、オートに戻る
+    c.rt.manual_last = Some(Instant::now() - Duration::from_secs(1000));
+    for _ in 0..4 {
+        tick(&mut c);
+    }
+    assert!(c.rt.idle_mix > 0.9);
+
+    // フレーズが来ない曲: 盛り上がり(明るさ)で16拍ごとに選ぶ
+    c.rt.phrase_beat = None;
+    c.rt.energy = 0.2;
+    c.handle_osc(&msg("/dmx/level", vec![Arg::Float(0.2), Arg::Float(0.0)]));
+    tick(&mut c);
+    assert_eq!(c.rt.auto_key, "down");
+    c.rt.energy = 0.9;
+    c.handle_osc(&msg("/dmx/level", vec![Arg::Float(0.9), Arg::Float(0.0)]));
+    c.rt.beat += 16.0;
+    tick(&mut c);
+    assert_eq!(c.rt.auto_key, "chorus");
+    assert_eq!(c.project.motion.shape, Shape::Cross);
+}
+
+#[test]
+fn phrase_presets_decide_motion_color_brightness_scene_and_effects() {
+    use crate::motion::{Shape, Spread};
+    let mut c = core();
+    c.project.auto.enabled = true;
+    c.project.effects.push(Effect::new("ゆれ", "dimmer"));
+    c.project.effects.push(Effect::new("つぶ", "dimmer"));
+    c.project.scenes.push(Scene { name: "青".into(), fade: 0.0, values: Vec::new() });
+    // 自分のプリセット: イントロは暗めで波形の色を使わない、サビは「青」のシーンと2つのエフェクト
+    let mut p = AutoPreset::standard();
+    p.name = "自分用".into();
+    p.looks.insert("intro".into(), PhraseLook { brightness: 0.3, wave_color: false, effects: vec!["ゆれ".into()], ..PhraseLook::new(Shape::PanSweep, 4.0, Spread::Sync, ColorMove::Keep, 4.0, 0.3) });
+    p.looks.insert("chorus".into(), PhraseLook { scene: "青".into(), effects: vec!["つぶ".into()], ..PhraseLook::new(Shape::Random, 1.0, Spread::Fan, ColorMove::Swap, 1.0, 1.0) });
+    c.project.auto.presets.push(p);
+    c.project.auto.preset = c.project.auto.presets.len() - 1;
+
+    c.handle_osc(&msg("/dmx/phrase", vec![Arg::Str("intro".into())]));
+    assert_eq!(c.project.motion.shape, Shape::PanSweep);
+    assert_eq!(c.project.motion.spread, Spread::Sync);
+    assert!(c.rt.wave_color_off);
+    c.handle_osc(&msg("/dmx/main/rgb", vec![Arg::Float(1.0), Arg::Float(0.0), Arg::Float(0.0)]));
+    assert!(c.rt.osc_rgb[0].is_none(), "波形の色を使わないフレーズ");
+    assert!(c.project.effects.iter().find(|e| e.name == "ゆれ").unwrap().enabled);
+    assert_eq!(c.rt.auto_bright.unwrap().target, [0.3]);
+
+    c.handle_osc(&msg("/dmx/phrase", vec![Arg::Str("chorus".into())]));
+    assert_eq!(c.project.motion.shape, Shape::Random);
+    assert_eq!(c.rt.last_scene.as_deref(), Some("青"));
+    assert!(!c.project.effects.iter().find(|e| e.name == "ゆれ").unwrap().enabled, "前のフレーズでONにしたものはOFFに戻る");
+    assert!(c.project.effects.iter().find(|e| e.name == "つぶ").unwrap().enabled);
+    assert!(c.project.palette.auto);
+    assert!(!c.rt.wave_color_off);
+    // 古い保存ファイル(プリセットが無い)は、標準と激しめで始まる
+    let old: AutoCfg = serde_json::from_str("{\"enabled\": true}").unwrap();
+    assert_eq!(old.presets.len(), 2);
+    assert_eq!(old.presets[0].looks.len(), PHRASES.len());
+}

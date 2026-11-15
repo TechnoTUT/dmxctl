@@ -1,0 +1,14 @@
+# Beat Link Trigger を、モニターの無いPCで動かす(仮想の画面 Xvfb の中で)。systemd のユーザーサービス。
+# 設定(トリガー・Show)は VNC で仮想の画面に入って行う(README の「モニターの無いLinuxでオート」)
+[Unit]
+Description=Beat Link Trigger (virtual display)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=%h/dmxctl/blt-headless.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

@@ -7,6 +7,7 @@ TouchDesignerのような重い映像ソフトと同じPCで動かすことを�
 - **出力**: USB-DMX(FT232系 / Open DMX方式)と Art-Net。複数の出力を同時に使えます
 - **内蔵の機材**: MINI SPOT 30(9ch/11ch)、LASER SCAN 300(17ch)、汎用LEDバー(RGBピクセル 1〜32ピクセル)。そのほかの機材も画面で定義を作れます
 - **テンポ**: TAP・Ableton Link・MIDIクロック・音声からの自動検出。エフェクトやチェイスは拍に合わせて動きます
+- **人がいなくても動く(オート)**: DJ機器(CDJ / XDJ)から Beat Link Trigger 経由で、テンポ・波形の色と大きさ・曲の構成(フレーズ)を受け取り、照明を**自分で判断して**動かします。モニターの無いLinuxに置いて電源を入れるだけで常駐し、曲が止まれば薄い水色で待機、人が操作すればそちらを優先します([オート](#オート曲の情報で自動無ければ待機の色) / [モニターの無いLinuxでオート](#モニターの無いlinuxでオートblt-と一緒に常駐))
 
 ## もくじ
 
@@ -431,12 +432,147 @@ DMXで **RGBRGBRGB…** とピクセルが並んでいるLEDバーを扱えま�
 | `/dmx/color s` / `/dmx/hue f` | 色(`赤` / `red` など)/ 色相(0〜1で一周)。全体/個別スイッチに従う |
 | `/dmx/main s` / `/dmx/sub s` | メイン色 / サブ色(`/dmx/main/hue f`・`/dmx/sub/hue f` で色相) |
 | `/dmx/swap` / `/dmx/swap/auto f` | メイン⇄サブ入れ替え / 拍で自動入れ替え(1/0) |
+| `/dmx/main/rgb f f f [秒]` / `/dmx/sub/rgb f f f [秒]` | メイン色 / サブ色をRGBで(0〜1。0〜255でもよい)。受けた色へ**なめらかに**近づく。4つ目の数値で近づく速さ(秒) |
+| `/dmx/main/rgb/at f f f 秒` / `/dmx/sub/rgb/at …` | 先読みした色: その秒数後に**ちょうどその色**になるよう、まっすぐ近づく(遅れを打ち消す用。Beat Link Trigger の例を参照) |
+| `/dmx/rgb/smooth f` / `/dmx/rgb/off` | RGBで受けた色へ近づく標準の速さ(秒。0ですぐ。画面でも変えられる)/ RGBの色をやめてパレットの色に戻す |
+| `/dmx/level f [秒]` / `/dmx/level/at f 秒` | 明るさ(0〜1。波形の大きさなど)。全体光量に掛ける。色と同じく、なめらかに / 先読みで近づく |
+| `/dmx/level/depth f` / `/dmx/level/off` | 明るさの効き具合(0=効かない〜1=0のとき真っ暗。標準 0.7。画面でも変えられる)/ やめる |
+| `/dmx/phrase s` | 曲のフレーズ(`intro` / `verse` / `chorus` / `bridge` / `up` / `down` / `outro`)。下の [Beat Link Trigger との連携](#beat-link-trigger-との連携) を参照 |
 | `/dmx/effect s f` / `/dmx/chase s f` | エフェクト / チェイスのON/OFF(名前, 1/0) |
 | `/dmx/page i` | パッドのページ(1〜8) |
 | `/dmx/fixture/<ID>/<機能> f` | 機材1台のチャンネル(0〜1)。例 `/dmx/fixture/1/dimmer` |
 | `/dmx/all/<機能> f` | 全機材のチャンネル(0〜1)。例 `/dmx/all/pan` |
 
 - バンドル(`#bundle`)にも対応。OSCを連続で受けていても、画面の更新は0.25秒に1回までに抑えています
+- RGBで受けた色は保存しません。パッドや画面で手で色を選ぶと、そちらが効きます(RGBの受信はやめた扱い)。NDIの色を使っている系統では、NDIの色が優先です
+
+### Beat Link Trigger との連携
+
+[Beat Link Trigger](https://github.com/Deep-Symmetry/beat-link-trigger)(BLT)を使うと、CDJ / XDJ などのDJ機器から、テンポ・波形の色・曲の構成(フレーズ)を受け取って照明に使えます。
+
+- **テンポ**: BLT の Ableton Link の機能でマスタープレイヤーのテンポと拍を Link に流し、このアプリのテンポの元を「Ableton Link」にします([テンポの同期](#テンポの同期))
+- **波形の色 → メイン色**: BLT から、**少し先の位置**の波形の色を `/dmx/main/rgb/at r g b 秒` で送ります。このアプリは「その秒数後にちょうどその色」になるよう、まっすぐ色を変えていきます。BLT が状態を受ける間隔(約0.2秒)・ネットワーク・照明の反応の遅れを先読みで打ち消すので、曲と色がずれません。次の色が届くと、そこからまたつながるので、途切れずになめらかに変わります
+  - 先読みしない `/dmx/main/rgb` でも使えます(受けた色へなめらかに近づく。そのぶん少し遅れます)
+- **波形の大きさ → 明るさ**: 同じように `/dmx/level/at 大きさ 秒` で送ると、曲の大きい所で明るく、静かな所で暗くなります(全体光量に掛ける)。どこまで暗くするかは「MIDI/OSC」タブの「効き具合」(標準70%。100%なら無音で真っ暗)
+- **フレーズ → 照明の切り替え**: BLT から `/dmx/phrase` にフレーズの名前を送ります。次のどちらかが動きます
+  1. `/dmx/phrase/<名前>` を OSC アドレスに付けた割り当て(例: `/dmx/phrase/chorus` にストロボのパッドの動作)。OSCラーンで、BLT から1回送って登録してもよい
+  2. 割り当てが無ければ、オートのプリセットの見た目([オート](#オート曲の情報で自動無ければ待機の色))と、同じ名前のシーン。英語(`chorus`)でも日本語(`サビ`・`イントロ`・`バース`・`ブリッジ`・`アップ`・`ダウン`・`アウトロ`)でもよい。`verse2` のような番号つきは `verse` / `バース` として扱います
+- 「MIDI/OSC」タブに、受けているRGBの色と、最後に受けたフレーズが出ます
+
+BLT 側の設定例です(BLT の式は Clojure。関数の名前などは BLT のバージョンで変わることがあるので、BLT のドキュメントの「Expressions」「Shows」も見てください)。
+
+```clojure
+;; トリガーの Global Setup: OSCの送り先(このアプリのPCのIPとポート)
+(swap! globals assoc :dmx (osc/osc-client "127.0.0.1" 9000))
+
+;; トリガーの Tracked Update(再生中、状態が届くたび。Watch は Master Player に)
+;; 遅れを打ち消すため、LEAD 秒先の波形の色を読み、「LEAD 秒後にこの色」として送る
+(let [lead   0.3     ; 先読みする秒数(状態が届く間隔 約0.2秒 より長く)
+      light  0.05    ; 照明が遅れて光るぶん(DMXの送信・機材の反応。秒)
+      n      (.getDeviceNumber status)
+      ms     (.getTimeFor (org.deepsymmetry.beatlink.data.TimeFinder/getInstance) n)
+      speed  (org.deepsymmetry.beatlink.Util/pitchToMultiplier (.getPitch status))
+      detail (.getLatestDetailFor (org.deepsymmetry.beatlink.data.WaveformFinder/getInstance) n)]
+  (when (and detail (.isPlaying status) (pos? ms))
+    ;; 曲の中の時間は再生速度(ピッチ)のぶん速く進むので、先読みする量も速度を掛ける
+    (let [ahead (+ ms (* lead 1000 speed))
+          start (org.deepsymmetry.beatlink.Util/timeToHalfFrame ahead)
+          segs  (range (max 0 (- start 8)) (min (+ start 8) (.getFrameCount detail)))  ; その前後 約0.1秒を平均
+          cols  (map #(.segmentColor detail % false) segs)
+          avg   (fn [f] (/ (reduce + (map f cols)) (max 1 (count cols)) 255.0))
+          ;; 波形の高さ(0〜31)の平均を 0〜1 に
+          size  (/ (reduce + (map #(.segmentHeight detail % false) segs)) (max 1 (count segs)) 31.0)]
+      (when (seq cols)
+        (osc/osc-send (:dmx @globals) "/dmx/main/rgb/at"
+                      (float (avg #(.getRed %))) (float (avg #(.getGreen %))) (float (avg #(.getBlue %)))
+                      (float (- lead light)))
+        (osc/osc-send (:dmx @globals) "/dmx/level/at" (float (min 1.0 size)) (float (- lead light)))))))
+```
+
+フレーズは、BLT の **Show** に **Phrase Trigger** を作り(サビ用・イントロ用など)、その「Started」の式で送ります。
+
+```clojure
+(osc/osc-send (:dmx @globals) "/dmx/phrase" "chorus")
+```
+
+- 波形の色は rekordbox で解析した曲の「RGB(カラー)波形」から取ります。3バンド波形の曲では色の意味が変わります
+- 波形の色は暗い所・白っぽい所もあるので、鮮やかな色にしたいときは BLT の式で彩度・明るさを上げてから送ってください
+
+### オート(曲の情報で自動、無ければ待機の色)
+
+**オート** タブでオートをONにすると、人が操作しなくても照明が動きます。
+
+- **曲の情報が届いている間**(BLT から `/dmx/main/rgb`・`/dmx/level`・`/dmx/phrase` のどれかが来ている間): 波形の色・大きさで色と明るさが変わり、フレーズで見た目が切り替わります。テンポは Ableton Link
+- **フレーズのプリセット**: イントロ・バース・ブリッジ・ビルドアップ・サビ・ダウン・アウトロのそれぞれで、どう動くかを **オート** タブの表で決めます。フレーズが届くと、その行の見た目になります
+
+  | 項目 | 内容 |
+  |---|---|
+  | 動き・1周・揃え方・向き | ムービングの動き(形・1周の長さ・揃え方・向き)。[ムービングの動き](#ムービングの動き) と同じもの |
+  | 色・色の間隔 | メイン/サブ色を、そのまま / 拍で入れ替え / グラデーション、とその間隔 |
+  | 明るさ | 全体光量に掛ける(イントロは暗め、サビは100% など。1秒かけて変わる) |
+  | 波形の色 | OFFにすると、そのフレーズの間は波形の色を使わずパレットの色のまま |
+  | 入った瞬間(全開) | そのフレーズに入った瞬間、1拍だけ今の色で全開(レーザーは除く) |
+  | シーン | 呼び出すシーン |
+  | エフェクト | ONにするエフェクト・チェイス・ピクセルエフェクト。次のフレーズで、そこに無いものはOFFに戻す |
+
+  - **プリセットはいくつでも**作れます(複製・名前の変更・削除)。見本として「標準」(盛り上がるほど速く大きく、静かなところはゆっくり暗め)と「激しめ」が入っています。使うプリセットを選び替えれば、曲調やイベントに合わせて全体の雰囲気を変えられます
+  - 「**試す**」で、オートがOFFでもすぐその見た目にできます(現場で確かめながら作れます)。今のフレーズの行には ● が付きます
+  - `/dmx/phrase/<名前>` に割り当てがあるフレーズは、そちらが優先です。プリセットでシーンを選んでいないフレーズでは、フレーズと同じ名前のシーン(`サビ` など)があれば、それも呼び出します
+
+- **フレーズの情報が来ない曲**(rekordbox でフレーズを解析していない曲など): 16拍ごとに、波形の大きさ(`/dmx/level` を数秒ならした「盛り上がり」)で見た目を選びます(大きい: サビ / 中くらい: バース / 小さい: ダウン)
+- **手動優先**: MIDIコントローラー・キーボードで操作したら、その後2分間(設定で変更、0でなし)はオートが照明を変えません(フレーズ・色・明るさ・待機の色)。操作をやめると戻ります。画面の「オートに戻す」ですぐ戻せます。画面のクリックは数えません
+- **届かなくなったら**(DJ機器が止まった・BLTやDJ機器がつながっていない。既定で5秒): 全体を **薄い水色**(明るさ35%)でなめらかに光らせて待ちます。ムービングは止まり、レーザーは出しません。色・明るさ・待つ秒数は画面で変えられます。全体光量のフェーダーとブラックアウトは待機中も効きます
+
+### モニターの無いLinuxでオート(BLT と一緒に常駐)
+
+照明卓用の小さなPCに、DJ機器と同じネットワークでつないで置いておくだけで、電源を入れれば自動で動く構成です。
+
+```
+CDJ / XDJ ──(Pro DJ Link・LAN)── Linux PC ──(USB-DMX または Art-Net)── 照明
+                                  ├ Beat Link Trigger(仮想の画面の中)
+                                  │   ├ テンポ・拍 → Ableton Link
+                                  │   └ 波形の色・大きさ・フレーズ → OSC(127.0.0.1:9000)
+                                  └ dmxctl --headless(オート)
+```
+
+- `dmxctl --headless`: 画面を出さずに動きます(モニター・X11・SDL2 は不要)。起動すると、OSC受信・テンポの元(Ableton Link)・オートを必ずONにします。様子は標準出力に出ます(待機/受信中・フレーズ・BPM・Linkの台数)
+- Beat Link Trigger は画面のあるアプリなので、仮想の画面(Xvfb)の中で動かします。画面を出さずに動く [Open Beat Control](https://github.com/Deep-Symmetry/open-beat-control) もありますが、波形・フレーズは扱えないので、ここでは BLT を使います
+
+**準備**
+
+1. 照明の設定(機材・出力・シーン)は、画面のあるPC(または同じPCをモニターにつないで)で作り、`~/.config/dmxctl/` をこのPCにコピーします。フレーズごとの動きは **オート** タブのプリセットで決めておきます(シーン・エフェクトも選べます)
+2. このPCで `./scripts/build-linux.sh`(または Release の tar.gz の `dmxctl` を `dist/linux/` に置く)
+3. BLT の公式の `.deb` を入れます(`sudo apt install ./beat-link-trigger_*.deb`)。入った場所が `/opt/beat-link-trigger/bin/Beat Link Trigger` でなければ、`~/dmxctl/blt.env` に `BLT_CMD="起動コマンドの場所"` と書きます
+4. `./scripts/linux/install-headless.sh` で、dmxctl と BLT を電源を入れたら動くようにします(ユーザーのサービス。`--no-blt` なら dmxctl だけ)。USB-DMX のグループに入ったときは、一度再起動してください
+
+**BLT の設定(最初に1回)**
+
+仮想の画面に VNC で入って設定します。設定は BLT が覚えていて、次からはそのまま動きます。
+
+1. このPCで、VNC つきで BLT を起動し直します
+
+   ```
+   systemctl --user stop beat-link-trigger
+   BLT_VNC=1 ~/dmxctl/blt-headless.sh
+   ```
+
+2. 手元のPCから `ssh -L 5900:localhost:5900 ユーザー@このPC` でつなぎ、VNC ビューアで `localhost:5900` を開きます
+3. BLT で次を設定します
+   - Ableton Link: マスタープレイヤーのテンポと拍を Link に流す設定にする(BLT のバージョンによっては Carabiner を別に入れる必要があります)
+   - トリガーを1つ作り、Watch を Master Player に。Global Setup と Tracked Update に [Beat Link Trigger との連携](#beat-link-trigger-との連携) の式を入れる(波形の色・大きさを先読みで送る)
+   - フレーズを使うなら、Show に Phrase Trigger を作り、Started で `/dmx/phrase` を送る
+4. BLT を終了して(設定が保存されます)、端末で Ctrl+C。`systemctl --user start beat-link-trigger` で元に戻します
+
+**動かしているときの確認**
+
+```
+journalctl --user -u dmxctl-headless -f
+```
+
+`待機(薄い水色)` → DJ機器が曲を再生すると `曲の情報を受信中(フレーズ: chorus)` のように変わります。
+
+- 止める: `systemctl --user stop dmxctl-headless`(安全な値を送ってから止まります)。設定を画面で直したいときは、止めてから画面のあるほうで起動します
+- DJ機器と同じネットワークにつなぐこと(BLT は rekordbox と同じPCでは動かせません)
 
 ## バックアップ
 

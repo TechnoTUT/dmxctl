@@ -40,6 +40,7 @@ pub enum Tab {
     Pairs,
     Laser,
     Keys,
+    Auto,
     Scenes,
     Effects,
     Sequence,
@@ -49,13 +50,14 @@ pub enum Tab {
 }
 
 /// タブ。先頭の`LIVE_TABS`個が本番で使う画面、残りが準備・設定
-const TABS: [(Tab, &str); 13] = [
+const TABS: [(Tab, &str); 14] = [
     (Tab::Map, "MIDI"),
     (Tab::Keys, "キーボード"),
     (Tab::Control, "コントロール"),
     (Tab::Effects, "エフェクト"),
     (Tab::Scenes, "シーン"),
     (Tab::Sequence, "BPM/チェイス"),
+    (Tab::Auto, "オート"),
     (Tab::Pairs, "ペア"),
     (Tab::Laser, "レーザー"),
     (Tab::Patch, "パッチ"),
@@ -64,7 +66,7 @@ const TABS: [(Tab, &str); 13] = [
     (Tab::Midi, "MIDI設定"),
     (Tab::Monitor, "モニター"),
 ];
-const LIVE_TABS: usize = 7;
+const LIVE_TABS: usize = 8;
 
 pub const RED: Color32 = crate::theme::DANGER;
 pub const WARN: Color32 = crate::theme::WARN;
@@ -637,6 +639,7 @@ impl App {
             Tab::Pairs => self.tab_pairs(ui),
             Tab::Laser => self.tab_laser(ui),
             Tab::Keys => self.tab_keys(ui),
+            Tab::Auto => self.tab_auto(ui),
             Tab::Scenes => self.tab_scenes(ui),
             Tab::Effects => self.tab_effects(ui),
             Tab::Sequence => self.tab_sequence(ui),
@@ -656,6 +659,52 @@ impl App {
         self.ui_timed(ui);
         if let Some(s) = self.shot.as_mut() {
             s.tick(ui.ctx());
+        }
+    }
+
+    /// 画面を出さずに動かす(`dmxctl --headless`)。モニターの無いPCで、Beat Link Triggerと一緒に置いてオートで動かす用。
+    /// OSC受信・テンポの元(Ableton Link)・オートを必ずONにする。終了は SIGTERM / Ctrl+C(安全な値を送ってから終わる)
+    pub fn run_headless() -> ! {
+        let ctx = egui::Context::default();
+        let mut app = App::new(&ctx, true);
+        let port = {
+            let mut c = lock(&app.core);
+            c.project.osc_enabled = true;
+            c.project.tempo_source = TempoSource::Link;
+            c.project.auto.enabled = true;
+            c.dirty = true;
+            c.project.osc_port
+        };
+        app.apply_services();
+        if !app.notice.is_empty() {
+            eprintln!("{}", app.notice);
+        }
+        println!("dmxctl: 画面なしで起動しました(設定: {} / OSC受信ポート {port} / テンポ: Ableton Link / オート: ON)", app.project_path.display());
+        let mut last = String::new();
+        let mut beat_report = Instant::now();
+        loop {
+            std::thread::sleep(Duration::from_millis(250));
+            app.autosave();
+            let (ndi_on, state, bpm, peers, osc) = {
+                let c = lock(&app.core);
+                let state = if c.manual_active() {
+                    "手動優先(MIDI・キーボードで操作中)".to_string()
+                } else if c.auto_online() {
+                    format!("曲の情報を受信中(フレーズ: {} / 見た目: {})", if c.rt.phrase.is_empty() { "-" } else { &c.rt.phrase }, if c.rt.auto_key.is_empty() { "-" } else { &c.rt.auto_key })
+                } else {
+                    "待機(薄い水色)".to_string()
+                };
+                (c.project.ndi.enabled, state, c.project.bpm, c.rt.link_peers, c.rt.osc_status.clone())
+            };
+            if ndi_on != app.ndi.is_some() {
+                app.ndi = ndi_on.then(|| crate::ndi::NdiService::start(app.core.clone(), None));
+            }
+            // 状態が変わったときと、1分ごとに知らせる(journalctl で見られる)
+            if state != last || beat_report.elapsed() > Duration::from_secs(60) {
+                println!("{state} / BPM {bpm:.1} / Link {peers}台 / OSC {osc}");
+                last = state;
+                beat_report = Instant::now();
+            }
         }
     }
 
