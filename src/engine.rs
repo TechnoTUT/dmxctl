@@ -560,6 +560,9 @@ pub struct OscRgb {
     pub current: [f32; 3],
     /// 近づける速さ(秒。だいたいこの時間で6割ほど近づく。0ならすぐ)
     pub secs: f32,
+    /// この時刻にちょうど target になるよう、まっすぐ近づける(/dmx/main/rgb/at。先読みした色を遅れなく出す)。
+    /// None なら secs の速さで近づく
+    pub due: Option<Instant>,
     pub last: Instant,
 }
 
@@ -567,8 +570,14 @@ impl OscRgb {
     /// `now`まで進めた今の色
     pub fn step(&mut self, now: Instant) -> [f32; 3] {
         let dt = now.saturating_duration_since(self.last).as_secs_f32();
+        let remain = self.due.map(|d| d.saturating_duration_since(self.last).as_secs_f32());
         self.last = now;
-        let k = if self.secs <= 0.0 { 1.0 } else { 1.0 - (-dt / self.secs).exp() };
+        let k = match remain {
+            // 着く時刻までの残りのうち、今回進んだぶんだけ近づく(着く時刻を過ぎたらその色)
+            Some(r) => if r <= dt { 1.0 } else { dt / r },
+            None if self.secs <= 0.0 => 1.0,
+            None => 1.0 - (-dt / self.secs).exp(),
+        };
         for c in 0..3 {
             self.current[c] += (self.target[c] - self.current[c]) * k;
         }

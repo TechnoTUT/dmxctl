@@ -62,6 +62,7 @@ pub const ADDRESSES: &[(&str, &str)] = &[
     ("/dmx/main  s", "メイン色(色の名前)。/dmx/main/hue f で色相"),
     ("/dmx/sub  s", "サブ色(色の名前)。/dmx/sub/hue f で色相"),
     ("/dmx/main/rgb  f f f [秒]", "メイン色をRGBで(0〜1。0〜255でもよい)。受けた色へなめらかに近づける。4つ目の数値で速さ(秒)。/dmx/sub/rgb はサブ色"),
+    ("/dmx/main/rgb/at  f f f 秒", "先読みした色: その秒数後にちょうどこの色になるよう、まっすぐ近づける(遅れなく出すため。/dmx/sub/rgb/at も)"),
     ("/dmx/rgb/smooth  f", "RGBで受けた色へ近づける速さ(秒。0ですぐ。標準 0.5)"),
     ("/dmx/rgb/off", "RGBで受けた色をやめて、パレットの色に戻す(手で色を選んでも戻る)"),
     ("/dmx/phrase  s", "曲のフレーズ(intro / verse / chorus / bridge / up / down / outro)。/dmx/phrase/<名前> に割り当てた動作を実行、無ければ同じ名前のシーンを呼び出す"),
@@ -339,13 +340,19 @@ impl Core {
                     self.apply_named_color(c, if *slot == "main" { ColorTarget::Main } else { ColorTarget::Sub });
                 }
             }
-            [slot @ ("main" | "sub"), "rgb"] => {
+            [slot @ ("main" | "sub"), "rgb", rest @ ..] if rest.is_empty() || rest == ["at"] => {
                 let nums: Vec<f32> = m.args.iter().filter_map(|a| a.num()).collect();
-                if let [r, g, b, rest @ ..] = nums.as_slice() {
+                if let [r, g, b, more @ ..] = nums.as_slice() {
                     // 0〜255で送ってくるものもある(どれかが1より大きければ0〜255とみなす)
                     let scale = if [r, g, b].iter().any(|v| **v > 1.0) { 255.0 } else { 1.0 };
                     let rgb = [r, g, b].map(|v| (v / scale).clamp(0.0, 1.0));
-                    self.osc_rgb(if *slot == "main" { 0 } else { 1 }, rgb, rest.first().copied());
+                    let slot = if *slot == "main" { 0 } else { 1 };
+                    if rest.is_empty() {
+                        self.osc_rgb(slot, rgb, more.first().copied(), None);
+                    } else {
+                        // /rgb/at r g b 秒: 先読みした色。その秒数後にちょうどその色になる(秒が無ければ0.3秒)
+                        self.osc_rgb(slot, rgb, None, Some(more.first().copied().unwrap_or(0.3)));
+                    }
                 }
             }
             ["rgb", "smooth"] => {

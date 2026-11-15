@@ -432,6 +432,7 @@ DMXで **RGBRGBRGB…** とピクセルが並んでいるLEDバーを扱えま�
 | `/dmx/main s` / `/dmx/sub s` | メイン色 / サブ色(`/dmx/main/hue f`・`/dmx/sub/hue f` で色相) |
 | `/dmx/swap` / `/dmx/swap/auto f` | メイン⇄サブ入れ替え / 拍で自動入れ替え(1/0) |
 | `/dmx/main/rgb f f f [秒]` / `/dmx/sub/rgb f f f [秒]` | メイン色 / サブ色をRGBで(0〜1。0〜255でもよい)。受けた色へ**なめらかに**近づく。4つ目の数値で近づく速さ(秒) |
+| `/dmx/main/rgb/at f f f 秒` / `/dmx/sub/rgb/at …` | 先読みした色: その秒数後に**ちょうどその色**になるよう、まっすぐ近づく(遅れを打ち消す用。Beat Link Trigger の例を参照) |
 | `/dmx/rgb/smooth f` / `/dmx/rgb/off` | RGBで受けた色へ近づく標準の速さ(秒。0ですぐ。画面でも変えられる)/ RGBの色をやめてパレットの色に戻す |
 | `/dmx/phrase s` | 曲のフレーズ(`intro` / `verse` / `chorus` / `bridge` / `up` / `down` / `outro`)。下の [Beat Link Trigger との連携](#beat-link-trigger-との連携) を参照 |
 | `/dmx/effect s f` / `/dmx/chase s f` | エフェクト / チェイスのON/OFF(名前, 1/0) |
@@ -447,7 +448,8 @@ DMXで **RGBRGBRGB…** とピクセルが並んでいるLEDバーを扱えま�
 [Beat Link Trigger](https://github.com/Deep-Symmetry/beat-link-trigger)(BLT)を使うと、CDJ / XDJ などのDJ機器から、テンポ・波形の色・曲の構成(フレーズ)を受け取って照明に使えます。
 
 - **テンポ**: BLT の Ableton Link の機能でマスタープレイヤーのテンポと拍を Link に流し、このアプリのテンポの元を「Ableton Link」にします([テンポの同期](#テンポの同期))
-- **波形の色 → メイン色**: BLT から `/dmx/main/rgb` に、再生位置の波形の色を送ります。細かく変わる色は、このアプリがなめらかにつなぎます(速さは「MIDI/OSC」タブの「RGBで受けた色へ近づける速さ」)
+- **波形の色 → メイン色**: BLT から、**少し先の位置**の波形の色を `/dmx/main/rgb/at r g b 秒` で送ります。このアプリは「その秒数後にちょうどその色」になるよう、まっすぐ色を変えていきます。BLT が状態を受ける間隔(約0.2秒)・ネットワーク・照明の反応の遅れを先読みで打ち消すので、曲と色がずれません。次の色が届くと、そこからまたつながるので、途切れずになめらかに変わります
+  - 先読みしない `/dmx/main/rgb` でも使えます(受けた色へなめらかに近づく。そのぶん少し遅れます)
 - **フレーズ → 照明の切り替え**: BLT から `/dmx/phrase` にフレーズの名前を送ります。次のどちらかが動きます
   1. `/dmx/phrase/<名前>` を OSC アドレスに付けた割り当て(例: `/dmx/phrase/chorus` にストロボのパッドの動作)。OSCラーンで、BLT から1回送って登録してもよい
   2. 割り当てが無ければ、同じ名前のシーン。英語(`chorus`)でも日本語(`サビ`・`イントロ`・`バース`・`ブリッジ`・`アップ`・`ダウン`・`アウトロ`)でもよい。`verse2` のような番号つきは `verse` / `バース` として扱います
@@ -460,18 +462,24 @@ BLT 側の設定例です(BLT の式は Clojure。関数の名前などは BLT �
 (swap! globals assoc :dmx (osc/osc-client "127.0.0.1" 9000))
 
 ;; トリガーの Tracked Update(再生中、状態が届くたび。Watch は Master Player に)
-;; 再生位置から約0.5秒先までの波形の色を平均して、メイン色として送る
-(let [n      (.getDeviceNumber status)
+;; 遅れを打ち消すため、LEAD 秒先の波形の色を読み、「LEAD 秒後にこの色」として送る
+(let [lead   0.3     ; 先読みする秒数(状態が届く間隔 約0.2秒 より長く)
+      light  0.05    ; 照明が遅れて光るぶん(DMXの送信・機材の反応。秒)
+      n      (.getDeviceNumber status)
       ms     (.getTimeFor (org.deepsymmetry.beatlink.data.TimeFinder/getInstance) n)
+      speed  (org.deepsymmetry.beatlink.Util/pitchToMultiplier (.getPitch status))
       detail (.getLatestDetailFor (org.deepsymmetry.beatlink.data.WaveformFinder/getInstance) n)]
-  (when (and detail (pos? ms))
-    (let [start (org.deepsymmetry.beatlink.Util/timeToHalfFrame ms)
-          segs  (range start (min (+ start 75) (.getFrameCount detail)))
+  (when (and detail (.isPlaying status) (pos? ms))
+    ;; 曲の中の時間は再生速度(ピッチ)のぶん速く進むので、先読みする量も速度を掛ける
+    (let [ahead (+ ms (* lead 1000 speed))
+          start (org.deepsymmetry.beatlink.Util/timeToHalfFrame ahead)
+          segs  (range (max 0 (- start 8)) (min (+ start 8) (.getFrameCount detail)))  ; その前後 約0.1秒を平均
           cols  (map #(.segmentColor detail % false) segs)
           avg   (fn [f] (/ (reduce + (map f cols)) (max 1 (count cols)) 255.0))]
       (when (seq cols)
-        (osc/osc-send (:dmx @globals) "/dmx/main/rgb"
-                      (float (avg #(.getRed %))) (float (avg #(.getGreen %))) (float (avg #(.getBlue %))))))))
+        (osc/osc-send (:dmx @globals) "/dmx/main/rgb/at"
+                      (float (avg #(.getRed %))) (float (avg #(.getGreen %))) (float (avg #(.getBlue %)))
+                      (float (- lead light)))))))
 ```
 
 フレーズは、BLT の **Show** に **Phrase Trigger** を作り(サビ用・イントロ用など)、その「Started」の式で送ります。

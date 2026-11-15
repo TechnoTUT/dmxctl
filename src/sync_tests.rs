@@ -440,3 +440,25 @@ fn osc_phrase_runs_bindings_or_recalls_a_scene_of_the_same_name() {
     c.handle_osc(&msg("/dmx/phrase", vec![Arg::Str("intro".into()), Arg::Float(0.0)]));
     assert_eq!(dimmer(&c), 255.0);
 }
+
+#[test]
+fn osc_rgb_at_reaches_the_lookahead_color_exactly_on_time() {
+    use crate::color::ColorRole;
+    let mut c = core();
+    c.handle_osc(&msg("/dmx/main/rgb", vec![Arg::Float(1.0), Arg::Float(0.0), Arg::Float(0.0), Arg::Float(0.0)]));
+    c.render();
+    // 1秒後に青: 0.5秒たてば半分
+    c.handle_osc(&msg("/dmx/main/rgb/at", vec![Arg::Float(0.0), Arg::Float(0.0), Arg::Float(1.0), Arg::Float(1.0)]));
+    let o = c.rt.osc_rgb[0].as_mut().unwrap();
+    o.last -= Duration::from_millis(500);
+    o.due = o.due.map(|d| d - Duration::from_millis(500));
+    c.render();
+    let [r, _, b] = c.role_rgb(ColorRole::Main).unwrap();
+    assert!((r - 0.5).abs() < 0.02 && (b - 0.5).abs() < 0.02, "{r} {b}");
+    // 着く時刻を過ぎたら、ちょうどその色のまま
+    let o = c.rt.osc_rgb[0].as_mut().unwrap();
+    o.last -= Duration::from_secs(2);
+    o.due = o.due.map(|d| d - Duration::from_secs(2));
+    c.render();
+    assert_eq!(c.role_rgb(ColorRole::Main), Some([0.0, 0.0, 1.0]));
+}
