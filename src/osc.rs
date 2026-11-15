@@ -220,9 +220,16 @@ impl Core {
     pub fn phrase(&mut self, name: &str) {
         self.note_live_input();
         self.rt.phrase = name.trim().to_string();
+        self.rt.phrase_beat = Some(self.rt.beat);
         let key = phrase_key(name);
+        // 手動優先の間は、覚えるだけで照明は変えない
+        if self.manual_active() {
+            return;
+        }
+
         let mut names = vec![name.trim().to_string(), key.clone()];
         names.extend(phrase_ja(&key).map(str::to_string));
+        names.extend(PHRASES.iter().find(|(k, _)| *k == key).map(|(_, ja)| ja.to_string()));
         names.dedup();
         let addrs: Vec<String> = names.iter().map(|n| format!("/dmx/phrase/{n}")).collect();
         let hits: Vec<usize> = self.project.bindings.iter().enumerate().filter(|(_, b)| b.osc.as_ref().is_some_and(|a| addrs.contains(a))).map(|(i, _)| i).collect();
@@ -233,12 +240,11 @@ impl Core {
             }
             return;
         }
+        // オートのプリセットの見た目。プリセットでシーンを選んでいなければ、フレーズと同じ名前のシーンも呼び出す
+        let preset_scene = self.auto_phrase(&key);
         let scene = self.project.scenes.iter().find(|s| names.iter().any(|n| s.name.eq_ignore_ascii_case(n))).map(|s| s.name.clone());
-        if let Some(s) = scene {
+        if let (false, Some(s)) = (preset_scene, scene) {
             self.recall_scene(&s);
-        } else {
-            // 割り当てもシーンも無ければ、オートの組み込みの動き
-            self.auto_phrase(&key);
         }
     }
 

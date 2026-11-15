@@ -142,6 +142,25 @@ pub struct Runtime {
     pub auto_was_online: bool,
     /// オート: 待機の見た目(薄い水色)の混ぜ具合(0=本番〜1=待機)
     pub idle_mix: f32,
+    /// オート: 最後にMIDIコントローラー・キーボードで操作した時刻(手動優先)
+    pub manual_last: Option<Instant>,
+    /// オート: 今使っている組み込みの動き(フレーズの名前)
+    pub auto_key: String,
+    /// オート: 最後にフレーズが届いたときの拍(フレーズの情報が来ない曲かどうか)
+    pub phrase_beat: Option<f64>,
+    /// オート: 盛り上がり(OSCの明るさを数秒でならしたもの。0〜1)と、最後に見た16拍のかたまり
+    pub energy: f32,
+    pub energy_block: i64,
+    /// オート: 最後に受けた明るさ(盛り上がりの元。手動優先の間も覚えておく)
+    pub energy_input: Option<f32>,
+    /// オート: サビに入った瞬間の全開を、この拍で戻す
+    pub accent_until: Option<f64>,
+    /// オート: プリセットの明るさ(全体光量に掛ける)
+    pub auto_bright: Option<OscGlide<1>>,
+    /// オート: プリセットで「波形の色を使わない」にしているフレーズの間
+    pub wave_color_off: bool,
+    /// オート: プリセットでONにしたエフェクト(次のフレーズでOFFに戻すため)
+    pub auto_fx: Vec<String>,
     /// 最後に受けたフレーズ(/dmx/phrase。Beat Link Triggerなどから)
     pub phrase: String,
     /// ムービングの動きの位置(1で1周)と、それを進めるための前回の拍
@@ -214,6 +233,16 @@ impl Runtime {
             auto_last: None,
             auto_was_online: false,
             idle_mix: 0.0,
+            manual_last: None,
+            auto_key: String::new(),
+            phrase_beat: None,
+            energy: 0.0,
+            energy_block: i64::MIN,
+            energy_input: None,
+            accent_until: None,
+            auto_bright: None,
+            wave_color_off: false,
+            auto_fx: Vec::new(),
             phrase: String::new(),
             motion_phase: 0.0,
             motion_beat: None,
@@ -419,7 +448,9 @@ impl Core {
         // 暗転フェードと機材ごとの明るさ(フェーダー)も、全体光量と同じところにかける
         // OSCで受けた明るさ(波形の大きさなど)も同じところにかける。効き具合(depth)が0なら効かない
         let level = self.rt.osc_level.as_mut().map(|o| o.step(now)[0]).map(|l| 1.0 - self.project.osc_level_depth.clamp(0.0, 1.0) * (1.0 - l.clamp(0.0, 1.0))).unwrap_or(1.0);
-        let master = self.rt.master * self.rt.dim * level;
+        // オートのプリセットの明るさ(曲の情報が届いている間)
+        let bright = if self.project.auto.enabled && self.rt.auto_was_online { self.rt.auto_bright.as_mut().map(|o| o.step(now)[0]).unwrap_or(1.0) } else { 1.0 };
+        let master = self.rt.master * self.rt.dim * level * bright;
         if master < 0.9999 || !self.rt.level.is_empty() {
             for (i, fx) in self.project.fixtures.iter().enumerate() {
                 let master = master * self.rt.level.get(&fx.id).copied().unwrap_or(1.0);

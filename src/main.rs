@@ -51,6 +51,7 @@ mod pixel;
 mod project;
 mod shot;
 mod theme;
+mod ui_auto;
 mod ui_binding;
 mod ui_control;
 mod ui_keys;

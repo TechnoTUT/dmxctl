@@ -39,6 +39,7 @@ impl Core {
     }
 
     pub fn handle_midi(&mut self, m: MidiMsg) {
+        self.note_manual();
         let k = match m.kind {
             TriggerKind::Note => "Note",
             TriggerKind::Cc => "CC",
@@ -90,6 +91,7 @@ impl Core {
     /// キーボードのキー(crate::keys の番号)を押した/離した。
     /// キーボードの割り当ては APC のページとは関係なく、数字の段だけ「模様のセット」(key_page)で切り替わる
     pub fn handle_key(&mut self, number: u8, pressed: bool) {
+        self.note_manual();
         self.rt.keys_down.retain(|k| *k != number);
         if pressed {
             self.rt.keys_down.push(number);

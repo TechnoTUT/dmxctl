@@ -106,6 +106,10 @@ impl Core {
     /// `at`があれば、その秒数後にちょうどその色になるよう、まっすぐ近づける(先読みした色用)
     pub fn osc_rgb(&mut self, slot: usize, rgb: [f32; 3], secs: Option<f32>, at: Option<f32>) {
         self.note_live_input();
+        // 手動優先の間は、人が選んだ色のままにする。プリセットで波形の色を使わないフレーズの間も
+        if self.manual_active() || self.rt.wave_color_off {
+            return;
+        }
         let now = Instant::now();
         let secs = secs.unwrap_or(self.project.osc_rgb_secs).clamp(0.0, 30.0);
         let due = at.map(|a| now + Duration::from_secs_f32(a.clamp(0.0, 30.0)));
@@ -117,6 +121,10 @@ impl Core {
     /// OSCで明るさ(0〜1)を受けた。速さ・先読みは osc_rgb と同じ
     pub fn osc_level(&mut self, v: f32, secs: Option<f32>, at: Option<f32>) {
         self.note_live_input();
+        self.rt.energy_input = Some(v.clamp(0.0, 1.0));
+        if self.manual_active() {
+            return;
+        }
         let now = Instant::now();
         let secs = secs.unwrap_or(self.project.osc_rgb_secs).clamp(0.0, 30.0);
         let due = at.map(|a| now + Duration::from_secs_f32(a.clamp(0.0, 30.0)));

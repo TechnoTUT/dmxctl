@@ -541,3 +541,91 @@ fn auto_idles_in_pale_blue_without_song_info_and_follows_phrases_with_it() {
     }
     assert_eq!(dim_out(&mut c), 255.0);
 }
+
+#[test]
+fn auto_yields_to_the_operator_rotates_by_energy_and_accents_the_drop() {
+    use crate::motion::Shape;
+    let mut c = core();
+    c.project.auto.enabled = true;
+    let tick = |c: &mut Core| {
+        c.rt.last_beat_t = Some(Instant::now() - Duration::from_millis(500));
+        c.render();
+    };
+    // ビルドアップ → サビ: サビの頭の1拍だけ全開(今の色)
+    c.handle_osc(&msg("/dmx/phrase", vec![Arg::Str("up".into())]));
+    tick(&mut c);
+    c.handle_osc(&msg("/dmx/phrase", vec![Arg::Str("chorus".into())]));
+    assert_eq!(c.rt.flash, Some(false));
+    for _ in 0..4 {
+        tick(&mut c);
+    }
+    assert_eq!(c.rt.flash, None, "1拍で戻る");
+
+    // 手動優先: MIDIで操作したら、フレーズ・色が来ても変えない。待機にもならない
+    c.handle_midi(MidiMsg { kind: TriggerKind::Cc, channel: 0, number: 99, value: 10 });
+    assert!(c.manual_active());
+    c.handle_osc(&msg("/dmx/phrase", vec![Arg::Str("intro".into())]));
+    assert_eq!(c.project.motion.shape, Shape::Cross, "サビのまま");
+    c.handle_osc(&msg("/dmx/main/rgb", vec![Arg::Float(1.0), Arg::Float(0.0), Arg::Float(0.0)]));
+    assert!(c.rt.osc_rgb[0].is_none());
+    c.rt.auto_last = Some(Instant::now() - Duration::from_secs(10));
+    tick(&mut c);
+    assert_eq!(c.rt.idle_mix, 0.0);
+    // 手動優先が終わったら、オートに戻る
+    c.rt.manual_last = Some(Instant::now() - Duration::from_secs(1000));
+    for _ in 0..4 {
+        tick(&mut c);
+    }
+    assert!(c.rt.idle_mix > 0.9);
+
+    // フレーズが来ない曲: 盛り上がり(明るさ)で16拍ごとに選ぶ
+    c.rt.phrase_beat = None;
+    c.rt.energy = 0.2;
+    c.handle_osc(&msg("/dmx/level", vec![Arg::Float(0.2), Arg::Float(0.0)]));
+    tick(&mut c);
+    assert_eq!(c.rt.auto_key, "down");
+    c.rt.energy = 0.9;
+    c.handle_osc(&msg("/dmx/level", vec![Arg::Float(0.9), Arg::Float(0.0)]));
+    c.rt.beat += 16.0;
+    tick(&mut c);
+    assert_eq!(c.rt.auto_key, "chorus");
+    assert_eq!(c.project.motion.shape, Shape::Cross);
+}
+
+#[test]
+fn phrase_presets_decide_motion_color_brightness_scene_and_effects() {
+    use crate::motion::{Shape, Spread};
+    let mut c = core();
+    c.project.auto.enabled = true;
+    c.project.effects.push(Effect::new("ゆれ", "dimmer"));
+    c.project.effects.push(Effect::new("つぶ", "dimmer"));
+    c.project.scenes.push(Scene { name: "青".into(), fade: 0.0, values: Vec::new() });
+    // 自分のプリセット: イントロは暗めで波形の色を使わない、サビは「青」のシーンと2つのエフェクト
+    let mut p = AutoPreset::standard();
+    p.name = "自分用".into();
+    p.looks.insert("intro".into(), PhraseLook { brightness: 0.3, wave_color: false, effects: vec!["ゆれ".into()], ..PhraseLook::new(Shape::PanSweep, 4.0, Spread::Sync, ColorMove::Keep, 4.0, 0.3) });
+    p.looks.insert("chorus".into(), PhraseLook { scene: "青".into(), effects: vec!["つぶ".into()], ..PhraseLook::new(Shape::Random, 1.0, Spread::Fan, ColorMove::Swap, 1.0, 1.0) });
+    c.project.auto.presets.push(p);
+    c.project.auto.preset = c.project.auto.presets.len() - 1;
+
+    c.handle_osc(&msg("/dmx/phrase", vec![Arg::Str("intro".into())]));
+    assert_eq!(c.project.motion.shape, Shape::PanSweep);
+    assert_eq!(c.project.motion.spread, Spread::Sync);
+    assert!(c.rt.wave_color_off);
+    c.handle_osc(&msg("/dmx/main/rgb", vec![Arg::Float(1.0), Arg::Float(0.0), Arg::Float(0.0)]));
+    assert!(c.rt.osc_rgb[0].is_none(), "波形の色を使わないフレーズ");
+    assert!(c.project.effects.iter().find(|e| e.name == "ゆれ").unwrap().enabled);
+    assert_eq!(c.rt.auto_bright.unwrap().target, [0.3]);
+
+    c.handle_osc(&msg("/dmx/phrase", vec![Arg::Str("chorus".into())]));
+    assert_eq!(c.project.motion.shape, Shape::Random);
+    assert_eq!(c.rt.last_scene.as_deref(), Some("青"));
+    assert!(!c.project.effects.iter().find(|e| e.name == "ゆれ").unwrap().enabled, "前のフレーズでONにしたものはOFFに戻る");
+    assert!(c.project.effects.iter().find(|e| e.name == "つぶ").unwrap().enabled);
+    assert!(c.project.palette.auto);
+    assert!(!c.rt.wave_color_off);
+    // 古い保存ファイル(プリセットが無い)は、標準と激しめで始まる
+    let old: AutoCfg = serde_json::from_str("{\"enabled\": true}").unwrap();
+    assert_eq!(old.presets.len(), 2);
+    assert_eq!(old.presets[0].looks.len(), PHRASES.len());
+}
