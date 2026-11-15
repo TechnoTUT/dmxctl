@@ -73,6 +73,7 @@ cargo test --release --features kmsdrm   # Linux: KMSDRMの部分(キーの変�
 | `src/layout.rs` | おすすめのMIDI配置(APC mini mk2) |
 | `src/pixel.rs` | LEDバーの模様(面向けプリセット4セット) |
 | `src/ndi.rs` | NDI受信(映像の平均色・音の色) |
+| `src/web.rs` / `src/web/panel.html` | ブラウザの操作パネル(std の TCP で最小限の HTTP。`GET /` でページ、`GET /api/state` で様子、`POST /api/cmd` で操作。合言葉は `X-Pin` ヘッダー) |
 | `src/ui_map.rs` | MIDI画面(メイン画面)。`src/ui_map/` に図の描画(`pad.rs`)と右のパネル(`stage.rs` / `settings.rs`) |
 | `src/ui_laser.rs` | レーザータブ(位置・大きさ・動いてよい範囲をマウスで合わせる) |
 | `src/motion.rs` / `src/engine/motion.rs` | ムービングの動き(SPOT4方式: 形×1周の長さ×揃え方×向き。傾きで計算) / それをパン/チルトに書き込む(`render`の中、エフェクトの後) |

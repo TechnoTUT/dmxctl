@@ -130,6 +130,7 @@ impl App {
             }
         });
         ui.label(RichText::new("オート(曲の情報で自動・待機の色・フレーズのプリセット)の設定は「オート」タブ").small().weak());
+        self.web_row(ui);
         egui::CollapsingHeader::new("OSCで使えるアドレス").id_salt("osc_help").show(ui, |ui| {
             ui.label(
                 RichText::new(
@@ -148,6 +149,38 @@ impl App {
         });
         if apply {
             lock(&self.core).dirty = true;
+            self.apply_services();
+        }
+    }
+
+    /// ブラウザ(スマホなど)の操作パネル
+    fn web_row(&mut self, ui: &mut egui::Ui) {
+        let (mut on, mut port, mut pin) = {
+            let c = lock(&self.core);
+            (c.project.web_enabled, c.project.web_port, c.project.web_pin.clone())
+        };
+        let before = (on, port, pin.clone());
+        ui.horizontal_wrapped(|ui| {
+            ui.checkbox(&mut on, "スマホから操作(操作パネル)").on_hover_text("同じネットワークのスマホ・PCのブラウザで、下のアドレスを開くと操作パネルが出ます(ブラックアウト・全体光量・オート・プリセット・色・シーン)");
+            ui.label("ポート");
+            ui.add(egui::DragValue::new(&mut port).range(1024..=65535));
+            ui.label("合言葉");
+            ui.add(egui::TextEdit::singleline(&mut pin).password(true).desired_width(90.0).hint_text("なし"))
+                .on_hover_text("決めると、操作パネルを開いたときに入力を求めます。空なら、同じネットワークの誰でも操作できます");
+            if on && self.web.is_some() {
+                ui.hyperlink_to(&self.web_status, &self.web_status);
+            } else if on && !self.web_status.is_empty() {
+                ui.label(RichText::new(&self.web_status).color(crate::theme::WARN));
+            }
+        });
+        if (on, port, pin.clone()) != before {
+            {
+                let mut c = lock(&self.core);
+                c.project.web_enabled = on;
+                c.project.web_port = port;
+                c.project.web_pin = pin;
+                c.dirty = true;
+            }
             self.apply_services();
         }
     }
