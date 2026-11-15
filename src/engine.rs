@@ -131,6 +131,10 @@ pub struct Runtime {
     /// NDIから作った、今のメイン色/サブ色(NDIを使っていなければNone)。保存しない
     pub live_main: Option<[f32; 3]>,
     pub live_sub: Option<[f32; 3]>,
+    /// OSCのRGB(/dmx/main/rgb・/dmx/sub/rgb)で受けた色。[メイン, サブ]。保存しない
+    pub osc_rgb: [Option<OscRgb>; 2],
+    /// 最後に受けたフレーズ(/dmx/phrase。Beat Link Triggerなどから)
+    pub phrase: String,
     /// ムービングの動きの位置(1で1周)と、それを進めるための前回の拍
     pub motion_phase: f64,
     pub motion_beat: Option<f64>,
@@ -196,6 +200,8 @@ impl Runtime {
             ndi: crate::ndi::NdiState::default(),
             live_main: None,
             live_sub: None,
+            osc_rgb: [None, None],
+            phrase: String::new(),
             motion_phase: 0.0,
             motion_beat: None,
             motion_pan: HashMap::new(),
@@ -544,6 +550,29 @@ impl Core {
             safe_values(mode, &info, &mut f[base..base + n]);
         }
         frames
+    }
+}
+
+/// OSCで受けた色。受けた色(target)へ、今の色(current)を少しずつ近づける
+#[derive(Debug, Clone, Copy)]
+pub struct OscRgb {
+    pub target: [f32; 3],
+    pub current: [f32; 3],
+    /// 近づける速さ(秒。だいたいこの時間で6割ほど近づく。0ならすぐ)
+    pub secs: f32,
+    pub last: Instant,
+}
+
+impl OscRgb {
+    /// `now`まで進めた今の色
+    pub fn step(&mut self, now: Instant) -> [f32; 3] {
+        let dt = now.saturating_duration_since(self.last).as_secs_f32();
+        self.last = now;
+        let k = if self.secs <= 0.0 { 1.0 } else { 1.0 - (-dt / self.secs).exp() };
+        for c in 0..3 {
+            self.current[c] += (self.target[c] - self.current[c]) * k;
+        }
+        self.current
     }
 }
 

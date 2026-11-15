@@ -61,6 +61,10 @@ pub const ADDRESSES: &[(&str, &str)] = &[
     ("/dmx/hue  f", "色相(0〜1で一周)。全体/個別スイッチに従う"),
     ("/dmx/main  s", "メイン色(色の名前)。/dmx/main/hue f で色相"),
     ("/dmx/sub  s", "サブ色(色の名前)。/dmx/sub/hue f で色相"),
+    ("/dmx/main/rgb  f f f [秒]", "メイン色をRGBで(0〜1。0〜255でもよい)。受けた色へなめらかに近づける。4つ目の数値で速さ(秒)。/dmx/sub/rgb はサブ色"),
+    ("/dmx/rgb/smooth  f", "RGBで受けた色へ近づける速さ(秒。0ですぐ。標準 0.5)"),
+    ("/dmx/rgb/off", "RGBで受けた色をやめて、パレットの色に戻す(手で色を選んでも戻る)"),
+    ("/dmx/phrase  s", "曲のフレーズ(intro / verse / chorus / bridge / up / down / outro)。/dmx/phrase/<名前> に割り当てた動作を実行、無ければ同じ名前のシーンを呼び出す"),
     ("/dmx/swap  f", "メイン⇄サブ入れ替え(値なし/1で入れ替え)。/dmx/swap/auto f で自動入れ替えON/OFF"),
     ("/dmx/effect  s f", "エフェクトのON/OFF(名前, 1/0)"),
     ("/dmx/chase  s f", "チェイスのON/OFF(名前, 1/0)"),
@@ -183,12 +187,54 @@ pub fn encode(addr: &str, args: &[Arg]) -> Vec<u8> {
 
 // ------------------------------------------------------------ 動作
 
+/// フレーズの名前を揃える(大文字小文字・先頭の「:」・番号を除く。verse2 → verse)
+fn phrase_key(s: &str) -> String {
+    s.trim().trim_start_matches(':').to_lowercase().trim_end_matches(|c: char| c.is_ascii_digit()).trim_end_matches(['-', '_', ' ']).to_string()
+}
+
+/// フレーズの日本語の呼び名(シーンの名前に使えるように)
+fn phrase_ja(key: &str) -> Option<&'static str> {
+    Some(match key {
+        "intro" => "イントロ",
+        "verse" => "バース",
+        "bridge" => "ブリッジ",
+        "chorus" => "サビ",
+        "up" => "アップ",
+        "down" => "ダウン",
+        "outro" => "アウトロ",
+        _ => return None,
+    })
+}
+
 fn color_by_name(s: &str) -> Option<NamedColor> {
     let l = s.trim().to_lowercase();
     NamedColor::ALL.into_iter().find(|c| c.label() == s.trim() || format!("{c:?}").to_lowercase() == l)
 }
 
 impl Core {
+    /// 曲のフレーズが変わった(Beat Link Triggerのフレーズのトリガーなどから)。
+    /// /dmx/phrase/<名前> に割り当てた動作を実行する。無ければ同じ名前のシーン(英語・日本語どちらでも)を呼び出す
+    pub fn phrase(&mut self, name: &str) {
+        self.rt.phrase = name.trim().to_string();
+        let key = phrase_key(name);
+        let mut names = vec![name.trim().to_string(), key.clone()];
+        names.extend(phrase_ja(&key).map(str::to_string));
+        names.dedup();
+        let addrs: Vec<String> = names.iter().map(|n| format!("/dmx/phrase/{n}")).collect();
+        let hits: Vec<usize> = self.project.bindings.iter().enumerate().filter(|(_, b)| b.osc.as_ref().is_some_and(|a| addrs.contains(a))).map(|(i, _)| i).collect();
+        if !hits.is_empty() {
+            for i in hits {
+                self.apply_binding(i, 1.0, true);
+                self.apply_binding(i, 1.0, false);
+            }
+            return;
+        }
+        let scene = self.project.scenes.iter().find(|s| names.iter().any(|n| s.name.eq_ignore_ascii_case(n))).map(|s| s.name.clone());
+        if let Some(s) = scene {
+            self.recall_scene(&s);
+        }
+    }
+
     pub fn handle_osc(&mut self, m: &Message) {
         let first_num = m.args.iter().find_map(|a| a.num());
         let args_text: Vec<String> = m
@@ -212,6 +258,10 @@ impl Core {
             return;
         }
 
+        // フレーズはアドレスに名前を入れて送られることもある(/dmx/phrase/chorus)
+        if let Some(name) = m.addr.strip_prefix("/dmx/phrase/") {
+            self.rt.phrase = name.to_string();
+        }
         let hits: Vec<usize> = self.project.bindings.iter().enumerate().filter(|(_, b)| b.osc.as_deref() == Some(m.addr.as_str())).map(|(i, _)| i).collect();
         if !hits.is_empty() {
             for i in hits {
@@ -289,6 +339,31 @@ impl Core {
                     self.apply_named_color(c, if *slot == "main" { ColorTarget::Main } else { ColorTarget::Sub });
                 }
             }
+            [slot @ ("main" | "sub"), "rgb"] => {
+                let nums: Vec<f32> = m.args.iter().filter_map(|a| a.num()).collect();
+                if let [r, g, b, rest @ ..] = nums.as_slice() {
+                    // 0〜255で送ってくるものもある(どれかが1より大きければ0〜255とみなす)
+                    let scale = if [r, g, b].iter().any(|v| **v > 1.0) { 255.0 } else { 1.0 };
+                    let rgb = [r, g, b].map(|v| (v / scale).clamp(0.0, 1.0));
+                    self.osc_rgb(if *slot == "main" { 0 } else { 1 }, rgb, rest.first().copied());
+                }
+            }
+            ["rgb", "smooth"] => {
+                if let Some(v) = num {
+                    self.project.osc_rgb_secs = v.clamp(0.0, 30.0);
+                    self.dirty = true;
+                }
+            }
+            ["rgb", "off"] if press => {
+                self.rt.osc_rgb = [None, None];
+            }
+            // フレーズの終わりに0を送ってくるものもあるので、押した扱いのときだけ
+            ["phrase"] if press => {
+                if let Some(n) = text {
+                    self.phrase(&n);
+                }
+            }
+            ["phrase", name] if press => self.phrase(name),
             [slot @ ("main" | "sub"), "hue"] => {
                 if let Some(v) = num {
                     self.apply_hue(v.clamp(0.0, 1.0) * 360.0, if *slot == "main" { ColorTarget::Main } else { ColorTarget::Sub });

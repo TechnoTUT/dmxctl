@@ -383,3 +383,60 @@ fn old_project_files_load_with_new_fields_defaulted() {
     let s = serde_json::to_string(&p.bindings[0]).unwrap();
     assert!(!s.contains("page") && !s.contains("osc"), "{s}");
 }
+
+#[test]
+fn osc_rgb_glides_to_the_received_color_and_yields_to_manual_colors() {
+    use crate::color::{ColorRole, ColorTarget, NamedColor};
+    let mut c = core();
+    // 速さ0: すぐその色。0〜255で送ってきても同じ
+    c.handle_osc(&msg("/dmx/main/rgb", vec![Arg::Int(255), Arg::Int(0), Arg::Int(0), Arg::Float(0.0)]));
+    c.render();
+    assert_eq!(c.role_rgb(ColorRole::Main), Some([1.0, 0.0, 0.0]));
+    // 速さ1秒: 1秒たつと6割ほど近づく(いきなり変わらない)
+    c.handle_osc(&msg("/dmx/main/rgb", vec![Arg::Float(0.0), Arg::Float(0.0), Arg::Float(1.0), Arg::Float(1.0)]));
+    let o = c.rt.osc_rgb[0].as_mut().unwrap();
+    o.last -= Duration::from_secs(1);
+    c.render();
+    let [r, _, b] = c.role_rgb(ColorRole::Main).unwrap();
+    assert!((b - 0.632).abs() < 0.02 && (r - 0.368).abs() < 0.02, "{r} {b}");
+    // 標準の速さは /dmx/rgb/smooth で変えられる
+    c.handle_osc(&msg("/dmx/rgb/smooth", vec![Arg::Float(2.0)]));
+    assert_eq!(c.project.osc_rgb_secs, 2.0);
+    // 手で色を選んだら、OSCの色はやめる
+    c.apply_named_color(NamedColor::Green, ColorTarget::Main);
+    c.render();
+    assert!(c.rt.osc_rgb[0].is_none());
+    assert_eq!(c.role_rgb(ColorRole::Main), Some(NamedColor::Green.rgb()));
+    // /dmx/rgb/off でも戻る
+    c.handle_osc(&msg("/dmx/sub/rgb", vec![Arg::Float(1.0), Arg::Float(1.0), Arg::Float(0.0), Arg::Float(0.0)]));
+    c.render();
+    assert_eq!(c.role_rgb(ColorRole::Sub), Some([1.0, 1.0, 0.0]));
+    c.handle_osc(&msg("/dmx/rgb/off", vec![]));
+    c.render();
+    assert_eq!(c.role_rgb(ColorRole::Sub), Some(c.project.palette.sub));
+}
+
+#[test]
+fn osc_phrase_runs_bindings_or_recalls_a_scene_of_the_same_name() {
+    let mut c = core();
+    c.project.scenes.push(Scene { name: "サビ".into(), fade: 0.0, values: Vec::new() });
+    // 番号つき・大文字でも、日本語の名前のシーンを呼び出す
+    c.handle_osc(&msg("/dmx/phrase", vec![Arg::Str("Chorus".into())]));
+    assert_eq!(c.rt.last_scene.as_deref(), Some("サビ"));
+    assert_eq!(c.rt.phrase, "Chorus");
+    // /dmx/phrase/<名前> に割り当てた動作があれば、それを実行する(アドレスに名前を入れて送ってきても同じ)
+    c.project.bindings.push(Binding {
+        name: "intro".into(),
+        trigger: None,
+        action: Action::SetValue { sel: Selector::Fixture(SPOT), attr: "dimmer".into(), mode: PadMode::Toggle, on: 255.0, off: 0.0 },
+        page: None,
+        osc: Some("/dmx/phrase/intro".into()),
+    });
+    c.handle_osc(&msg("/dmx/phrase", vec![Arg::Str("intro".into())]));
+    assert_eq!(dimmer(&c), 255.0);
+    c.handle_osc(&msg("/dmx/phrase/verse2", vec![]));
+    assert_eq!(c.rt.phrase, "verse2");
+    // フレーズの終わりの0では何もしない
+    c.handle_osc(&msg("/dmx/phrase", vec![Arg::Str("intro".into()), Arg::Float(0.0)]));
+    assert_eq!(dimmer(&c), 255.0);
+}

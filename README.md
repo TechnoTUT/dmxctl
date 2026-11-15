@@ -431,12 +431,57 @@ DMXで **RGBRGBRGB…** とピクセルが並んでいるLEDバーを扱えま�
 | `/dmx/color s` / `/dmx/hue f` | 色(`赤` / `red` など)/ 色相(0〜1で一周)。全体/個別スイッチに従う |
 | `/dmx/main s` / `/dmx/sub s` | メイン色 / サブ色(`/dmx/main/hue f`・`/dmx/sub/hue f` で色相) |
 | `/dmx/swap` / `/dmx/swap/auto f` | メイン⇄サブ入れ替え / 拍で自動入れ替え(1/0) |
+| `/dmx/main/rgb f f f [秒]` / `/dmx/sub/rgb f f f [秒]` | メイン色 / サブ色をRGBで(0〜1。0〜255でもよい)。受けた色へ**なめらかに**近づく。4つ目の数値で近づく速さ(秒) |
+| `/dmx/rgb/smooth f` / `/dmx/rgb/off` | RGBで受けた色へ近づく標準の速さ(秒。0ですぐ。画面でも変えられる)/ RGBの色をやめてパレットの色に戻す |
+| `/dmx/phrase s` | 曲のフレーズ(`intro` / `verse` / `chorus` / `bridge` / `up` / `down` / `outro`)。下の [Beat Link Trigger との連携](#beat-link-trigger-との連携) を参照 |
 | `/dmx/effect s f` / `/dmx/chase s f` | エフェクト / チェイスのON/OFF(名前, 1/0) |
 | `/dmx/page i` | パッドのページ(1〜8) |
 | `/dmx/fixture/<ID>/<機能> f` | 機材1台のチャンネル(0〜1)。例 `/dmx/fixture/1/dimmer` |
 | `/dmx/all/<機能> f` | 全機材のチャンネル(0〜1)。例 `/dmx/all/pan` |
 
 - バンドル(`#bundle`)にも対応。OSCを連続で受けていても、画面の更新は0.25秒に1回までに抑えています
+- RGBで受けた色は保存しません。パッドや画面で手で色を選ぶと、そちらが効きます(RGBの受信はやめた扱い)。NDIの色を使っている系統では、NDIの色が優先です
+
+### Beat Link Trigger との連携
+
+[Beat Link Trigger](https://github.com/Deep-Symmetry/beat-link-trigger)(BLT)を使うと、CDJ / XDJ などのDJ機器から、テンポ・波形の色・曲の構成(フレーズ)を受け取って照明に使えます。
+
+- **テンポ**: BLT の Ableton Link の機能でマスタープレイヤーのテンポと拍を Link に流し、このアプリのテンポの元を「Ableton Link」にします([テンポの同期](#テンポの同期))
+- **波形の色 → メイン色**: BLT から `/dmx/main/rgb` に、再生位置の波形の色を送ります。細かく変わる色は、このアプリがなめらかにつなぎます(速さは「MIDI/OSC」タブの「RGBで受けた色へ近づける速さ」)
+- **フレーズ → 照明の切り替え**: BLT から `/dmx/phrase` にフレーズの名前を送ります。次のどちらかが動きます
+  1. `/dmx/phrase/<名前>` を OSC アドレスに付けた割り当て(例: `/dmx/phrase/chorus` にストロボのパッドの動作)。OSCラーンで、BLT から1回送って登録してもよい
+  2. 割り当てが無ければ、同じ名前のシーン。英語(`chorus`)でも日本語(`サビ`・`イントロ`・`バース`・`ブリッジ`・`アップ`・`ダウン`・`アウトロ`)でもよい。`verse2` のような番号つきは `verse` / `バース` として扱います
+- 「MIDI/OSC」タブに、受けているRGBの色と、最後に受けたフレーズが出ます
+
+BLT 側の設定例です(BLT の式は Clojure。関数の名前などは BLT のバージョンで変わることがあるので、BLT のドキュメントの「Expressions」「Shows」も見てください)。
+
+```clojure
+;; トリガーの Global Setup: OSCの送り先(このアプリのPCのIPとポート)
+(swap! globals assoc :dmx (osc/osc-client "127.0.0.1" 9000))
+
+;; トリガーの Tracked Update(再生中、状態が届くたび。Watch は Master Player に)
+;; 再生位置から約0.5秒先までの波形の色を平均して、メイン色として送る
+(let [n      (.getDeviceNumber status)
+      ms     (.getTimeFor (org.deepsymmetry.beatlink.data.TimeFinder/getInstance) n)
+      detail (.getLatestDetailFor (org.deepsymmetry.beatlink.data.WaveformFinder/getInstance) n)]
+  (when (and detail (pos? ms))
+    (let [start (org.deepsymmetry.beatlink.Util/timeToHalfFrame ms)
+          segs  (range start (min (+ start 75) (.getFrameCount detail)))
+          cols  (map #(.segmentColor detail % false) segs)
+          avg   (fn [f] (/ (reduce + (map f cols)) (max 1 (count cols)) 255.0))]
+      (when (seq cols)
+        (osc/osc-send (:dmx @globals) "/dmx/main/rgb"
+                      (float (avg #(.getRed %))) (float (avg #(.getGreen %))) (float (avg #(.getBlue %))))))))
+```
+
+フレーズは、BLT の **Show** に **Phrase Trigger** を作り(サビ用・イントロ用など)、その「Started」の式で送ります。
+
+```clojure
+(osc/osc-send (:dmx @globals) "/dmx/phrase" "chorus")
+```
+
+- 波形の色は rekordbox で解析した曲の「RGB(カラー)波形」から取ります。3バンド波形の曲では色の意味が変わります
+- 波形の色は暗い所・白っぽい所もあるので、鮮やかな色にしたいときは BLT の式で彩度・明るさを上げてから送ってください
 
 ## バックアップ
 

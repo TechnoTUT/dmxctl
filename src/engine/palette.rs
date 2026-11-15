@@ -43,7 +43,7 @@ impl Core {
         Some(a)
     }
 
-    /// NDIの色をメイン色/サブ色に反映する(変わったときだけ機材に出し直す。保存のきっかけにはしない)
+    /// NDI・OSCのRGBの色をメイン色/サブ色に反映する(変わったときだけ機材に出し直す。保存のきっかけにはしない)
     pub(super) fn run_live_colors(&mut self) {
         use crate::ndi::LiveSource;
         let pick = |s: LiveSource, st: &crate::ndi::NdiState| match s {
@@ -51,8 +51,13 @@ impl Core {
             LiveSource::Audio => st.audio,
             LiveSource::Video => st.video,
         };
+        // OSCのRGBは、受けた色へなめらかに近づける
+        let now = Instant::now();
+        let osc = self.rt.osc_rgb.each_mut().map(|o| o.as_mut().map(|o| o.step(now)));
         let cfg = &self.project.ndi;
         let (main, sub) = if cfg.enabled { (pick(cfg.main, &self.rt.ndi), pick(cfg.sub, &self.rt.ndi)) } else { (None, None) };
+        // NDIを使っている系統はNDIの色、そうでなければOSCの色
+        let (main, sub) = (main.or(osc[0]), sub.or(osc[1]));
         let near = |a: Option<[f32; 3]>, b: Option<[f32; 3]>| match (a, b) {
             (Some(a), Some(b)) => (0..3).all(|k| (a[k] - b[k]).abs() < 1.0 / 255.0),
             (None, None) => true,
@@ -83,6 +88,8 @@ impl Core {
             ColorRole::Sub => self.project.palette.sub = rgb,
             ColorRole::Off => return,
         }
+        // 手で色を選んだら、OSCのRGBで受けていた色はやめる(手で選んだほうが効くように)
+        self.rt.osc_rgb[if slot == ColorRole::Main { 0 } else { 1 }] = None;
         self.dirty = true;
         self.apply_palette();
     }
@@ -93,6 +100,18 @@ impl Core {
             self.dirty = true;
             self.apply_palette();
         }
+    }
+
+    /// OSCのRGBで色を受けた。`slot`=0:メイン / 1:サブ。`secs`があれば、その速さで近づける
+    pub fn osc_rgb(&mut self, slot: usize, rgb: [f32; 3], secs: Option<f32>) {
+        let now = Instant::now();
+        let secs = secs.unwrap_or(self.project.osc_rgb_secs).clamp(0.0, 30.0);
+        // 初めてなら、今出している色から近づける
+        let from = self.rt.live_main.filter(|_| slot == 0).or(self.rt.live_sub.filter(|_| slot == 1)).unwrap_or(if slot == 0 { self.project.palette.main } else { self.project.palette.sub });
+        let o = self.rt.osc_rgb[slot].get_or_insert(OscRgb { target: rgb, current: from, secs, last: now });
+        o.step(now);
+        o.target = rgb;
+        o.secs = secs;
     }
 
     /// メインとサブを入れ替える

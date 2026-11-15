@@ -61,9 +61,9 @@ impl App {
     }
 
     fn osc_row(&mut self, ui: &mut egui::Ui) {
-        let (mut on, port, status, last) = {
+        let (mut on, port, status, last, mut smooth, phrase, osc_rgb) = {
             let c = lock(&self.core);
-            (c.project.osc_enabled, c.project.osc_port, c.rt.osc_status.clone(), c.rt.last_osc.clone())
+            (c.project.osc_enabled, c.project.osc_port, c.rt.osc_status.clone(), c.rt.last_osc.clone(), c.project.osc_rgb_secs, c.rt.phrase.clone(), c.rt.osc_rgb.map(|o| o.map(|o| o.current)))
         };
         let mut apply = false;
         ui.horizontal_wrapped(|ui| {
@@ -80,6 +80,28 @@ impl App {
             ui.label(RichText::new(format!("状態: {status}")).weak());
             if !last.is_empty() {
                 ui.label(RichText::new(format!("最後の受信: {last}")).weak());
+            }
+        });
+        // Beat Link Trigger などから色(RGB)・フレーズを受けているときの様子
+        ui.horizontal_wrapped(|ui| {
+            ui.label("RGBで受けた色へ近づける速さ");
+            if ui.add(egui::Slider::new(&mut smooth, 0.0..=5.0).suffix(" 秒").fixed_decimals(1)).on_hover_text("/dmx/main/rgb・/dmx/sub/rgb で受けた色へ、この時間をかけてなめらかに近づけます(0ですぐ)").changed() {
+                let mut c = lock(&self.core);
+                c.project.osc_rgb_secs = smooth;
+                c.dirty = true;
+            }
+            for (name, rgb) in ["メイン", "サブ"].iter().zip(osc_rgb) {
+                if let Some([r, g, b]) = rgb {
+                    ui.label(RichText::new(format!("{name}:")).weak());
+                    let (rect, _) = ui.allocate_exact_size(egui::vec2(18.0, 14.0), egui::Sense::hover());
+                    ui.painter().rect_filled(rect, 3.0, egui::Color32::from_rgb((r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8));
+                }
+            }
+            if osc_rgb.iter().any(Option::is_some) && ui.small_button("RGBをやめる").on_hover_text("パレットの色に戻します").clicked() {
+                lock(&self.core).rt.osc_rgb = [None, None];
+            }
+            if !phrase.is_empty() {
+                ui.label(RichText::new(format!("フレーズ: {phrase}")).weak());
             }
         });
         egui::CollapsingHeader::new("OSCで使えるアドレス").id_salt("osc_help").show(ui, |ui| {

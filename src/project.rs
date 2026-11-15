@@ -580,6 +580,8 @@ pub struct Project {
     pub audio_input: String,
     pub osc_enabled: bool,
     pub osc_port: u16,
+    /// OSCのRGBで受けた色へ近づける速さ(秒)
+    pub osc_rgb_secs: f32,
     /// メイン色とサブ色
     pub palette: Palette,
     /// LEDバーのピクセルエフェクト(名前は通常のエフェクトと共通で、同じ名前ならまとめてON/OFF)
@@ -617,6 +619,7 @@ impl Default for Project {
             audio_input: String::new(),
             osc_enabled: false,
             osc_port: 9000,
+            osc_rgb_secs: 0.5,
             palette: Palette::default(),
             pixel_fx: Vec::new(),
             fade_secs: 3.0,
