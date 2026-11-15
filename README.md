@@ -508,6 +508,73 @@ BLT 側の設定例です(BLT の式は Clojure。関数の名前などは BLT �
 - 波形の色は rekordbox で解析した曲の「RGB(カラー)波形」から取ります。3バンド波形の曲では色の意味が変わります
 - 波形の色は暗い所・白っぽい所もあるので、鮮やかな色にしたいときは BLT の式で彩度・明るさを上げてから送ってください
 
+### TechnoTUT ネットワークの BLT を使う
+
+TechnoTUT ネットワークには、Beat Link Trigger がすでに動いている環境があります([Beat Link Trigger の案内](https://network.technotut.net/service/beatlinktrigger/))。これを使えば、dmxctl のPCに BLT を入れる必要はありません。
+
+```
+CDJ / XDJ ──(Pro DJ Link)── BLT(TechnoTUT ネットワークのコンテナ。Debian のデスクトップ)
+                              ├ テンポ・拍 → Ableton Link(Carabiner。設定済み)
+                              └ 波形の色・大きさ・フレーズ → OSC → dmxctl のPC(ポート 9000)
+```
+
+**1. BLT を起動する**(案内のページの手順)
+
+1. TechnoTUT ネットワークにつなぐ
+2. ブラウザ(noVNC: `http://web.blt.svc.technotut.net/vnc.html`)・RDP(`rdp.blt.svc.technotut.net`)・VNC(`blt.svc.technotut.net:5901`)のどれかで、BLT の環境に入る
+3. デスクトップの `blt-start.sh` を実行する。止まったときは、ウィンドウを閉じてもう一度実行する
+
+**2. テンポ(Ableton Link)**
+
+この BLT は、DJ機器とつながると Carabiner で Link に接続し、マスタープレイヤーのテンポに合わせて**小節の頭まで揃える**設定になっています(Came Online の式)。dmxctl 側は、テンポの元を **Ableton Link** にするだけです(`--headless` なら自動で Link)。
+
+- 上部のBPMの横の `Link 1` 以上なら、つながっています。`Link 0` のままなら、Link の通信(同じネットワーク内のマルチキャスト)が dmxctl のPCまで届いていません。そのときは下の「拍を OSC で送る」を使います
+
+**3. BLT にトリガーを1つ足す**(色・明るさ・フレーズを dmxctl へ)
+
+BLT の Triggers のウィンドウでトリガーを1つ作り、**Watch** を **Master Player** にして、次の式を入れます。`<dmxctlのIP>` は dmxctl を動かしているPCの TechnoTUT ネットワークでのIPアドレスです(OSCのポートは画面の設定。既定 9000)。
+
+Setup(トリガーを作ったとき・BLT を起動したとき):
+
+```clojure
+(swap! locals assoc :dmx (osc/osc-client "<dmxctlのIP>" 9000))
+```
+
+Tracked Update(再生中、状態が届くたび): [Beat Link Trigger との連携](#beat-link-trigger-との連携) の、先読みで波形の色・大きさを送る式。ただし `(:dmx @globals)` を `(:dmx @locals)` に替えます(2か所)。
+
+Beat(拍ごと。**Link が `Link 0` のときだけ**。Link が届いているなら入れない):
+
+```clojure
+;; テンポを送り、小節の頭で頭出し(Link の代わり)
+(osc/osc-send (:dmx @locals) "/dmx/bpm" (float effective-tempo))
+(when (= beat-within-bar 1)
+  (osc/osc-send (:dmx @locals) "/dmx/resync"))
+```
+
+Shutdown(トリガーを消したとき・BLT を終了するとき):
+
+```clojure
+(osc/osc-close (:dmx @locals))
+```
+
+フレーズは、BLT の **Show** に **Phrase Trigger** を作り、その「Started」の式で送ります(`(:dmx @locals)` の代わりに、Show の Global Setup で作った送り先を使います)。
+
+```clojure
+(osc/osc-send (:dmx @globals) "/dmx/phrase" "chorus")
+```
+
+**4. dmxctl を動かす**
+
+- 画面のあるPC: 「MIDI/OSC」タブで **OSCを受信** をON、**オート** タブで **オート** をON
+- モニターの無い Linux: `./scripts/linux/install-headless.sh --no-blt`(dmxctl だけを常駐。[モニターの無いLinuxでオート](#モニターの無いlinuxでオートblt-と一緒に常駐))
+
+BLT が止まっている・DJ機器が再生していない間は、dmxctl は薄い水色で待ちます。BLT を起動し直せば、自動で元に戻ります。
+
+**注意**
+
+- 案内のページが参照している BLT のユーザーガイドは 0.6.3 版です。BLT が古い版だと、波形の色(`segmentColor`)・フレーズ(Show の Phrase Trigger。BLT 7 から)が使えないことがあります。BLT の版は、BLT のメニューの About で確かめてください。使えないときは、テンポ(Link)と、波形の大きさ・拍だけで動かします(オートは、フレーズが来ない曲では波形の大きさで見た目を選びます)
+- dmxctl のPCのファイアウォールで、UDP 9000(OSC)と 20808(Link)を受け取れるようにしてください
+
 ### オート(曲の情報で自動、無ければ待機の色)
 
 **オート** タブでオートをONにすると、人が操作しなくても照明が動きます。
