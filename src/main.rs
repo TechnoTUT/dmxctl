@@ -87,7 +87,7 @@ fn main() -> eframe::Result {
     // kmsdrm機能なしで作ったものを、デスクトップ環境の無いLinuxで起動したとき(下のeframeは分かりにくいエラーで終わる)
     #[cfg(all(target_os = "linux", not(feature = "kmsdrm")))]
     if std::env::var_os("DISPLAY").is_none() && std::env::var_os("WAYLAND_DISPLAY").is_none() {
-        eprintln!("デスクトップ環境(X11 / Wayland)が見つかりません。画面に直接出すには、kmsdrm機能つきで作ってください(./scripts/build-linux.sh)");
+        eprintln!("デスクトップ環境(X11 / Wayland)が見つかりません。画面に直接出すには、同梱の dmxctl-kmsdrm を使ってください(./scripts/build-linux.sh で作れます)");
     }
     // 開発・確認用: DMXCTL_SIZE=幅x高さ でウィンドウの大きさを指定
     let size = std::env::var("DMXCTL_SIZE").ok().and_then(|s| {

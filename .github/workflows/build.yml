@@ -90,6 +90,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Linux版をビルド
         run: chmod +x scripts/build-linux.sh && ./scripts/build-linux.sh
+      - name: デスクトップ用(dmxctl)が SDL2 を要らないことを確かめる
+        run: |
+          ldd dist/linux/dmxctl
+          if ldd dist/linux/dmxctl | grep -q libSDL2; then echo "dmxctl が libSDL2 を必要としています"; exit 1; fi
+          ldd dist/linux/dmxctl-kmsdrm | grep libSDL2
       - uses: actions/upload-artifact@v4
         with:
           name: DMX-Controller-linux
