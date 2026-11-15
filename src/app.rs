@@ -614,7 +614,8 @@ impl App {
         }
         // (DMXの出力は画面と別スレッドで40Hz固定なので、画面の更新頻度は出力に影響しない)
         ui.ctx().request_repaint_after(if busy { if focused { SMOOTH } else { Duration::from_millis(250) } } else { idle });
-        self.shortcuts(ui, focused);
+        // 押しているキーを離すのは、本当にフォーカスを失ったとき(KMSDRMで別の端末へ切り替えたときなど。in_front はKMSDRMではいつも前面)
+        self.shortcuts(ui, ui.input(|i| i.focused));
         self.autosave();
         // NDIの受信は、設定(パッド・画面)でONにしている間だけ動かす
         let ndi_on = lock(&self.core).project.ndi.enabled;

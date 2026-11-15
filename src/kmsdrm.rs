@@ -48,6 +48,8 @@ fn scale(w: u32, h: u32) -> f32 {
 pub fn run() -> Result<(), String> {
     // 終了のシグナル(Ctrl+C など)は engine::install_safety_hooks で受ける(SDLには取らせない)
     sdl2::hint::set("SDL_NO_SIGNAL_HANDLERS", "1");
+    // 指の入力は touch.rs でマウスの操作に直すので、SDLにはマウスの操作を作らせない(タッチパネルで1回触ると2回押したことになる)
+    sdl2::hint::set("SDL_TOUCH_MOUSE_EVENTS", "0");
     if std::env::var_os("SDL_VIDEODRIVER").is_none() {
         sdl2::hint::set("SDL_VIDEODRIVER", "kmsdrm");
     }
@@ -93,10 +95,9 @@ pub fn run() -> Result<(), String> {
         let wake_at = wake_at.clone();
         let sender = events.event_sender();
         ctx.set_request_repaint_callback(move |info| {
-            if let Some(at) = Instant::now().checked_add(info.delay) {
-                request_at(&wake_at, at);
-            }
-            if info.delay.is_zero() {
+            // 今の予定より早く描くことになったら、待っているループを起こして待ち時間を決め直させる
+            let earlier = Instant::now().checked_add(info.delay).is_some_and(|at| request_at(&wake_at, at));
+            if earlier || info.delay.is_zero() {
                 let _ = sender.push_custom_event(Wake);
             }
         });
@@ -120,12 +121,19 @@ pub fn run() -> Result<(), String> {
     let mut cpu: Option<f32> = None;
     request_at(&wake_at, Instant::now());
     while !input.quit {
-        // 次に描く時刻まで待つ(入力や別スレッドからの依頼があればすぐ起きる)
-        let next = *wake_at.lock().unwrap_or_else(|e| e.into_inner());
-        let first = match next.map(|t| t.saturating_duration_since(Instant::now())) {
-            Some(d) if d.is_zero() => None,
-            Some(d) => pump.wait_event_timeout(d.as_millis().clamp(1, u32::MAX as u128) as u32),
-            None => Some(pump.wait_event()),
+        // 次に描く時刻まで待つ(入力があればすぐ起きる)。
+        // 起こす合図(Wake)は描く時刻が早まったという知らせなので、時刻を見直して、まだなら待ち続ける
+        let first = loop {
+            let next = *wake_at.lock().unwrap_or_else(|e| e.into_inner());
+            let ev = match next.map(|t| t.saturating_duration_since(Instant::now())) {
+                Some(d) if d.is_zero() => None,
+                Some(d) => pump.wait_event_timeout(d.as_millis().clamp(1, u32::MAX as u128) as u32),
+                None => Some(pump.wait_event()),
+            };
+            match ev {
+                Some(e) if e.is_user_event() => continue,
+                other => break other,
+            }
         };
         let (pw, ph) = window.drawable_size();
         let mut raw = egui::RawInput { events: std::mem::take(&mut pending), ..Default::default() };
@@ -255,12 +263,14 @@ impl FrameStats {
     }
 }
 
-/// 次に描く時刻を、より早いほうに
-fn request_at(wake_at: &Mutex<Option<Instant>>, at: Instant) {
+/// 次に描く時刻を、より早いほうに。早めたらtrue
+fn request_at(wake_at: &Mutex<Option<Instant>>, at: Instant) -> bool {
     let mut w = wake_at.lock().unwrap_or_else(|e| e.into_inner());
-    if w.is_none_or(|t| at < t) {
+    let earlier = w.is_none_or(|t| at < t);
+    if earlier {
         *w = Some(at);
     }
+    earlier
 }
 
 /// SDLの入力を egui の入力に直すときの状態
@@ -341,7 +351,12 @@ impl Input {
             }
             SdlEvent::KeyDown { keycode, scancode, keymod, repeat, .. } | SdlEvent::KeyUp { keycode, scancode, keymod, repeat, .. } => {
                 let pressed = matches!(ev, SdlEvent::KeyDown { .. });
-                self.mods = keys::modifiers(keymod);
+                let mods = keys::modifiers(keymod);
+                // eguiの ui.input(|i| i.modifiers) は ModifiersChanged でしか変わらない(Shiftを押している間の表示などに使う)
+                if mods != self.mods {
+                    out.push(Event::ModifiersChanged(mods));
+                }
+                self.mods = mods;
                 let Some(key) = keys::logical(keycode, scancode) else { return };
                 if pressed && self.mods.command {
                     match key {
