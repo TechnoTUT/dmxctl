@@ -7,16 +7,18 @@ use crate::project::*;
 use eframe::egui::{self, Align, Color32, Layout, RichText};
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// デスクトップ環境の無い画面(KMSDRM)で動いているか。ファイルを選ぶ画面(OSのダイアログ)が出せず、
-/// ウィンドウの閉じるボタンも無いので、ファイルメニューの中身を変える
-pub static NO_DESKTOP: AtomicBool = AtomicBool::new(false);
+/// ウィンドウの閉じるボタンも無いので、ファイルメニューの中身を変える。
+/// App::new で eguiのContextに覚えさせる(Appを持たない画面の部品からも読めるように)
+fn no_desktop_id() -> egui::Id {
+    egui::Id::new("dmxctl_no_desktop")
+}
 
-pub fn no_desktop() -> bool {
-    NO_DESKTOP.load(Ordering::Relaxed)
+pub fn no_desktop(ctx: &egui::Context) -> bool {
+    ctx.data(|d| d.get_temp::<bool>(no_desktop_id())).unwrap_or(false)
 }
 
 /// 動いているもの(拍で動く点・色の追従・フェード・モニター)を描き直す間隔。約30fps。
@@ -26,7 +28,7 @@ pub const SMOOTH: Duration = Duration::from_millis(50);
 /// このウィンドウが前面か。前面でない(映像ソフトなどを前に出している)ときは、描き直しを減らしてCPUを譲る。
 /// デスクトップ環境の無い画面(KMSDRM)では他のアプリが前に出ることは無いので、いつも前面
 pub fn in_front(ui: &egui::Ui) -> bool {
-    no_desktop() || ui.input(|i| i.focused)
+    no_desktop(ui.ctx()) || ui.input(|i| i.focused)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -130,8 +132,9 @@ struct Perf {
 }
 
 impl App {
-    /// 画面の土台(eframe / KMSDRM)によらず、eguiのContextだけで作る
-    pub fn new(egui_ctx: &egui::Context) -> Self {
+    /// 画面の土台(eframe / KMSDRM)によらず、eguiのContextだけで作る。`no_desktop`=デスクトップ環境の無い画面(KMSDRM)
+    pub fn new(egui_ctx: &egui::Context, no_desktop: bool) -> Self {
+        egui_ctx.data_mut(|d| d.insert_temp(no_desktop_id(), no_desktop));
         crate::theme::setup_fonts(egui_ctx);
         crate::theme::apply(egui_ctx);
 
@@ -351,7 +354,7 @@ impl App {
                         self.notice = "保存しました".into();
                         ui.close();
                     }
-                    if no_desktop() {
+                    if no_desktop(ui.ctx()) {
                         self.file_menu_no_desktop(ui);
                         return;
                     }
@@ -538,7 +541,7 @@ impl App {
                     egui::Key::Escape => c.rt.blackout = !c.rt.blackout,
                     egui::Key::S if modifiers.command => save = true,
                     // デスクトップ環境の無い画面には閉じるボタンが無いので、Ctrl+Qで終了
-                    egui::Key::Q if modifiers.command && no_desktop() => ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close),
+                    egui::Key::Q if modifiers.command && no_desktop(ui.ctx()) => ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close),
                     _ if typing || modifiers.command || modifiers.alt || modifiers.ctrl => {}
                     egui::Key::Space => c.tap(),
                     egui::Key::Enter => c.resync(),
@@ -569,7 +572,8 @@ impl App {
     fn file_menu_no_desktop(&mut self, ui: &mut egui::Ui) {
         ui.separator();
         ui.menu_button("バックアップから戻す", |ui| {
-            let backups = list_backups(&backup_dir());
+            let stem = self.project_path.file_stem().and_then(|s| s.to_str()).unwrap_or("project").to_string();
+            let backups = list_backups(&backup_dir(), &stem);
             if backups.is_empty() {
                 ui.label("バックアップはまだありません");
             }
@@ -681,19 +685,6 @@ impl eframe::App for App {
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.shutdown();
     }
-}
-
-/// バックアップのファイル(新しい順)
-fn list_backups(dir: &std::path::Path) -> Vec<PathBuf> {
-    let Ok(rd) = std::fs::read_dir(dir) else { return Vec::new() };
-    let mut files: Vec<(std::time::SystemTime, PathBuf)> = rd
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("json"))
-        .filter_map(|p| Some((std::fs::metadata(&p).ok()?.modified().ok()?, p)))
-        .collect();
-    files.sort_by(|a, b| b.cmp(a));
-    files.into_iter().map(|(_, p)| p).collect()
 }
 
 // ------------------------------------------------------------ 対象セレクタ用の共通部品
