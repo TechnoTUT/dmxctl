@@ -340,3 +340,19 @@ fn audio_source_follows_detected_tempo_and_phase() {
     c.audio_report(Estimate { bpm: 70.0, phase: 0.1, confidence: 0.8 }, now);
     assert!((c.project.bpm - 140.0).abs() < 0.11);
 }
+
+#[test]
+fn beat_now_fills_in_between_output_ticks() {
+    // 画面用の拍は、出力が拍を進めた(25msごと)あとの経過ぶんを足して、なめらかに進む
+    let mut c = core();
+    c.rt.beat = 3.0;
+    c.rt.last_beat_t = Some(Instant::now() - Duration::from_millis(20));
+    let b = c.beat_now();
+    assert!(b > 3.03 && b < 3.1, "120BPMで20ms経てば約0.04拍進む: {b}");
+    // 出力が止まっていても、先へ進みすぎない(最大0.1秒ぶん)
+    c.rt.last_beat_t = Some(Instant::now() - Duration::from_secs(5));
+    assert!((c.beat_now() - 3.2).abs() < 1e-6);
+    // まだ一度も進めていなければ、そのまま
+    c.rt.last_beat_t = None;
+    assert_eq!(c.beat_now(), 3.0);
+}

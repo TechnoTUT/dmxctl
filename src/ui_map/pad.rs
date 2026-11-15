@@ -235,7 +235,7 @@ pub(super) fn effect_path(core: &Core, name: &str) -> Option<Preview> {
     let first = *fx.first()?;
     // 拍(自由な速さのエフェクトは秒)を単位にして、機能ごとに違う周期(8の字など)も1つの軌跡にする
     let period = |e: &Effect| if e.beats > 0.0 { e.beats as f64 } else { 1.0 / e.rate_hz.max(0.001) as f64 };
-    let clock = if first.beats > 0.0 { core.rt.beat } else { core.rt.t0.elapsed().as_secs_f64() };
+    let clock = if first.beats > 0.0 { core.beat_now() } else { core.rt.t0.elapsed().as_secs_f64() };
     let val = |e: &Effect, t: f64| -> f32 {
         let p = t / period(e) + e.phase as f64 / 360.0;
         let w = e.wave.eval(p.rem_euclid(1.0) as f32, p.floor() as i64 as u64, 1);
@@ -345,9 +345,11 @@ pub(super) fn button_cell(ui: &mut egui::Ui, rect: Rect, ctl: Ctl, info: &Info, 
     let has_preview = !small && !matches!(info.preview, Preview::None);
     if has_preview {
         draw_preview(p, rect, &info.preview, info.active, accent);
-        if resp.hovered() {
-            // マウスを乗せている間は、なめらかに動かす
-            ui.ctx().request_repaint_after(std::time::Duration::from_millis(66));
+        // 軌跡の上の点は拍に合わせて動き続けるので、前面のときはなめらかに描き直す
+        // (前面でないときは、マウスを乗せている間だけ)
+        let moving = matches!(&info.preview, Preview::Path { now, .. } if !now.is_empty());
+        if (moving && crate::app::in_front(ui)) || resp.hovered() {
+            ui.ctx().request_repaint_after(crate::app::SMOOTH);
         }
     }
     // 種類の色の細い線(実機のLEDの代わり)。実際の色のパッドは全体が色なので付けない

@@ -5,9 +5,9 @@
 | もの | 場所 | 備考 |
 |---|---|---|
 | ソース一式(履歴つき) | `dmxctl` フォルダ(`.git` を含む) | `target/`(ビルドの中間ファイル、2GB以上)と `dist/`(できあがったアプリ)はコピー不要。作り直せる |
-| 設定(パッチ・機材定義・割り当て) | Mac: `~/Library/Application Support/dmxctl/`<br>Windows: `%APPDATA%\dmxctl\` | `project.json` と `fixtures/` が本体。`backups/` は任意 |
+| 設定(パッチ・機材定義・割り当て) | Mac: `~/Library/Application Support/dmxctl/`<br>Windows: `%APPDATA%\dmxctl\`<br>Linux: `~/.config/dmxctl/` | `project.json` と `fixtures/` が本体。`backups/` は任意 |
 
-新しいPCでは、設定フォルダの中身を上の場所にそのまま置く(Mac⇄Windowsで中身は同じ形式)。
+新しいPCでは、設定フォルダの中身を上の場所にそのまま置く(Mac・Windows・Linuxで中身は同じ形式)。
 
 ## 新しいPCで入れるもの
 
@@ -30,22 +30,29 @@ target\release\dmxctl.exe
 3. (NDIを使うなら)**NDI Tools**
 4. (MacからWindows版も作るなら)**MinGW-w64**: `brew install mingw-w64`
 
+### Linux
+1. **Rust**: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
+2. **ビルドに要るもの**(Debian / Ubuntu): `sudo apt install build-essential pkg-config libasound2-dev libudev-dev libsdl2-dev`(Fedora / Arch は README の「Linux で使う」)
+3. **日本語フォント**: `sudo apt install fonts-noto-cjk`
+4. **権限**: `sudo usermod -aG dialout,video,input $USER`(USB-DMX、KMSDRMの画面・キーボード/マウス)
+
 ビルド:
 ```
 bash ./scripts/build-mac.sh            # dist/mac/DMX Controller.app(ユニバーサル版)
 bash ./scripts/build-windows-mingw.sh  # dist/windows/dmxctl.exe(MacからWindows版)
-bash ./scripts/build-linux.sh          # dist/linux/dmxctl(Linuxの上で)
+bash ./scripts/build-linux.sh          # dist/linux/dmxctl(Linuxの上で。kmsdrm機能入り)
 cargo run --release                    # 開発中の確認
 ```
 
 ### テスト
 ```
 cargo test --release
+cargo test --release --features kmsdrm   # Linux: KMSDRMの部分(キーの変換・拡大率)も
 ```
 
 ## 新しいPCで最初にやること
 
-- 「出力」タブ: USB-DMXのポート名を選び直す(Mac `/dev/cu.usbserial-…` / Windows `COM3` など)
+- 「出力」タブ: USB-DMXのポート名を選び直す(Mac `/dev/cu.usbserial-…` / Windows `COM3` / Linux `/dev/ttyUSB0` など)
 - 2ページ目の設定パネル: NDIのソースを選び直す(ソース名にPC名が入るため)
 - 初回のネットワーク利用時の確認(Macの「ローカルネットワーク」、Windowsのファイアウォール)は「許可」
 
@@ -71,6 +78,8 @@ cargo test --release
 | `src/keys.rs` / `src/ui_keys.rs` | キーボードの割り当て(`TriggerKind::Key`。番号=段×16+位置) / キーボードタブ(キーの絵) |
 | `src/theme.rs` | 見た目(色・フォント) |
 | `src/opendmx.rs` / `src/output.rs` | USB-DMX / Art-Net の出力 |
+| `src/main.rs` / `src/app.rs` | 起動(eframe か KMSDRM かを選ぶ) / アプリ本体。`App::new`・`App::frame`・`App::shutdown` は eframe に頼らないので、どちらの土台からも呼べる |
+| `src/kmsdrm.rs` / `src/kmsdrm/keys.rs` | Linux・`kmsdrm`機能のときだけ: デスクトップ環境の無い画面に、SDL2(KMSDRM)+ OpenGL ES(egui_glow)で描くループ / SDLのキーをeguiのキーに直す表 |
 
 ## 開発用の環境変数・コマンド
 
@@ -80,6 +89,8 @@ cargo test --release
 | `DMXCTL_NO_MIDI=1` | MIDI機器に自動接続しない(本番と2つ起動するとき) |
 | `DMXCTL_SHOT=保存先.png` + `DMXCTL_TAB=タブ名` / `DMXCTL_PAGE=2` / `DMXCTL_SIZE=1280x800` / `DMXCTL_UNIVERSE=2` | 画面を撮って保存して終了(見た目の確認用) |
 | `DMXCTL_PERF=1` | 描画の時間を表示 |
+| `DMXCTL_KMSDRM=1` / `=0` / `--kmsdrm` | Linux(`kmsdrm`機能入り): KMSDRMで必ず起動する / 使わない。指定が無ければ `DISPLAY` と `WAYLAND_DISPLAY` が無いときに使う |
+| `DMXCTL_SCALE=1.5` | KMSDRMの画面の拡大率(指定が無ければ画面の大きさから自動) |
 | `DMXCTL_D2XX_LIB` / `DMXCTL_NDI_LIB` | ライブラリの場所を直接指定 |
 | `DMXCTL_CHECK_ONLY=1 cargo check --target …` | C++をビルドせずに、他のOS向けに型チェックだけ |
 | `dmxctl --apply-layout` | 保存してある設定を、おすすめのMIDI配置にする(先にバックアップを残す) |
@@ -101,5 +112,6 @@ DMXCTL_SHEET_DIR=保存先 cargo test --release preset_sheet -- --ignored       
 - **NDIのライブラリは同梱しない**(配布条件のため)。インストール済みの NDI Tools のものを読み込む
 - **D2XX**: Mac版は `third_party/ftd2xx/mac/libftd2xx.dylib` をアプリに同梱。Windowsは FTDIドライバの `ftd2xx.dll`
 - **レーザーの安全処理**(`engine.rs` の `guard_values` / `emergency_stop`): 機材定義の `forbid`(オートショー・サウンド・パン/チルトの自動の動き)と、機材ごとの `limits`(動いてよい範囲)は、出力の直前に必ず直す。内蔵の定義を上書きしても `forbid` は引き継ぐ。落ちたとき・終了のシグナル・シャットダウン(Windowsは見えないウィンドウで `WM_ENDSESSION` を受ける。`watch_windows_shutdown`)・Mac/Linuxで画面を通らずに exit() したとき(`atexit`)では、安全なフレーム(レーザーOFF・明るさ0)を約0.3秒送ってから終わる
+- **KMSDRM**: 画面が出ない(「画面を開けませんでした」)ときは、`video` グループに入っているか、デスクトップ環境など他のアプリが画面を使っていないかを確認。キー・マウスが効かないときは `input` グループ。`DMXCTL_SHOT` での画面の撮影は KMSDRM でも使える(SSHから確かめるのに便利)
 - **ムービングのチルト**: 128が真上。動きのプリセットはチルトを大きく振る作り
 - 実行中のアプリは5秒ごとに設定を自動保存するので、`project.json` を直接書き換えるときは先にアプリを閉じる

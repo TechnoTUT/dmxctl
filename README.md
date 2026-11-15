@@ -412,7 +412,7 @@ DMXで **RGBRGBRGB…** とピクセルが並んでいるLEDバーを扱えま�
 | **Ableton Link** | 同じPC・同じネットワークのLink対応アプリ(TouchDesignerの **Ableton Link CHOP**、Resolume、Ableton Live、DJソフトなど)と、**テンポと拍の位置(小節の頭)**が揃います。相手のテンポ変更に追従し、ここでのTAP・BPM変更・頭出しも相手に伝わります |
 | MIDIクロック | 外部から来るMIDIクロック(1拍24回)でテンポと拍を決めます。Start(0xFA)で小節の頭に揃います。クロックが途切れたら、最後のテンポのまま内部で走り続けます(照明は止まりません)。入力はメインのMIDI入力か、別のポート(loopMIDIなどの仮想ポート)を選べます。クロック中はBPMの手入力とTAPは効きません |
 
-- Linkは公式のC++実装(Ableton Link 4)をそのまま組み込んでいます。初めてLink/OSCを有効にしたとき(exeの場所ごとに1回)、Windowsのファイアウォールの確認が出ます。別のPC(映像用PCなど)とつなぐ場合は「許可」が必要です
+- Linkは公式のC++実装(Ableton Link 4)をそのまま組み込んでいます。初めてLink/OSCを有効にしたとき(exeの場所ごとに1回)、Windowsのファイアウォールの確認が出ます(Linuxでファイアウォールを有効にしている場合は [Linux で使う](#linux-で使う) を参照)。別のPC(映像用PCなど)とつなぐ場合は「許可」が必要です
 - TouchDesignerでは、Ableton Link CHOP の `Enable` をONにするだけで、このアプリとテンポ・拍が揃います。Beat CHOPなどの映像の動きと、照明のBPM同期エフェクト・チェイスが同じ拍で動きます
 
 ### OSC受信
@@ -440,8 +440,8 @@ DMXで **RGBRGBRGB…** とピクセルが並んでいるLEDバーを扱えま�
 
 ## バックアップ
 
-- **起動のたび**と、**別のファイルを開く前**に、保存ファイルを `%APPDATA%\dmxctl\backups\project-日付-時刻.json` に自動で残します(最新20個)
-- 上部の「**バックアップから戻す**」で選んだものに戻せます(戻す前の状態もバックアップされるので、やり直せます)
+- **起動のたび**と、**別のファイルを開く前**に、保存ファイルを設定フォルダの `backups\project-日付-時刻.json` に自動で残します(最新20個。設定フォルダは [はじめに](#はじめに最初の準備) の最後を参照)
+- 「ファイル」メニューの「**バックアップから戻す**」で選んだものに戻せます(戻す前の状態もバックアップされるので、やり直せます)
 - 自動保存(5秒ごと)で、うっかり消した割り当てやシーンがすぐ保存されてしまっても、起動時の状態までは戻せます
 
 ---
@@ -471,7 +471,7 @@ cargo run --release
 
 **MacからWindows版を作る**: MinGW-w64 を入れて(`brew install mingw-w64`)、`bash ./scripts/build-windows-mingw.sh`。`dist/windows/dmxctl.exe`(単体で動く。追加のDLLは不要)と配布用のzipができます。
 
-**Macが手元に無い場合**: GitHub に push すると、`.github/workflows/build.yml` により Mac 用・Windows 用・Linux 用がビルドされます(ビルドが通るかの確認)。`v` で始まるタグ(例: `v0.2.0`)を push すると、そのビルドの成果物(zip / tar.gz)が GitHub の Release に添付されます。
+**Macが手元に無い場合**: GitHub で PR を作ると、`.github/workflows/build.yml` により Mac 用・Windows 用・Linux 用がビルドされます(ビルドが通るかの確認。ただの push ではテストだけ)。`v` で始まるタグ(例: `v0.2.0`)を push すると、そのビルドの成果物(zip / tar.gz)が GitHub の Release に添付されます。
 
 **Macでの違い・注意**
 
@@ -483,17 +483,22 @@ cargo run --release
 
 ## Linux で使う
 
-Linux(X11 / Wayland のどちらでも)で動きます。作るのは Linux の上で行います。
+Linux(X11 / Wayland のどちらでも)で動きます。**デスクトップ環境の無いLinux**(コンソールだけのPC・Raspberry Pi など)でも、画面に直接(KMS/DRM)出して使えます([デスクトップ環境の無いLinuxで使う](#デスクトップ環境の無いlinuxで使うkmsdrm))。作るのは Linux の上で行います。
 
 **Linuxで作る**
 
 1. Rust を入れる: https://rustup.rs
 2. ビルドに要るものを入れる
-   - Ubuntu / Debian: `sudo apt install build-essential pkg-config libasound2-dev libudev-dev`
-   - Fedora: `sudo dnf install gcc-c++ pkgconf alsa-lib-devel systemd-devel libatomic`
-   - Arch: `sudo pacman -S base-devel alsa-lib`
+   - Ubuntu / Debian: `sudo apt install build-essential pkg-config libasound2-dev libudev-dev libsdl2-dev`
+   - Fedora: `sudo dnf install gcc-c++ pkgconf alsa-lib-devel systemd-devel libatomic SDL2-devel`
+   - Arch: `sudo pacman -S base-devel alsa-lib sdl2`
 3. `./scripts/build-linux.sh`
 4. `dist/linux/dmxctl` ができます(配布用の `DMX-Controller-linux.tar.gz` も同じ場所)。`./dmxctl` で起動
+
+GitHub の Release に付いている Linux 版(`DMX-Controller-linux.tar.gz`)は Debian 13 の中で作っているので、**Debian 13 以降**で動きます(今のところ Ubuntu 24.04 以降でも動きます)。それより古い Linux では起動できない(`GLIBC_2.xx not found` と出る)ので、上の手順でそのPCの上で作ってください。
+
+- `build-linux.sh` は、デスクトップ環境の無い画面にも出せるよう SDL2 を使う機能(`kmsdrm`)を入れて作ります。そのため、動かすPCにも SDL2 が要ります(Ubuntu / Debian: `sudo apt install libsdl2-2.0-0`。デスクトップ環境のあるPCにはたいてい入っています)
+- SDL2 を使わずに作るときは `DMXCTL_NO_KMSDRM=1 ./scripts/build-linux.sh`(または `cargo build --release`)。この場合はデスクトップ環境の上でだけ動きます
 
 **Linuxでの違い・注意**
 
@@ -504,13 +509,67 @@ Linux(X11 / Wayland のどちらでも)で動きます。作るのは Linux の�
 - D2XX を使う場合は FTDI の `libftd2xx.so` を入れ、標準のドライバを外します(`sudo rmmod ftdi_sio`)。ふつうは COMポート方式で十分です
 - MIDI・音声入力は ALSA を使います(PipeWire / PulseAudio の環境でもそのまま動きます)
 - メニューに出したいときは、`dmxctl` を PATH の通った場所に置き、`dmxctl.desktop` を `~/.local/share/applications/` にコピー
+- ファイアウォール(ufw / firewalld)を有効にしている場合は、使う機能のUDPポートを開けてください: OSC受信(既定 9000)、Ableton Link(20808)。Art-Netの送信だけなら不要です
+- 終了のシグナル(Ctrl+C・`kill`・ログアウト・シャットダウン)を受けたときも、安全な値(レーザーOFF・明るさ0)を送ってから止まります
+
+### デスクトップ環境の無いLinuxで使う(KMS/DRM)
+
+デスクトップ環境(X11 / Wayland)が無いPCでは、`dmxctl` を **コンソール(tty)から起動するだけ** で、画面全体に直接表示します(SDL2 の KMSDRM を使用)。照明卓専用の小さなPCや Raspberry Pi で、余計なものを入れずに動かせます。
+
+**準備**
+
+1. `./scripts/build-linux.sh` で作ったもの(`kmsdrm` 機能入り)を使います。動かすPCに SDL2(`libsdl2-2.0-0`)、OpenGL ES の動くGPUドライバ(Mesa。ふつうは入っています)、日本語フォント(`fonts-noto-cjk`)を入れます
+2. 画面とキーボード・マウスを使えるよう、ユーザーを `video` と `input` のグループに入れて、ログインし直します
+
+   ```
+   sudo usermod -aG video,input,dialout $USER
+   ```
+
+   (`dialout` は USB-DMX 用)。`input` に入っていないと、画面は出てもキーボード・マウスが効きません(画面下に知らせが出ます)
+
+3. コンソールにログインして `./dmxctl` で起動します。SSH から起動することもできます(画面はそのPCにつないだモニターに出ます)
+
+**操作・違い**
+
+- 画面全体に表示します。拡大率は画面の大きさから自動で決めます(1920×1080 なら1.25倍)。変えたいときは `DMXCTL_SCALE=1.5 ./dmxctl` のように指定します
+- **終了**: 「ファイル」メニューの「終了」、または Ctrl+Q(閉じるボタンが無いため)。起動した端末での Ctrl+C でも安全に止まります
+- ファイルを選ぶ画面(別名で保存・開く)は出せないので、「ファイル」メニューには出ません。設定は今までどおり自動保存され、「バックアップから戻す」は一覧から選べます
+- タッチパネル: 触った所をクリック(触ったまま動かすとドラッグ)
+- トラックパッド: 1本指でカーソルを動かす、軽く叩くと左クリック、2本指で叩くと右クリック、2本指で動かすとスクロール(指の動きに中身がついてくる向き)。押し込むクリックも使えます
+- 日本語入力(IME)は使えません。名前の欄などには英数字を入力してください
+- 他のアプリ(デスクトップ環境など)が画面を使っている間は起動できません
+- KMSDRMを使うかどうかは、ふつうは自動で決まります(環境変数 `DISPLAY` と `WAYLAND_DISPLAY` が無ければ使う)。`--kmsdrm` か `DMXCTL_KMSDRM=1` で必ず使い、`DMXCTL_KMSDRM=0` で使いません
+
+**電源を入れたら自動で起動する(例)**
+
+1. tty1 に自動ログインする
+
+   ```
+   sudo systemctl edit getty@tty1
+   ```
+
+   で開いたところに次を書いて保存します(`ユーザー名` は自分のもの)
+
+   ```
+   [Service]
+   ExecStart=
+   ExecStart=-/sbin/agetty --autologin ユーザー名 --noclear %I $TERM
+   ```
+
+2. `~/.bash_profile` の最後に、tty1 のときだけ起動するよう書きます(`dmxctl` を置いた場所に合わせる)
+
+   ```
+   if [ "$(tty)" = /dev/tty1 ]; then ~/dmxctl/dmxctl; fi
+   ```
+
+   アプリを終了するとコンソールに戻ります(`~/dmxctl/dmxctl` の前に `exec` を付けると、終了しても自動でもう一度起動します)
 
 ## USB-DMX(FT232系)について
 
 このタイプはDMXフレーム(BREAK→スタートコード→スロット)をPC側が作って送り続ける方式です。2通りの接続方法があります。
 
 - **COMポート**: FTDIドライバが作る仮想COMポートに、250000bps 8N2 + BREAK で送信。まずこちらを試してください
-- **D2XX**: `ftd2xx.dll`(FTDIドライバに同梱)を実行時に読み込んで直接制御。DLLが無くてもアプリ自体は起動します
+- **D2XX**: FTDIのライブラリ(Windows: `ftd2xx.dll`(FTDIドライバに同梱) / Mac: `libftd2xx.dylib`(アプリに同梱) / Linux: `libftd2xx.so`)を実行時に読み込んで直接制御。ライブラリが無くてもアプリ自体は起動します
 
 抜き差しや電源断で切れても、自動で再接続します。
 
@@ -518,7 +577,7 @@ Linux(X11 / Wayland のどちらでも)で動きます。作るのは Linux の�
 
 | もの | 中身 |
 |---|---|
-| 機材定義 | アプリ内の「機材定義」タブで作成・編集(モード・チャンネル・値の範囲・16bit・安全値・カテゴリ)。実体は `%APPDATA%\dmxctl\fixtures\*.json` で、手書きも可 |
+| 機材定義 | アプリ内の「機材定義」タブで作成・編集(モード・チャンネル・値の範囲・16bit・安全値・カテゴリ)。実体は設定フォルダの `fixtures/*.json` で、手書きも可 |
 | 対象の指定 | 機材単体 / グループ / 同機種すべて / すべて。機能名(`dimmer`, `color` など)で指定するので、機種が違っても同じ割り当てが効く |
 | パッドの動作 | フェーダー(連続) / 押している間 / トグル / ワンショット |
 | 割り当てできる動作 | チャンネル値、シーン呼出(フェード付き)、エフェクト/チェイスON/OFF、ムービングの動き、色、位置プリセット、テンポ、ページ切替、全体光量、ペア、ブラックアウト など |

@@ -7,8 +7,27 @@ use crate::project::*;
 use eframe::egui::{self, Align, Color32, Layout, RichText};
 use std::collections::HashSet;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+
+/// デスクトップ環境の無い画面(KMSDRM)で動いているか。ファイルを選ぶ画面(OSのダイアログ)が出せず、
+/// ウィンドウの閉じるボタンも無いので、ファイルメニューの中身を変える
+pub static NO_DESKTOP: AtomicBool = AtomicBool::new(false);
+
+pub fn no_desktop() -> bool {
+    NO_DESKTOP.load(Ordering::Relaxed)
+}
+
+/// 動いているもの(拍で動く点・色の追従・フェード・モニター)を描き直す間隔。約30fps。
+/// (eguiは頼んだ時刻より1フレーム分(1/60秒)早めに描くので、33msに1/60秒を足して頼む)
+pub const SMOOTH: Duration = Duration::from_millis(50);
+
+/// このウィンドウが前面か。前面でない(映像ソフトなどを前に出している)ときは、描き直しを減らしてCPUを譲る。
+/// デスクトップ環境の無い画面(KMSDRM)では他のアプリが前に出ることは無いので、いつも前面
+pub fn in_front(ui: &egui::Ui) -> bool {
+    no_desktop() || ui.input(|i| i.focused)
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
@@ -111,9 +130,10 @@ struct Perf {
 }
 
 impl App {
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        crate::theme::setup_fonts(&cc.egui_ctx);
-        crate::theme::apply(&cc.egui_ctx);
+    /// 画面の土台(eframe / KMSDRM)によらず、eguiのContextだけで作る
+    pub fn new(egui_ctx: &egui::Context) -> Self {
+        crate::theme::setup_fonts(egui_ctx);
+        crate::theme::apply(egui_ctx);
 
         let (lib, lib_errors) = Library::load(&config_dir().join("fixtures"));
         let lib = Arc::new(lib);
@@ -179,7 +199,7 @@ impl App {
             key_mouse: None,
             // 開発・確認用: DMXCTL_KEY_COLOR=1 で、キーボードタブを色の段で開く
             key_color_view: std::env::var_os("DMXCTL_KEY_COLOR").is_some(),
-            ctx: cc.egui_ctx.clone(),
+            ctx: egui_ctx.clone(),
             perf: std::env::var_os("DMXCTL_PERF").map(|_| Perf { frames: 0, ui_time: Duration::ZERO, frame_cpu: 0.0, since: Instant::now(), text: String::new() }),
             shot: crate::shot::Shot::from_env(),
         };
@@ -205,7 +225,7 @@ impl App {
         }
         if !app.midi_choice.is_empty() && app.midi_ports.contains(&app.midi_choice) {
             let name = app.midi_choice.clone();
-            match app.midi.connect(&app.core, cc.egui_ctx.clone(), &name) {
+            match app.midi.connect(&app.core, egui_ctx.clone(), &name) {
                 Ok(()) => lock(&app.core).project.midi_input = name,
                 Err(e) => app.notice = e,
             }
@@ -330,6 +350,10 @@ impl App {
                         self.save();
                         self.notice = "保存しました".into();
                         ui.close();
+                    }
+                    if no_desktop() {
+                        self.file_menu_no_desktop(ui);
+                        return;
                     }
                     if ui.button("別名で保存…").clicked() {
                         ui.close();
@@ -513,6 +537,8 @@ impl App {
                 match key {
                     egui::Key::Escape => c.rt.blackout = !c.rt.blackout,
                     egui::Key::S if modifiers.command => save = true,
+                    // デスクトップ環境の無い画面には閉じるボタンが無いので、Ctrl+Qで終了
+                    egui::Key::Q if modifiers.command && no_desktop() => ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close),
                     _ if typing || modifiers.command || modifiers.alt || modifiers.ctrl => {}
                     egui::Key::Space => c.tap(),
                     egui::Key::Enter => c.resync(),
@@ -538,28 +564,56 @@ impl App {
         }
     }
 
+    /// デスクトップ環境の無い画面でのファイルメニュー(保存の後ろ)。OSのファイル選択は出せないので、
+    /// バックアップは一覧から選ぶ。閉じるボタンの代わりに「終了」を置く
+    fn file_menu_no_desktop(&mut self, ui: &mut egui::Ui) {
+        ui.separator();
+        ui.menu_button("バックアップから戻す", |ui| {
+            let backups = list_backups(&backup_dir());
+            if backups.is_empty() {
+                ui.label("バックアップはまだありません");
+            }
+            egui::ScrollArea::vertical().max_height(400.0).show(ui, |ui| {
+                for p in backups {
+                    let name = p.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_string();
+                    if ui.button(name).clicked() {
+                        ui.close();
+                        self.load_from(p);
+                    }
+                }
+            });
+        })
+        .response
+        .on_hover_text("起動のたび・別のファイルを開く前に、自動でバックアップを残しています(最新20個)。選んだものに戻します(戻す前の状態もバックアップされます)");
+        ui.separator();
+        if ui.button("終了").on_hover_text("Ctrl+Q").clicked() {
+            ui.close();
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+    }
+
     fn ui_body(&mut self, ui: &mut egui::Ui) {
         // DMXの出力は別スレッドなので、画面の更新頻度は出力に影響しない。
-        // 普段は操作時とMIDI入力時だけ描画し、フェード中/モニター表示中だけ30fpsで更新する(グラフィックPCと同居するためCPUを節約)
-        // 拍の表示は、次の拍の頭で1回だけ更新する(毎フレーム描き直さない)
+        // 前面のときは、動いているもの(フェード・モニター・色の追従・パッドの軌跡の点)を約30fpsでなめらかに描く。
+        // 前面でないとき(映像ソフトを前に出しているとき)は、グラフィックPCと同居するためCPUを節約して4fpsに減らす。
+        // 何も動いていなければ、操作時とMIDI入力時、それと拍の表示が変わる次の拍の頭だけ描く
         let (busy, to_beat, animated) = {
             let c = lock(&self.core);
             let p = &c.project;
             // 色や値がひとりでに変わっているか(マップの「今の色」を追従させるため)
             let animated = p.effects.iter().any(|e| e.enabled) || p.pixel_fx.iter().any(|e| e.enabled) || p.chases.iter().any(|e| e.enabled) || p.palette.auto;
-            (self.tab == Tab::Monitor || !c.rt.fades.is_empty() || c.fading(), (1.0 - c.rt.beat.rem_euclid(1.0)) * 60.0 / p.bpm.max(1.0) as f64, animated)
+            (self.tab == Tab::Monitor || !c.rt.fades.is_empty() || c.fading(), (1.0 - c.beat_now().rem_euclid(1.0)) * 60.0 / p.bpm.max(1.0) as f64, animated)
         };
-        // 他のアプリ(映像など)を前に出して使っているとき(このウィンドウが前面でないとき)は、表示の更新をさらに減らす
-        let focused = ui.input(|i| i.focused);
-        let mut idle = if focused { Duration::from_millis(500).min(Duration::from_secs_f64(to_beat.max(0.0) + 0.01)) } else { Duration::from_millis(1000) };
-        // MIDI画面は、エフェクトなどで色が動いている間は8fpsで「今の色」とパッドのプレビューを追従する
+        let focused = in_front(ui);
+        // 拍の表示は、前面でなくても次の拍の頭で更新する(拍を飛ばさない)
+        let mut idle = Duration::from_secs_f64(to_beat.max(0.0) + 0.01).min(Duration::from_millis(if focused { 500 } else { 1000 }));
+        // MIDI画面は、エフェクトなどで色が動いている間は「今の色」とパッドのプレビューを追従する
         // (プレビューはメッシュでまとめて描くので、1回の描画は他のタブと大きく変わらない)
         if focused && animated && self.tab == Tab::Map {
-            idle = idle.min(Duration::from_millis(125));
+            idle = idle.min(SMOOTH);
         }
-        // モニター表示中/フェード中は10fps。描画1回ぶんのCPUは内容によらず約12〜16msかかるので、回数を減らすのが一番効く
         // (DMXの出力は画面と別スレッドで40Hz固定なので、画面の更新頻度は出力に影響しない)
-        ui.ctx().request_repaint_after(if busy { Duration::from_millis(if focused { 100 } else { 250 }) } else { idle });
+        ui.ctx().request_repaint_after(if busy { if focused { SMOOTH } else { Duration::from_millis(250) } } else { idle });
         self.shortcuts(ui, focused);
         self.autosave();
         // NDIの受信は、設定(パッド・画面)でONにしている間だけ動かす
@@ -588,9 +642,10 @@ impl App {
     }
 }
 
-impl eframe::App for App {
-    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
-        if let (Some(p), Some(cpu)) = (self.perf.as_mut(), frame.info().cpu_usage) {
+impl App {
+    /// 1フレームぶんの画面。cpu_usage は前のフレームのCPU時間(秒。分からなければNone)
+    pub fn frame(&mut self, ui: &mut egui::Ui, cpu_usage: Option<f32>) {
+        if let (Some(p), Some(cpu)) = (self.perf.as_mut(), cpu_usage) {
             p.frame_cpu += cpu;
         }
         self.ui_timed(ui);
@@ -599,8 +654,8 @@ impl eframe::App for App {
         }
     }
 
-    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        // 終了時は先にブラックアウトを数フレーム送ってから止める(レーザーを出しっぱなしにしない)
+    /// 終了時は先にブラックアウトを数フレーム送ってから止める(レーザーを出しっぱなしにしない)
+    pub fn shutdown(&mut self) {
         {
             let mut c = lock(&self.core);
             c.rt.blackout = true;
@@ -615,6 +670,29 @@ impl eframe::App for App {
         self.engine.stop();
         self.save();
     }
+}
+
+impl eframe::App for App {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        self.frame(ui, frame.info().cpu_usage);
+    }
+
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.shutdown();
+    }
+}
+
+/// バックアップのファイル(新しい順)
+fn list_backups(dir: &std::path::Path) -> Vec<PathBuf> {
+    let Ok(rd) = std::fs::read_dir(dir) else { return Vec::new() };
+    let mut files: Vec<(std::time::SystemTime, PathBuf)> = rd
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("json"))
+        .filter_map(|p| Some((std::fs::metadata(&p).ok()?.modified().ok()?, p)))
+        .collect();
+    files.sort_by(|a, b| b.cmp(a));
+    files.into_iter().map(|(_, p)| p).collect()
 }
 
 // ------------------------------------------------------------ 対象セレクタ用の共通部品
