@@ -38,10 +38,18 @@ impl crate::app::App {
 
     /// オート: Beat Link Triggerなどから曲の情報が届いている間は自動で動かし、届かなければ待機の色で光らせる
     fn auto_row(&mut self, ui: &mut egui::Ui) {
-        let (mut cfg, online, manual, energy) = {
+        let (mut cfg, online, manual, energy, blt) = {
             let c = lock(&self.core);
-            (c.project.auto.clone(), c.auto_online(), c.manual_remaining(), c.rt.energy)
+            (c.project.auto.clone(), c.auto_online(), c.manual_remaining(), c.rt.energy, c.blt_state())
         };
+        // BLTが見つからないときは、いちばん上に目立つように
+        if cfg.enabled && matches!(blt, crate::engine::BltState::Missing(_)) {
+            theme::card().fill(theme::alpha(theme::WARN, 0.15)).show(ui, |ui| {
+                ui.label(RichText::new(blt.message()).color(theme::WARN));
+                ui.label(RichText::new("Linkの仲間も、曲の情報(OSC)も届いていません。BLT が動いているか、このPCと同じネットワークにつながっているか、BLTのトリガーの送り先(IP・ポート)が合っているかを確かめてください").small().color(theme::TEXT_DIM));
+            });
+            ui.add_space(4.0);
+        }
         let before = cfg.clone();
         ui.horizontal_wrapped(|ui| {
             ui.checkbox(&mut cfg.enabled, "オート").on_hover_text(
@@ -70,6 +78,8 @@ impl crate::app::App {
             ui.checkbox(&mut cfg.builtin, "フレーズでプリセットを使う").on_hover_text("フレーズが届いたら、下のプリセットのその行の見た目(ムービング・色・明るさ・シーン・エフェクト)にします");
             ui.checkbox(&mut cfg.energy, "フレーズが無い曲は盛り上がりで").on_hover_text("フレーズの情報が来ない曲では、16拍ごとに波形の大きさ(/dmx/level)で見た目を選びます(大きい: サビ / 中くらい: バース / 小さい: ダウン)");
             ui.checkbox(&mut cfg.accent, "入った瞬間の全開").on_hover_text("プリセットで「全開」にしたフレーズに入った瞬間、1拍だけ今の色で全開にします(レーザーは除く)。OFFにすると全部のフレーズで止めます");
+            ui.label("BLTが見つからないと知らせるまで");
+            ui.add(egui::DragValue::new(&mut cfg.alert_secs).range(0.0..=3600.0).suffix(" 秒")).on_hover_text("Linkの仲間も曲の情報も、この秒数届かなければ、下の帯とログに「Beat Link Trigger が見つかりません」と出します(0で知らせない)");
             ui.label("手動優先");
             ui.add(egui::DragValue::new(&mut cfg.manual_secs).range(0.0..=3600.0).suffix(" 秒")).on_hover_text("MIDIコントローラー・キーボードで操作したら、この秒数はオートが照明を変えません(0で手動優先なし)。画面のクリックは数えません");
         });

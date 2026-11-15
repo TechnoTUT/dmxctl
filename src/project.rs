@@ -570,6 +570,8 @@ pub struct AutoCfg {
     /// フレーズごとの見た目のプリセット(イントロ・サビ…でどう動くか)。`preset` 番目を使う
     pub presets: Vec<AutoPreset>,
     pub preset: usize,
+    /// Beat Link Trigger の気配(Linkの仲間・曲の情報)がこの秒数無ければ、「BLTが見つかりません」と知らせる(0なら知らせない)
+    pub alert_secs: f32,
 }
 
 /// オートで扱うフレーズ(BLTが送る名前, 画面に出す名前)
@@ -684,7 +686,7 @@ impl AutoPreset {
 
 impl Default for AutoCfg {
     fn default() -> Self {
-        AutoCfg { enabled: false, idle_rgb: [0.45, 0.8, 1.0], idle_level: 0.35, timeout_secs: 5.0, builtin: true, manual_secs: 120.0, energy: true, accent: true, presets: vec![AutoPreset::standard(), AutoPreset::intense()], preset: 0 }
+        AutoCfg { enabled: false, idle_rgb: [0.45, 0.8, 1.0], idle_level: 0.35, timeout_secs: 5.0, builtin: true, manual_secs: 120.0, energy: true, accent: true, presets: vec![AutoPreset::standard(), AutoPreset::intense()], preset: 0, alert_secs: 60.0 }
     }
 }
 

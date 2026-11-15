@@ -8,6 +8,35 @@ use crate::motion::{MotionOp, Shape};
 /// 待機の見た目と、本番の見た目を行き来する時間(秒)
 const IDLE_FADE: f32 = 1.5;
 
+/// Beat Link Trigger の様子
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum BltState {
+    /// 曲の情報(色・明るさ・フレーズ)が届いている
+    Receiving,
+    /// Linkの仲間はいる(BLTは動いていて、DJ機器が再生していない)
+    Waiting,
+    /// しばらく気配が無い(BLTが止まっている・ネットワークが届いていないかもしれない)。気配が無くなってからの時間
+    Missing(Duration),
+    /// まだ分からない(起動直後など)・知らせない設定
+    Unknown,
+}
+
+impl BltState {
+    /// 知らせる文(画面・ログ)
+    pub fn message(self) -> String {
+        match self {
+            BltState::Receiving => "BLT: 曲の情報を受信中".into(),
+            BltState::Waiting => "BLT: つながっています(再生待ち)".into(),
+            BltState::Missing(d) => {
+                let s = d.as_secs();
+                let t = if s < 120 { format!("{s}秒") } else { format!("{}分", s / 60) };
+                format!("⚠ Beat Link Trigger が見つかりません({t})。BLT が止まっていないか確かめて、止まっていたら起動してください(TechnoTUT ネットワークの BLT なら blt-start.sh)")
+            }
+            BltState::Unknown => "BLT: 待っています".into(),
+        }
+    }
+}
+
 impl Core {
     /// BLTなどから曲の情報が届いた(オートの「つながっている」の目印)
     pub(crate) fn note_live_input(&mut self) {
@@ -30,6 +59,23 @@ impl Core {
         self.manual_active().then(|| self.project.auto.manual_secs - self.rt.manual_last.map(|t| t.elapsed().as_secs_f32()).unwrap_or(0.0))
     }
 
+    /// Beat Link Trigger の様子(画面・ログの表示用)
+    pub fn blt_state(&self) -> BltState {
+        let cfg = &self.project.auto;
+        if self.auto_online() {
+            return BltState::Receiving;
+        }
+        if self.rt.link_peers > 0 && self.project.tempo_source == TempoSource::Link {
+            return BltState::Waiting;
+        }
+        let gone = self.rt.blt_seen.elapsed();
+        if cfg.enabled && cfg.alert_secs > 0.0 && gone.as_secs_f32() >= cfg.alert_secs {
+            BltState::Missing(gone)
+        } else {
+            BltState::Unknown
+        }
+    }
+
     /// オートで、曲の情報が届いているか
     pub fn auto_online(&self) -> bool {
         let timeout = Duration::from_secs_f32(self.project.auto.timeout_secs.clamp(1.0, 600.0));
@@ -40,6 +86,10 @@ impl Core {
     pub(super) fn run_auto(&mut self, dt: f64) {
         let enabled = self.project.auto.enabled;
         let online = enabled && self.auto_online();
+        // BLTの気配: 曲の情報が届いている、または(テンポがLinkで)Linkの仲間がいる
+        if self.auto_online() || (self.rt.link_peers > 0 && self.project.tempo_source == TempoSource::Link) {
+            self.rt.blt_seen = Instant::now();
+        }
         let manual = self.manual_active();
         // サビの頭の全開は1拍で戻す(オートを切った・手動になったときも)
         if let Some(u) = self.rt.accent_until
