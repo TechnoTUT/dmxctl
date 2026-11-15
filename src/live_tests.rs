@@ -169,6 +169,10 @@ fn backups_are_kept_and_pruned() {
     let mut left: Vec<String> = std::fs::read_dir(&bk).unwrap().flatten().map(|e| std::fs::read_to_string(e.path()).unwrap()).collect();
     left.sort();
     assert_eq!(left, ["{\"v\":2}", "{\"v\":3}", "{\"v\":4}"], "新しい3つが残る");
+    // 戻す画面の一覧: 新しい順で、このアプリが作ったバックアップだけ
+    std::fs::write(bk.join("other.json"), "{}").unwrap();
+    let listed: Vec<String> = list_backups(&bk, "project").iter().map(|p| std::fs::read_to_string(p).unwrap()).collect();
+    assert_eq!(listed, ["{\"v\":4}", "{\"v\":3}", "{\"v\":2}"]);
     // 他のファイルは消さない
     std::fs::write(bk.join("memo.txt"), "x").unwrap();
     backup_to(&file, &bk, 1);

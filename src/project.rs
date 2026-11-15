@@ -789,20 +789,24 @@ pub fn backup_to(path: &Path, dir: &Path, keep: usize) -> Option<PathBuf> {
     }
     std::fs::copy(path, &dest).ok()?;
     // 古いものから消す(このアプリが作ったバックアップだけ)
+    for p in list_backups(dir, stem).into_iter().skip(keep) {
+        std::fs::remove_file(p).ok();
+    }
+    Some(dest)
+}
+
+/// `dir`にある、保存ファイル`stem`のバックアップ(このアプリが作ったもの「stem-日付-時刻.json」)。新しい順
+pub fn list_backups(dir: &Path, stem: &str) -> Vec<PathBuf> {
+    let Ok(rd) = std::fs::read_dir(dir) else { return Vec::new() };
     let prefix = format!("{stem}-");
-    let mut files: Vec<(std::time::SystemTime, PathBuf)> = std::fs::read_dir(dir)
-        .ok()?
+    let mut files: Vec<(std::time::SystemTime, PathBuf)> = rd
         .flatten()
         .map(|e| e.path())
         .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("json") && p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with(&prefix)))
         .filter_map(|p| Some((std::fs::metadata(&p).ok()?.modified().ok()?, p)))
         .collect();
-    files.sort();
-    let excess = files.len().saturating_sub(keep);
-    for (_, p) in files.into_iter().take(excess) {
-        std::fs::remove_file(p).ok();
-    }
-    Some(dest)
+    files.sort_by(|a, b| b.cmp(a));
+    files.into_iter().map(|(_, p)| p).collect()
 }
 
 /// 設定の保存場所。Windows: %APPDATA%\dmxctl / Mac: ~/Library/Application Support/dmxctl / Linux: ~/.config/dmxctl
