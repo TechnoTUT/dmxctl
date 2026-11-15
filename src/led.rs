@@ -181,7 +181,7 @@ fn base_color(core: &Core, action: &Action) -> u8 {
         Action::BarCount { .. } => C_WHITE,
         // 動きは種類ごとに色分け(形=オレンジ / 1周の長さ=黄 / 揃え方=ピンク / 向き=水色)
         Action::Motion { op } => match op {
-            MotionOp::Shape(_) | MotionOp::Size | MotionOp::SizeStep(_) => C_ORANGE,
+            MotionOp::Shape(_) | MotionOp::Size | MotionOp::SizeStep(_) | MotionOp::Glide => C_ORANGE,
             MotionOp::Beats(_) => C_YELLOW,
             MotionOp::Spread(_) => C_PINK,
             MotionOp::Position(_) => C_LIGHT_BLUE,
@@ -291,7 +291,7 @@ pub fn is_active(core: &Core, action: &Action) -> bool {
                 MotionOp::Beats(b) => (m.beats - b).abs() < 1e-3,
                 MotionOp::Spread(s) => m.spread == s,
                 MotionOp::Position(p) => m.position == Some(p),
-                MotionOp::Size | MotionOp::SizeStep(_) => false,
+                MotionOp::Size | MotionOp::SizeStep(_) | MotionOp::Glide => false,
             }
         }
         Action::KeyPage { .. } => false,

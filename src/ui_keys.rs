@@ -197,6 +197,9 @@ fn motion_panel(ui: &mut egui::Ui, core: &mut Core) {
         row(ui, core, (0..POSITIONS.len() as u8).map(MotionOp::Position).collect());
 
         ui.add_space(6.0);
+        egui::CollapsingHeader::new("4点の動き(決めた4つの向きを順に移る)").id_salt("motion_points").default_open(m.shape == crate::motion::Shape::Points).show(ui, |ui| {
+            points_editor(ui, core);
+        });
         egui::CollapsingHeader::new("向き合わせ(最初に1回)").id_salt("motion_calib").show(ui, |ui| {
             ui.label(
                 RichText::new("1.「向き」の「真上」を選び、ビームがまっすぐ上を向くまで「真上のTilt」を動かす\n2.「客席」を選び、客席側へ倒れるまで「正面のPan」を動かす\n   (左右と前後が入れ替わって見えるときも「正面のPan」で直ります)")
@@ -222,4 +225,84 @@ fn motion_panel(ui: &mut egui::Ui, core: &mut Core) {
             }
         });
     });
+}
+
+/// 「4点」の向きの編集: 図の点をドラッグ、数値、今の向きの登録、移る時間
+fn points_editor(ui: &mut egui::Ui, core: &mut Core) {
+    use crate::motion::{Shape, DEFAULT_POINTS};
+    ui.label(
+        RichText::new("動きを「4点」にすると、1→2→3→4 の向きを順に移ります(1周 = 4つ。1周を「1小節」にすれば1拍ごと)。揃え方「ずらす」で台ごとに1つ先の向き、「左右対称」で右半分が逆になります")
+            .small()
+            .color(theme::TEXT_DIM),
+    );
+    let mut m = core.project.motion.clone();
+    let before = m.clone();
+    // 図: 横 = 左右(±90°)、縦 = 奥(上)〜客席(下)。真ん中の十字が真上
+    const X: f32 = 90.0;
+    const Y0: f32 = -45.0;
+    const Y1: f32 = 90.0;
+    let (rect, resp) = ui.allocate_exact_size(vec2(240.0, 180.0), Sense::click_and_drag());
+    let to_screen = |p: [f32; 2]| pos2(rect.left() + (p[0] + X) / (2.0 * X) * rect.width(), rect.top() + (p[1] - Y0) / (Y1 - Y0) * rect.height());
+    let from_screen = |s: egui::Pos2| [((s.x - rect.left()) / rect.width() * 2.0 * X - X).clamp(-X, X).round(), ((s.y - rect.top()) / rect.height() * (Y1 - Y0) + Y0).clamp(Y0, Y1).round()];
+    let p = ui.painter();
+    p.rect_filled(rect, 6.0, theme::WIDGET);
+    let o = to_screen([0.0, 0.0]);
+    p.line_segment([pos2(rect.left(), o.y), pos2(rect.right(), o.y)], Stroke::new(1.0, theme::LINE));
+    p.line_segment([pos2(o.x, rect.top()), pos2(o.x, rect.bottom())], Stroke::new(1.0, theme::LINE));
+    p.text(o + vec2(4.0, -2.0), Align2::LEFT_BOTTOM, "真上", FontId::proportional(10.0), theme::TEXT_FAINT);
+    p.text(pos2(rect.center().x, rect.bottom() - 3.0), Align2::CENTER_BOTTOM, "客席", FontId::proportional(10.0), theme::TEXT_FAINT);
+    p.text(pos2(rect.center().x, rect.top() + 3.0), Align2::CENTER_TOP, "奥", FontId::proportional(10.0), theme::TEXT_FAINT);
+    let pts: Vec<egui::Pos2> = m.points.iter().map(|&q| to_screen(q)).collect();
+    for k in 0..4 {
+        p.line_segment([pts[k], pts[(k + 1) % 4]], Stroke::new(1.5, alpha(theme::ACCENT, 0.5)));
+    }
+    for (k, &q) in pts.iter().enumerate() {
+        p.circle_filled(q, 9.0, theme::ACCENT);
+        p.text(q, Align2::CENTER_CENTER, format!("{}", k + 1), theme::bold(11.0), theme::text_on(theme::ACCENT));
+    }
+    // ドラッグ: 押したところに一番近い点を動かす
+    let drag_id = ui.id().with("points_drag");
+    if resp.drag_started()
+        && let Some(pos) = resp.interact_pointer_pos() {
+        let near = pts.iter().enumerate().min_by(|a, b| a.1.distance(pos).total_cmp(&b.1.distance(pos))).map(|(k, _)| k);
+        ui.data_mut(|d| d.insert_temp(drag_id, near));
+    }
+    if resp.dragged()
+        && let (Some(Some(k)), Some(pos)) = (ui.data(|d| d.get_temp::<Option<usize>>(drag_id)), resp.interact_pointer_pos()) {
+        m.points[k] = from_screen(pos);
+    }
+    // 数値と、今の向きの登録
+    egui::Grid::new("points_grid").num_columns(4).spacing([8.0, 4.0]).show(ui, |ui| {
+        for k in 0..4 {
+            ui.label(RichText::new(format!("{}", k + 1)).font(theme::bold(12.0)));
+            ui.add(egui::DragValue::new(&mut m.points[k][0]).range(-X..=X).suffix("° 右"));
+            ui.add(egui::DragValue::new(&mut m.points[k][1]).range(Y0..=Y1).suffix("° 前"));
+            if ui.small_button("今の向き").on_hover_text("左端のムービングが今向いている向き(位置プリセット・フェーダーで合わせたもの)を、この点にします。動きを「止める」にしてから合わせてください").clicked()
+                && let Some(l) = core.head_lean(0) {
+                m.points[k] = l.map(|v| v.round());
+            }
+            ui.end_row();
+        }
+    });
+    ui.horizontal(|ui| {
+        ui.label("移る時間");
+        ui.add(egui::Slider::new(&mut m.glide, 0.0..=1.0).custom_formatter(|v, _| match v {
+            v if v < 0.01 => "一瞬".into(),
+            v if v > 0.99 => "ずっと動く".into(),
+            v => format!("{:.0}%", v * 100.0),
+        }))
+        .on_hover_text("1つの向きにいる時間のうち、次の向きへ動くのにかける割合。0 = 拍でパッと移る / 100% = 止まらずに動き続ける。次の拍ちょうどに着きます");
+        if ui.small_button("最初の4点に戻す").clicked() {
+            m.points = DEFAULT_POINTS;
+        }
+        if m.shape != Shape::Points && ui.button("「4点」で動かす").clicked() {
+            core.motion_op(MotionOp::Shape(Shape::Points), 0.0);
+            m.shape = Shape::Points;
+        }
+    });
+    if m != before {
+        core.project.motion.points = m.points;
+        core.project.motion.glide = m.glide;
+        core.dirty = true;
+    }
 }

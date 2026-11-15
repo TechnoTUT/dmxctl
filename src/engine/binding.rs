@@ -238,6 +238,7 @@ impl Core {
             Action::Pixel { param: PixelParam::Speed } => self.set_pixel_speed(crate::pixel::speed_step(v)),
             Action::Pixel { param: PixelParam::Skew } => self.rt.px_skew = v * crate::pixel::SKEW_FADER_MAX,
             Action::Motion { op: crate::motion::MotionOp::Size } => self.motion_op(crate::motion::MotionOp::Size, v),
+            Action::Motion { op: crate::motion::MotionOp::Glide } => self.motion_op(crate::motion::MotionOp::Glide, v),
             // 押している間だけ個別
             Action::ColorScope { op: ScopeOp::HoldIndividual } => {
                 if edge.changed() {

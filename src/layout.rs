@@ -134,7 +134,8 @@ pub fn apply(p: &mut Project, lib: &Library) -> Report {
         let sel = m.sel();
         // 動き: 形のパッド(1周の長さ・揃え方は2ページ目。SPOT4と同じ組み合わせ方式)。前の版の動きのエフェクトは片付ける
         p.effects.retain(|e| !(OLD_MOVES.contains(&e.name.as_str()) && (e.attr == "pan" || e.attr == "tilt")));
-        rows[0] = motion::SHAPES.iter().map(|&(s, n)| (n.to_string(), Action::Motion { op: MotionOp::Shape(s) })).collect();
+        // パッドは8つなので、先頭の8つ(「4点」は画面・オートのプリセット・割り当ての編集で選ぶ)
+        rows[0] = motion::SHAPES.iter().take(8).map(|&(s, n)| (n.to_string(), Action::Motion { op: MotionOp::Shape(s) })).collect();
         // 見た目(明るさ・ゴボ・カラーホイール)
         let mut looks = Vec::new();
         if m.attr("dimmer") {
@@ -406,7 +407,7 @@ pub fn apply_keys(p: &mut Project, lib: &Library) -> usize {
     }
     if let Some(h) = &head {
         // QWERTYの段: 動きの形と大きさ
-        for (col, &(s, name)) in motion::SHAPES.iter().enumerate() {
+        for (col, &(s, name)) in motion::SHAPES.iter().take(8).enumerate() {
             put(p, 1, col, None, name.into(), Action::Motion { op: MotionOp::Shape(s) });
         }
         put(p, 1, 8, None, MotionOp::SizeStep(-0.1).label(), Action::Motion { op: MotionOp::SizeStep(-0.1) });
