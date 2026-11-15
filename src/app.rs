@@ -40,6 +40,7 @@ pub enum Tab {
     Pairs,
     Laser,
     Keys,
+    Auto,
     Scenes,
     Effects,
     Sequence,
@@ -49,13 +50,14 @@ pub enum Tab {
 }
 
 /// タブ。先頭の`LIVE_TABS`個が本番で使う画面、残りが準備・設定
-const TABS: [(Tab, &str); 13] = [
+const TABS: [(Tab, &str); 14] = [
     (Tab::Map, "MIDI"),
     (Tab::Keys, "キーボード"),
     (Tab::Control, "コントロール"),
     (Tab::Effects, "エフェクト"),
     (Tab::Scenes, "シーン"),
     (Tab::Sequence, "BPM/チェイス"),
+    (Tab::Auto, "オート"),
     (Tab::Pairs, "ペア"),
     (Tab::Laser, "レーザー"),
     (Tab::Patch, "パッチ"),
@@ -64,7 +66,7 @@ const TABS: [(Tab, &str); 13] = [
     (Tab::Midi, "MIDI設定"),
     (Tab::Monitor, "モニター"),
 ];
-const LIVE_TABS: usize = 7;
+const LIVE_TABS: usize = 8;
 
 pub const RED: Color32 = crate::theme::DANGER;
 pub const WARN: Color32 = crate::theme::WARN;
@@ -637,6 +639,7 @@ impl App {
             Tab::Pairs => self.tab_pairs(ui),
             Tab::Laser => self.tab_laser(ui),
             Tab::Keys => self.tab_keys(ui),
+            Tab::Auto => self.tab_auto(ui),
             Tab::Scenes => self.tab_scenes(ui),
             Tab::Effects => self.tab_effects(ui),
             Tab::Sequence => self.tab_sequence(ui),

@@ -559,19 +559,132 @@ pub struct AutoCfg {
     pub idle_level: f32,
     /// 曲の情報がこの秒数届かなければ待機にする
     pub timeout_secs: f32,
-    /// フレーズに割り当てもシーンも無いとき、組み込みの動き(ムービング・色の入れ替え)を使う
+    /// フレーズに合わせて、プリセットの見た目(ムービング・色・明るさ・シーン・エフェクト)にする
     pub builtin: bool,
     /// MIDIコントローラー・キーボードで操作したら、この秒数はオートを止める(手動優先。0なら止めない)
     pub manual_secs: f32,
     /// フレーズの情報が来ない曲では、波形の大きさ(盛り上がり)で見た目を切り替える
     pub energy: bool,
-    /// ビルドアップ(アップ・ブリッジ)からサビに入った瞬間、1拍だけ今の色で全開にする
+    /// フレーズに入った瞬間の1拍の全開(プリセットで「入った瞬間に全開」にしたフレーズ)を使う
     pub accent: bool,
+    /// フレーズごとの見た目のプリセット(イントロ・サビ…でどう動くか)。`preset` 番目を使う
+    pub presets: Vec<AutoPreset>,
+    pub preset: usize,
+}
+
+/// オートで扱うフレーズ(BLTが送る名前, 画面に出す名前)
+pub const PHRASES: [(&str, &str); 7] = [
+    ("intro", "イントロ"),
+    ("verse", "バース"),
+    ("bridge", "ブリッジ"),
+    ("up", "ビルドアップ"),
+    ("chorus", "サビ"),
+    ("down", "ダウン"),
+    ("outro", "アウトロ"),
+];
+
+/// フレーズの見た目のプリセット(名前と、フレーズごとの見た目)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct AutoPreset {
+    pub name: String,
+    /// フレーズ(PHRASESの英語名) → 見た目
+    pub looks: BTreeMap<String, PhraseLook>,
+}
+
+impl Default for AutoPreset {
+    fn default() -> Self {
+        AutoPreset::standard()
+    }
+}
+
+/// メイン色/サブ色の動き方
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum ColorMove {
+    /// 変えない(今のまま)
+    #[default]
+    Keep,
+    /// 拍で入れ替える
+    Swap,
+    /// グラデーションで行き来する
+    Fade,
+}
+
+/// 1つのフレーズでの見た目
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct PhraseLook {
+    /// ムービングの形・1周の拍数・揃え方・向き(None=今の向きのまま)
+    pub shape: crate::motion::Shape,
+    pub beats: f32,
+    pub spread: crate::motion::Spread,
+    pub position: Option<u8>,
+    /// メイン色/サブ色の動き方と、その間隔(拍)
+    pub color: ColorMove,
+    pub color_beats: f32,
+    /// 明るさ(0〜1。全体光量に掛ける)
+    pub brightness: f32,
+    /// 波形の色(/dmx/main/rgb)を使う。OFFならパレットの色のまま
+    pub wave_color: bool,
+    /// 入った瞬間に1拍だけ今の色で全開
+    pub flash: bool,
+    /// 呼び出すシーン(空なら呼ばない)
+    pub scene: String,
+    /// ONにするエフェクト・チェイス・ピクセルエフェクト(次のフレーズで、そこに無いものはOFFに戻す)
+    pub effects: Vec<String>,
+}
+
+impl Default for PhraseLook {
+    fn default() -> Self {
+        PhraseLook::new(crate::motion::Shape::Still, 8.0, crate::motion::Spread::Fan, ColorMove::Keep, 4.0, 1.0)
+    }
+}
+
+impl PhraseLook {
+    pub fn new(shape: crate::motion::Shape, beats: f32, spread: crate::motion::Spread, color: ColorMove, color_beats: f32, brightness: f32) -> Self {
+        PhraseLook { shape, beats, spread, position: None, color, color_beats, brightness, wave_color: true, flash: false, scene: String::new(), effects: Vec::new() }
+    }
+}
+
+impl AutoPreset {
+    /// 標準: 盛り上がるところほど速く大きく、静かなところはゆっくり暗め
+    pub fn standard() -> Self {
+        use crate::motion::{Shape as S, Spread as P};
+        use ColorMove::*;
+        let mut looks = BTreeMap::new();
+        let mut put = |k: &str, l: PhraseLook| {
+            looks.insert(k.to_string(), l);
+        };
+        put("intro", PhraseLook::new(S::Circle, 16.0, P::Fan, Fade, 8.0, 0.6));
+        put("verse", PhraseLook::new(S::Eight, 8.0, P::Fan, Swap, 4.0, 0.8));
+        put("bridge", PhraseLook::new(S::PanSweep, 4.0, P::Mirror, Fade, 4.0, 0.8));
+        put("up", PhraseLook::new(S::TiltSweep, 2.0, P::Sync, Swap, 2.0, 0.9));
+        put("chorus", PhraseLook { flash: true, ..PhraseLook::new(S::Cross, 2.0, P::Mirror, Swap, 1.0, 1.0) });
+        put("down", PhraseLook::new(S::Wave, 8.0, P::Fan, Fade, 8.0, 0.6));
+        put("outro", PhraseLook::new(S::Circle, 16.0, P::Fan, Fade, 8.0, 0.6));
+        AutoPreset { name: "標準".into(), looks }
+    }
+
+    /// 激しめ: 全体に速く、サビはランダムに1拍で動いて色も毎拍入れ替える
+    pub fn intense() -> Self {
+        use crate::motion::{Shape as S, Spread as P};
+        use ColorMove::*;
+        let mut p = AutoPreset::standard();
+        p.name = "激しめ".into();
+        let mut put = |k: &str, l: PhraseLook| {
+            p.looks.insert(k.to_string(), l);
+        };
+        put("intro", PhraseLook::new(S::Circle, 8.0, P::Fan, Swap, 4.0, 0.7));
+        put("verse", PhraseLook::new(S::Eight, 4.0, P::Mirror, Swap, 2.0, 0.9));
+        put("up", PhraseLook { flash: false, ..PhraseLook::new(S::TiltSweep, 1.0, P::Sync, Swap, 1.0, 1.0) });
+        put("chorus", PhraseLook { flash: true, ..PhraseLook::new(S::Random, 1.0, P::Fan, Swap, 1.0, 1.0) });
+        p
+    }
 }
 
 impl Default for AutoCfg {
     fn default() -> Self {
-        AutoCfg { enabled: false, idle_rgb: [0.45, 0.8, 1.0], idle_level: 0.35, timeout_secs: 5.0, builtin: true, manual_secs: 120.0, energy: true, accent: true }
+        AutoCfg { enabled: false, idle_rgb: [0.45, 0.8, 1.0], idle_level: 0.35, timeout_secs: 5.0, builtin: true, manual_secs: 120.0, energy: true, accent: true, presets: vec![AutoPreset::standard(), AutoPreset::intense()], preset: 0 }
     }
 }
 
