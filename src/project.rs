@@ -722,6 +722,11 @@ pub struct Project {
     pub audio_input: String,
     pub osc_enabled: bool,
     pub osc_port: u16,
+    /// ブラウザ(スマホなど)の操作パネル(http://このPCのIP:web_port/)
+    pub web_enabled: bool,
+    pub web_port: u16,
+    /// 操作パネルの合言葉(空なら無し。同じネットワークの誰でも操作できる)
+    pub web_pin: String,
     /// OSCのRGBで受けた色へ近づける速さ(秒)
     pub osc_rgb_secs: f32,
     /// OSCで受けた明るさ(/dmx/level)の効き具合(0=効かない〜1=0まで暗くなる)
@@ -765,6 +770,9 @@ impl Default for Project {
             audio_input: String::new(),
             osc_enabled: false,
             osc_port: 9000,
+            web_enabled: false,
+            web_port: 8080,
+            web_pin: String::new(),
             osc_rgb_secs: 0.5,
             osc_level_depth: 0.7,
             auto: AutoCfg::default(),
@@ -1058,8 +1066,7 @@ mod tests {
     #[test]
     fn newer_files_load_by_skipping_what_this_version_does_not_know() {
         // 新しい版で保存したファイル: 知らない動きの形と、知らない種類の割り当てがある
-        let mut p = Project::default();
-        p.bpm = 133.0;
+        let mut p = Project { bpm: 133.0, ..Project::default() };
         p.bindings.push(Binding { name: "ok".into(), trigger: None, action: Action::Blackout { mode: PadMode::Toggle }, page: None, osc: None });
         p.bindings.push(Binding { name: "new".into(), trigger: None, action: Action::Blackout { mode: PadMode::Toggle }, page: None, osc: None });
         let mut v = serde_json::to_value(&p).unwrap();

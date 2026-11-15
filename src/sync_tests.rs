@@ -657,3 +657,41 @@ fn auto_warns_when_beat_link_trigger_is_missing() {
     c.project.auto.alert_secs = 0.0;
     assert_eq!(c.blt_state(), BltState::Unknown);
 }
+
+#[test]
+fn web_panel_commands_and_state() {
+    use crate::web::{command, state};
+    use serde_json::json;
+    let mut c = core();
+    c.project.scenes.push(Scene { name: "青".into(), fade: 0.0, values: Vec::new() });
+    command(&mut c, &json!({"cmd": "blackout", "on": true})).unwrap();
+    assert!(c.rt.blackout);
+    command(&mut c, &json!({"cmd": "blackout"})).unwrap();
+    assert!(!c.rt.blackout, "on が無ければ切り替え");
+    command(&mut c, &json!({"cmd": "master", "value": 0.4})).unwrap();
+    assert!((c.rt.master - 0.4).abs() < 1e-6);
+    command(&mut c, &json!({"cmd": "auto", "on": true})).unwrap();
+    command(&mut c, &json!({"cmd": "preset", "index": 1})).unwrap();
+    assert_eq!(c.project.auto.preset, 1);
+    assert!(command(&mut c, &json!({"cmd": "preset", "index": 9})).is_err());
+    command(&mut c, &json!({"cmd": "look", "phrase": "chorus"})).unwrap();
+    assert_eq!(c.rt.auto_key, "chorus");
+    // 色・シーンは人が選んだものなので、しばらくオートより優先
+    command(&mut c, &json!({"cmd": "color", "slot": "sub", "name": "Red"})).unwrap();
+    assert_eq!(c.project.palette.sub, crate::color::NamedColor::Red.rgb());
+    assert!(c.manual_active());
+    command(&mut c, &json!({"cmd": "scene", "name": "青"})).unwrap();
+    assert_eq!(c.rt.last_scene.as_deref(), Some("青"));
+    assert!(command(&mut c, &json!({"cmd": "scene", "name": "無い"})).is_err());
+    command(&mut c, &json!({"cmd": "auto_resume"})).unwrap();
+    assert!(!c.manual_active());
+    command(&mut c, &json!({"cmd": "flash", "on": true})).unwrap();
+    assert_eq!(c.rt.flash, Some(true));
+    command(&mut c, &json!({"cmd": "flash", "on": false})).unwrap();
+    assert_eq!(c.rt.flash, None);
+    assert!(command(&mut c, &json!({"cmd": "???"})).is_err());
+    let s = state(&c);
+    assert_eq!(s["auto"]["presets"].as_array().unwrap().len(), 2);
+    assert_eq!(s["scenes"][0], "青");
+    assert_eq!(s["colors"].as_array().unwrap().len(), crate::color::NamedColor::ALL.len());
+}

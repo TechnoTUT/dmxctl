@@ -101,6 +101,10 @@ pub struct App {
     pub scene_skip_cats: HashSet<String>,
     pub pe: crate::ui_profile::ProfileEd,
     pub osc: Option<crate::osc::OscServer>,
+    /// ブラウザの操作パネル
+    pub web: Option<crate::web::WebServer>,
+    /// 操作パネルの状態(画面の表示用)
+    pub web_status: String,
     /// NDIの受信(設定で有効にしている間だけ動かす)
     ndi: Option<crate::ndi::NdiService>,
     audio: Option<crate::audio::AudioService>,
@@ -200,6 +204,8 @@ impl App {
             scene_skip_cats: HashSet::new(),
             pe: Default::default(),
             osc: None,
+            web: None,
+            web_status: String::new(),
             ndi: None,
             audio: None,
             audio_ports: crate::audio::input_devices(),
@@ -247,11 +253,36 @@ impl App {
 
     /// 設定に合わせて、Ableton Link・OSC受信・MIDIクロック用の入力を開始/停止する
     pub fn apply_services(&mut self) {
-        let (osc_on, port, src, clock_port, ndi_on, audio_port) = {
+        let (osc_on, port, src, clock_port, ndi_on, audio_port, web_want) = {
             let mut c = lock(&self.core);
             c.ensure_link();
-            (c.project.osc_enabled, c.project.osc_port, c.project.tempo_source, c.project.clock_input.clone(), c.project.ndi.enabled, c.project.audio_input.clone())
+            (
+                c.project.osc_enabled,
+                c.project.osc_port,
+                c.project.tempo_source,
+                c.project.clock_input.clone(),
+                c.project.ndi.enabled,
+                c.project.audio_input.clone(),
+                c.project.web_enabled.then_some(c.project.web_port),
+            )
         };
+        // ブラウザの操作パネル
+        if self.web.as_ref().map(|w| w.port) != web_want {
+            self.web = None;
+            self.web_status = match web_want {
+                Some(port) => match crate::web::WebServer::start(self.core.clone(), Some(self.ctx.clone()), port) {
+                    Ok(w) => {
+                        self.web = Some(w);
+                        crate::web::url(port)
+                    }
+                    Err(e) => {
+                        self.notice = format!("操作パネル: {e}");
+                        e
+                    }
+                },
+                None => String::new(),
+            };
+        }
         if ndi_on != self.ndi.is_some() {
             self.ndi = ndi_on.then(|| crate::ndi::NdiService::start(self.core.clone(), Some(self.ctx.clone())));
         }
@@ -692,6 +723,7 @@ impl App {
         let port = {
             let mut c = lock(&app.core);
             c.project.osc_enabled = true;
+            c.project.web_enabled = true;
             c.project.tempo_source = TempoSource::Link;
             c.project.auto.enabled = true;
             c.dirty = true;
@@ -702,6 +734,9 @@ impl App {
             eprintln!("{}", app.notice);
         }
         println!("dmxctl: 画面なしで起動しました(設定: {} / OSC受信ポート {port} / テンポ: Ableton Link / オート: ON)", app.project_path.display());
+        if app.web.is_some() {
+            println!("操作パネル: {}  (同じネットワークのスマホ・PCのブラウザで開く)", app.web_status);
+        }
         let mut last = String::new();
         let mut beat_report = Instant::now();
         let mut blt_report: Option<Instant> = None;
@@ -749,6 +784,7 @@ impl App {
         }
         std::thread::sleep(Duration::from_millis(200));
         self.osc = None;
+        self.web = None;
         self.ndi = None;
         lock(&self.core).rt.link = None;
         self.midi.disconnect_clock();
