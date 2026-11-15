@@ -16,6 +16,18 @@ impl Core {
             .collect()
     }
 
+    /// 左から`k`台目のムービングが、今(動きを掛ける前の値で)向いている傾き [右, 前](度)。「4点」の向きを登録するとき用
+    pub fn head_lean(&self, k: usize) -> Option<[f32; 2]> {
+        let i = *self.motion_heads().get(k)?;
+        let fx = &self.project.fixtures[i];
+        let info = self.lib.info(&fx.profile, fx.mode)?;
+        let (pc, tc) = (*info.channels("pan").first()?, *info.channels("tilt").first()?);
+        let m = &self.project.motion;
+        let pan_deg = (info.get_f(&fx.values, pc) as f64 - m.pan_front.clamp(0.0, 1.0) as f64 * 255.0) / 255.0 * PAN_DEG;
+        let tilt_deg = (info.get_f(&fx.values, tc) as f64 - m.tilt_up.clamp(0.0, 1.0) as f64 * 255.0) / 255.0 * TILT_DEG;
+        Some(motion::to_lean(pan_deg, tilt_deg).map(|v| v as f32))
+    }
+
     /// 動きの操作。`v`はフェーダーの値(0..1)
     pub fn motion_op(&mut self, op: MotionOp, v: f32) {
         let m = &mut self.project.motion;
@@ -26,6 +38,7 @@ impl Core {
             MotionOp::Position(p) => m.position = if m.position == Some(p) { None } else { Some(p) },
             MotionOp::Size => m.size = v.clamp(0.0, 1.0),
             MotionOp::SizeStep(d) => m.size = ((m.size + d) * 20.0).round().clamp(0.0, 20.0) / 20.0,
+            MotionOp::Glide => m.glide = v.clamp(0.0, 1.0),
         }
         // 動きを使うときは、ムービングのパン/チルトを動かしているエフェクトを止める(上書きされて効かないので)
         if self.project.motion.active() && matches!(op, MotionOp::Shape(_) | MotionOp::Position(_)) {
