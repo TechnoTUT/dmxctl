@@ -511,6 +511,24 @@ GitHub の Release に付いている Linux 版(`DMX-Controller-linux.tar.gz`)�
 - メニューに出したいときは、`dmxctl` を PATH の通った場所に置き、`dmxctl.desktop` を `~/.local/share/applications/` にコピー
 - ファイアウォール(ufw / firewalld)を有効にしている場合は、使う機能のUDPポートを開けてください: OSC受信(既定 9000)、Ableton Link(20808)。Art-Netの送信だけなら不要です
 - 終了のシグナル(Ctrl+C・`kill`・ログアウト・シャットダウン)を受けたときも、安全な値(レーザーOFF・明るさ0)を送ってから止まります
+- NDI を使うときは NDI SDK のライブラリが要ります([Linux で NDI を使う](#linux-で-ndi-を使う))
+
+### Linux で NDI を使う
+
+Linux には NDI Tools が無いので、**NDI SDK for Linux** に入っているライブラリ(`libndi.so.6`)を入れます。ライブラリは配布条件のためアプリに同梱していません。NDI を使わないなら不要です(無くてもアプリは起動します)。
+
+```sh
+curl -fLO https://downloads.ndi.tv/SDK/NDI_SDK_Linux/Install_NDI_SDK_v6_Linux.tar.gz
+tar -xzf Install_NDI_SDK_v6_Linux.tar.gz
+sh Install_NDI_SDK_v6_Linux.sh       # NDI SDK の使用許諾が出るので、読んで同意するなら y(今いるフォルダに「NDI SDK for Linux」ができる)
+sudo cp -P "NDI SDK for Linux/lib/x86_64-linux-gnu/"libndi.so* /usr/local/lib/
+sudo ldconfig
+```
+
+- 入ったかの確認: `/sbin/ldconfig -p | grep libndi` に `libndi.so.6` が出ればOK。dmxctl の2ページ目の設定パネルで NDI のソースが選べるようになります
+- 64bit の Raspberry Pi OS では、`x86_64-linux-gnu` の代わりに `aarch64-rpi4-linux-gnueabi` のフォルダのものを使います
+- `sudo` を使わずに試すときは、置いた場所を直接指定して起動します: `DMXCTL_NDI_LIB="$PWD/NDI SDK for Linux/lib/x86_64-linux-gnu/libndi.so.6" ./dmxctl`
+- 入れたあとは、ダウンロードしたファイルと「NDI SDK for Linux」のフォルダは消してかまいません
 
 ### デスクトップ環境の無いLinuxで使う(KMS/DRM)
 

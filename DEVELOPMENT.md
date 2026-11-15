@@ -35,6 +35,7 @@ target\release\dmxctl.exe
 2. **ビルドに要るもの**(Debian / Ubuntu): `sudo apt install build-essential pkg-config libasound2-dev libudev-dev libsdl2-dev`(Fedora / Arch は README の「Linux で使う」)
 3. **日本語フォント**: `sudo apt install fonts-noto-cjk`
 4. **権限**: `sudo usermod -aG dialout,video,input $USER`(USB-DMX、KMSDRMの画面・キーボード/マウス)
+5. (NDIを使うなら)**NDI SDK for Linux** のライブラリ: README の「Linux で NDI を使う」
 
 ビルド:
 ```
@@ -109,7 +110,7 @@ DMXCTL_SHEET_DIR=保存先 cargo test --release preset_sheet -- --ignored       
 ## はまりどころ
 
 - **USB-DMXが開けない(Resource busy)**: QLC+ など別の照明ソフトが使っていないか確認する
-- **NDIのライブラリは同梱しない**(配布条件のため)。インストール済みの NDI Tools のものを読み込む
+- **NDIのライブラリは同梱しない**(配布条件のため)。インストール済みの NDI Tools(Linux は NDI SDK)のものを読み込む
 - **D2XX**: Mac版は `third_party/ftd2xx/mac/libftd2xx.dylib` をアプリに同梱。Windowsは FTDIドライバの `ftd2xx.dll`
 - **レーザーの安全処理**(`engine.rs` の `guard_values` / `emergency_stop`): 機材定義の `forbid`(オートショー・サウンド・パン/チルトの自動の動き)と、機材ごとの `limits`(動いてよい範囲)は、出力の直前に必ず直す。内蔵の定義を上書きしても `forbid` は引き継ぐ。落ちたとき・終了のシグナル・シャットダウン(Windowsは見えないウィンドウで `WM_ENDSESSION` を受ける。`watch_windows_shutdown`)・Mac/Linuxで画面を通らずに exit() したとき(`atexit`)では、安全なフレーム(レーザーOFF・明るさ0)を約0.3秒送ってから終わる
 - **KMSDRM**: 画面が出ない(「画面を開けませんでした」)ときは、`video` グループに入っているか、デスクトップ環境など他のアプリが画面を使っていないかを確認。キー・マウスが効かないときは `input` グループ。`DMXCTL_SHOT` での画面の撮影は KMSDRM でも使える(SSHから確かめるのに便利)
