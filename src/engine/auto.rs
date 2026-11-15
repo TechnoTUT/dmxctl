@@ -14,6 +14,30 @@ impl Core {
         self.rt.auto_last = Some(Instant::now());
     }
 
+    /// MIDIコントローラー・キーボードで操作した(手動優先)
+    pub(crate) fn note_manual(&mut self) {
+        self.rt.manual_last = Some(Instant::now());
+    }
+
+    /// 手動優先の間か(オートがONで、さっき人が操作した)。この間はオートは照明を変えない
+    pub fn manual_active(&self) -> bool {
+        let secs = self.project.auto.manual_secs;
+        self.project.auto.enabled && secs > 0.0 && self.rt.manual_last.is_some_and(|t| t.elapsed().as_secs_f32() < secs)
+    }
+
+    /// 手動優先の残りの秒数
+    pub fn manual_remaining(&self) -> Option<f32> {
+        self.manual_active().then(|| self.project.auto.manual_secs - self.rt.manual_last.map(|t| t.elapsed().as_secs_f32()).unwrap_or(0.0))
+    }
+
+    /// ビルドアップ(アップ・ブリッジ)からサビに入った瞬間、1拍だけ今の色で全開にする
+    pub(crate) fn accent_on_drop(&mut self, prev: &str, key: &str) {
+        if self.project.auto.enabled && self.project.auto.accent && key == "chorus" && matches!(prev, "up" | "bridge") && self.rt.flash.is_none() {
+            self.rt.flash = Some(false);
+            self.rt.accent_until = Some(self.rt.beat.floor() + 1.0);
+        }
+    }
+
     /// オートで、曲の情報が届いているか
     pub fn auto_online(&self) -> bool {
         let timeout = Duration::from_secs_f32(self.project.auto.timeout_secs.clamp(1.0, 600.0));
@@ -24,7 +48,19 @@ impl Core {
     pub(super) fn run_auto(&mut self, dt: f64) {
         let enabled = self.project.auto.enabled;
         let online = enabled && self.auto_online();
-        if enabled && online != self.rt.auto_was_online {
+        let manual = self.manual_active();
+        // サビの頭の全開は1拍で戻す(オートを切った・手動になったときも)
+        if let Some(u) = self.rt.accent_until
+            && (self.rt.beat >= u || !enabled || manual) {
+            self.rt.flash = None;
+            self.rt.accent_until = None;
+        }
+        // 盛り上がり: 受けた明るさを約4秒でならす
+        if let Some(l) = self.rt.energy_input {
+            self.rt.energy += (l - self.rt.energy) * (1.0 - (-(dt as f32) / 4.0).exp());
+        }
+        // 手動優先の間は、つながった/切れたの切り替えもしない(人の操作をそのままにする。終わってから切り替える)
+        if enabled && !manual && online != self.rt.auto_was_online {
             if online {
                 // つながった: 今のフレーズ(まだ無ければバース相当)の動きで始める
                 let key = if self.rt.phrase.is_empty() { "verse".to_string() } else { crate::osc::phrase_key(&self.rt.phrase) };
@@ -36,16 +72,46 @@ impl Core {
                 self.rt.osc_level = None;
             }
         }
-        self.rt.auto_was_online = online;
-        let target = if enabled && !online { 1.0 } else { 0.0 };
+        if !manual {
+            self.rt.auto_was_online = online;
+        }
+        if enabled && online && !manual {
+            self.run_energy();
+        }
+        let target = if enabled && !online && !manual { 1.0 } else { 0.0 };
         let step = (dt as f32 / IDLE_FADE).max(0.0);
         self.rt.idle_mix = if self.rt.idle_mix < target { (self.rt.idle_mix + step).min(target) } else { (self.rt.idle_mix - step).max(target) };
+    }
+
+    /// フレーズの情報が来ない曲(rekordboxでフレーズを解析していない・64拍以上届かない)では、
+    /// 16拍ごとに、盛り上がりで見た目を選ぶ(大きい: サビ / 中くらい: バース / 小さい: ダウン)
+    fn run_energy(&mut self) {
+        let cfg = &self.project.auto;
+        if !cfg.energy || !cfg.builtin || self.rt.energy_input.is_none() {
+            return;
+        }
+        if self.rt.phrase_beat.is_some_and(|b| self.rt.beat - b < 64.0) {
+            return;
+        }
+        let block = (self.rt.beat / 16.0).floor() as i64;
+        if block == self.rt.energy_block {
+            return;
+        }
+        self.rt.energy_block = block;
+        let key = match self.rt.energy {
+            e if e > 0.7 => "chorus",
+            e if e > 0.45 => "verse",
+            _ => "down",
+        };
+        if key != self.rt.auto_key {
+            self.auto_phrase(key);
+        }
     }
 
     /// フレーズに合わせた、組み込みの動き(ムービングの動きと、メイン/サブの色の入れ替え方)。
     /// 盛り上がるところほど速く大きく、静かなところはゆっくり
     pub fn auto_phrase(&mut self, key: &str) {
-        if !self.project.auto.enabled || !self.project.auto.builtin {
+        if !self.project.auto.enabled || !self.project.auto.builtin || self.manual_active() {
             return;
         }
         // (形, 1周の拍数, 揃え方, 色: true=拍で入れ替え / false=グラデーション, 色の間隔の拍数)
@@ -58,6 +124,7 @@ impl Core {
             "down" => (Shape::Wave, 8.0, Spread::Fan, false, 8.0),
             _ => return,
         };
+        self.rt.auto_key = key.to_string();
         self.motion_op(MotionOp::Shape(shape), 0.0);
         self.motion_op(MotionOp::Beats(beats), 0.0);
         self.motion_op(MotionOp::Spread(spread), 0.0);

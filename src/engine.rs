@@ -142,6 +142,19 @@ pub struct Runtime {
     pub auto_was_online: bool,
     /// オート: 待機の見た目(薄い水色)の混ぜ具合(0=本番〜1=待機)
     pub idle_mix: f32,
+    /// オート: 最後にMIDIコントローラー・キーボードで操作した時刻(手動優先)
+    pub manual_last: Option<Instant>,
+    /// オート: 今使っている組み込みの動き(フレーズの名前)
+    pub auto_key: String,
+    /// オート: 最後にフレーズが届いたときの拍(フレーズの情報が来ない曲かどうか)
+    pub phrase_beat: Option<f64>,
+    /// オート: 盛り上がり(OSCの明るさを数秒でならしたもの。0〜1)と、最後に見た16拍のかたまり
+    pub energy: f32,
+    pub energy_block: i64,
+    /// オート: 最後に受けた明るさ(盛り上がりの元。手動優先の間も覚えておく)
+    pub energy_input: Option<f32>,
+    /// オート: サビに入った瞬間の全開を、この拍で戻す
+    pub accent_until: Option<f64>,
     /// 最後に受けたフレーズ(/dmx/phrase。Beat Link Triggerなどから)
     pub phrase: String,
     /// ムービングの動きの位置(1で1周)と、それを進めるための前回の拍
@@ -214,6 +227,13 @@ impl Runtime {
             auto_last: None,
             auto_was_online: false,
             idle_mix: 0.0,
+            manual_last: None,
+            auto_key: String::new(),
+            phrase_beat: None,
+            energy: 0.0,
+            energy_block: i64::MIN,
+            energy_input: None,
+            accent_until: None,
             phrase: String::new(),
             motion_phase: 0.0,
             motion_beat: None,

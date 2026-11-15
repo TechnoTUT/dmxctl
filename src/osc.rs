@@ -219,8 +219,15 @@ impl Core {
     /// /dmx/phrase/<名前> に割り当てた動作を実行する。無ければ同じ名前のシーン(英語・日本語どちらでも)を呼び出す
     pub fn phrase(&mut self, name: &str) {
         self.note_live_input();
+        let prev = phrase_key(&self.rt.phrase);
         self.rt.phrase = name.trim().to_string();
+        self.rt.phrase_beat = Some(self.rt.beat);
         let key = phrase_key(name);
+        // 手動優先の間は、覚えるだけで照明は変えない
+        if self.manual_active() {
+            return;
+        }
+        self.accent_on_drop(&prev, &key);
         let mut names = vec![name.trim().to_string(), key.clone()];
         names.extend(phrase_ja(&key).map(str::to_string));
         names.dedup();

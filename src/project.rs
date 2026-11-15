@@ -561,11 +561,17 @@ pub struct AutoCfg {
     pub timeout_secs: f32,
     /// フレーズに割り当てもシーンも無いとき、組み込みの動き(ムービング・色の入れ替え)を使う
     pub builtin: bool,
+    /// MIDIコントローラー・キーボードで操作したら、この秒数はオートを止める(手動優先。0なら止めない)
+    pub manual_secs: f32,
+    /// フレーズの情報が来ない曲では、波形の大きさ(盛り上がり)で見た目を切り替える
+    pub energy: bool,
+    /// ビルドアップ(アップ・ブリッジ)からサビに入った瞬間、1拍だけ今の色で全開にする
+    pub accent: bool,
 }
 
 impl Default for AutoCfg {
     fn default() -> Self {
-        AutoCfg { enabled: false, idle_rgb: [0.45, 0.8, 1.0], idle_level: 0.35, timeout_secs: 5.0, builtin: true }
+        AutoCfg { enabled: false, idle_rgb: [0.45, 0.8, 1.0], idle_level: 0.35, timeout_secs: 5.0, builtin: true, manual_secs: 120.0, energy: true, accent: true }
     }
 }
 

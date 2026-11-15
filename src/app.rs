@@ -684,7 +684,13 @@ impl App {
             app.autosave();
             let (ndi_on, state, bpm, peers, osc) = {
                 let c = lock(&app.core);
-                let state = if c.auto_online() { format!("曲の情報を受信中(フレーズ: {})", if c.rt.phrase.is_empty() { "-" } else { &c.rt.phrase }) } else { "待機(薄い水色)".to_string() };
+                let state = if c.manual_active() {
+                    "手動優先(MIDI・キーボードで操作中)".to_string()
+                } else if c.auto_online() {
+                    format!("曲の情報を受信中(フレーズ: {} / 見た目: {})", if c.rt.phrase.is_empty() { "-" } else { &c.rt.phrase }, if c.rt.auto_key.is_empty() { "-" } else { &c.rt.auto_key })
+                } else {
+                    "待機(薄い水色)".to_string()
+                };
                 (c.project.ndi.enabled, state, c.project.bpm, c.rt.link_peers, c.rt.osc_status.clone())
             };
             if ndi_on != app.ndi.is_some() {

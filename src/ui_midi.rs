@@ -154,9 +154,9 @@ impl App {
 
     /// オート: Beat Link Triggerなどから曲の情報が届いている間は自動で動かし、届かなければ待機の色で光らせる
     fn auto_row(&mut self, ui: &mut egui::Ui) {
-        let (mut cfg, online) = {
+        let (mut cfg, online, manual, energy) = {
             let c = lock(&self.core);
-            (c.project.auto.clone(), c.auto_online())
+            (c.project.auto.clone(), c.auto_online(), c.manual_remaining(), c.rt.energy)
         };
         let before = cfg.clone();
         ui.horizontal_wrapped(|ui| {
@@ -165,7 +165,17 @@ impl App {
                  届かなくなったら(DJ機器が止まった・つながっていない)、待機の色で光らせて待ちます",
             );
             if cfg.enabled {
-                ui.label(RichText::new(if online { "● 曲の情報を受信中" } else { "○ 待機中" }).color(if online { crate::theme::ACCENT } else { crate::theme::TEXT_DIM }));
+                if let Some(rest) = manual {
+                    ui.label(RichText::new(format!("✋ 手動優先(あと{rest:.0}秒)")).color(crate::theme::WARN));
+                    if ui.small_button("オートに戻す").clicked() {
+                        lock(&self.core).rt.manual_last = None;
+                    }
+                } else {
+                    ui.label(RichText::new(if online { "● 曲の情報を受信中" } else { "○ 待機中" }).color(if online { crate::theme::ACCENT } else { crate::theme::TEXT_DIM }));
+                }
+                if online {
+                    ui.label(RichText::new(format!("盛り上がり {:.0}%", energy * 100.0)).weak());
+                }
             }
             ui.label("待機の色");
             ui.color_edit_button_rgb(&mut cfg.idle_rgb);
@@ -174,6 +184,10 @@ impl App {
             ui.label("待機までの秒数");
             ui.add(egui::DragValue::new(&mut cfg.timeout_secs).range(1.0..=600.0).suffix(" 秒"));
             ui.checkbox(&mut cfg.builtin, "フレーズで組み込みの動き").on_hover_text("フレーズに割り当てもシーンも無いとき、ムービングの動きと色の入れ替え方を、フレーズに合わせて自動で変えます(サビは速く大きく、イントロはゆっくり)");
+            ui.checkbox(&mut cfg.energy, "フレーズが無い曲は盛り上がりで").on_hover_text("フレーズの情報が来ない曲では、16拍ごとに波形の大きさ(/dmx/level)で見た目を選びます(大きい: サビ / 中くらい: バース / 小さい: ダウン)");
+            ui.checkbox(&mut cfg.accent, "サビの頭で全開").on_hover_text("アップ・ブリッジからサビに入った瞬間、1拍だけ今の色で全開にします(レーザーは除く)");
+            ui.label("手動優先");
+            ui.add(egui::DragValue::new(&mut cfg.manual_secs).range(0.0..=3600.0).suffix(" 秒")).on_hover_text("MIDIコントローラー・キーボードで操作したら、この秒数はオートが照明を変えません(0で手動優先なし)。画面のクリックは数えません");
         });
         if cfg != before {
             let mut c = lock(&self.core);
