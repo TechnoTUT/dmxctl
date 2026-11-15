@@ -659,6 +659,46 @@ impl App {
         }
     }
 
+    /// 画面を出さずに動かす(`dmxctl --headless`)。モニターの無いPCで、Beat Link Triggerと一緒に置いてオートで動かす用。
+    /// OSC受信・テンポの元(Ableton Link)・オートを必ずONにする。終了は SIGTERM / Ctrl+C(安全な値を送ってから終わる)
+    pub fn run_headless() -> ! {
+        let ctx = egui::Context::default();
+        let mut app = App::new(&ctx, true);
+        let port = {
+            let mut c = lock(&app.core);
+            c.project.osc_enabled = true;
+            c.project.tempo_source = TempoSource::Link;
+            c.project.auto.enabled = true;
+            c.dirty = true;
+            c.project.osc_port
+        };
+        app.apply_services();
+        if !app.notice.is_empty() {
+            eprintln!("{}", app.notice);
+        }
+        println!("dmxctl: 画面なしで起動しました(設定: {} / OSC受信ポート {port} / テンポ: Ableton Link / オート: ON)", app.project_path.display());
+        let mut last = String::new();
+        let mut beat_report = Instant::now();
+        loop {
+            std::thread::sleep(Duration::from_millis(250));
+            app.autosave();
+            let (ndi_on, state, bpm, peers, osc) = {
+                let c = lock(&app.core);
+                let state = if c.auto_online() { format!("曲の情報を受信中(フレーズ: {})", if c.rt.phrase.is_empty() { "-" } else { &c.rt.phrase }) } else { "待機(薄い水色)".to_string() };
+                (c.project.ndi.enabled, state, c.project.bpm, c.rt.link_peers, c.rt.osc_status.clone())
+            };
+            if ndi_on != app.ndi.is_some() {
+                app.ndi = ndi_on.then(|| crate::ndi::NdiService::start(app.core.clone(), None));
+            }
+            // 状態が変わったときと、1分ごとに知らせる(journalctl で見られる)
+            if state != last || beat_report.elapsed() > Duration::from_secs(60) {
+                println!("{state} / BPM {bpm:.1} / Link {peers}台 / OSC {osc}");
+                last = state;
+                beat_report = Instant::now();
+            }
+        }
+    }
+
     /// 終了時は先にブラックアウトを数フレーム送ってから止める(レーザーを出しっぱなしにしない)
     pub fn shutdown(&mut self) {
         {

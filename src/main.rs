@@ -75,6 +75,10 @@ fn main() -> eframe::Result {
     }
     // 落ちたとき・終了のシグナルを受けたときに、安全な値(レーザーOFF・明るさ0)を送ってから終わる
     engine::install_safety_hooks();
+    // 画面を出さずに動かす(モニターの無いPCで、Beat Link Triggerなどと一緒にオートで動かす)
+    if std::env::args().any(|a| a == "--headless") || std::env::var_os("DMXCTL_HEADLESS").is_some_and(|v| v == "1") {
+        app::App::run_headless();
+    }
     // デスクトップ環境の無いLinux(またはDMXCTL_KMSDRM=1 / --kmsdrm)では、画面に直接(KMS/DRM)出す
     #[cfg(all(target_os = "linux", feature = "kmsdrm"))]
     if kmsdrm::wanted() {

@@ -76,6 +76,7 @@ cargo test --release --features kmsdrm   # Linux: KMSDRMの部分(キーの変�
 | `src/ui_map.rs` | MIDI画面(メイン画面)。`src/ui_map/` に図の描画(`pad.rs`)と右のパネル(`stage.rs` / `settings.rs`) |
 | `src/ui_laser.rs` | レーザータブ(位置・大きさ・動いてよい範囲をマウスで合わせる) |
 | `src/motion.rs` / `src/engine/motion.rs` | ムービングの動き(SPOT4方式: 形×1周の長さ×揃え方×向き。傾きで計算) / それをパン/チルトに書き込む(`render`の中、エフェクトの後) |
+| `src/engine/auto.rs` | オート: 曲の情報(OSCの色・明るさ・フレーズ)が届いているか、届かないときの待機の見た目(薄い水色。出力の直前、フラッシュの後に重ねる)、フレーズの組み込みの動き |
 | `src/keys.rs` / `src/ui_keys.rs` | キーボードの割り当て(`TriggerKind::Key`。番号=段×16+位置) / キーボードタブ(キーの絵) |
 | `src/theme.rs` | 見た目(色・フォント) |
 | `src/opendmx.rs` / `src/output.rs` | USB-DMX / Art-Net の出力 |
@@ -91,6 +92,7 @@ cargo test --release --features kmsdrm   # Linux: KMSDRMの部分(キーの変�
 | `DMXCTL_SHOT=保存先.png` + `DMXCTL_TAB=タブ名` / `DMXCTL_PAGE=2` / `DMXCTL_SIZE=1280x800` / `DMXCTL_UNIVERSE=2` | 画面を撮って保存して終了(見た目の確認用) |
 | `DMXCTL_PERF=1` | 描画の時間を表示 |
 | `DMXCTL_KMSDRM=1` / `=0` / `--kmsdrm` | Linux(`kmsdrm`機能入り): KMSDRMで必ず起動する / 使わない。指定が無ければ `DISPLAY` と `WAYLAND_DISPLAY` が無いときに使う |
+| `--headless` / `DMXCTL_HEADLESS=1` | 画面を出さずに動かす(`App::run_headless`)。OSC受信・Link・オートを必ずONにする。`scripts/linux/install-headless.sh` で BLT と一緒に常駐 |
 | `DMXCTL_SCALE=1.5` | KMSDRMの画面の拡大率(指定が無ければ画面の大きさから自動) |
 | `DMXCTL_D2XX_LIB` / `DMXCTL_NDI_LIB` | ライブラリの場所を直接指定 |
 | `DMXCTL_CHECK_ONLY=1 cargo check --target …` | C++をビルドせずに、他のOS向けに型チェックだけ |

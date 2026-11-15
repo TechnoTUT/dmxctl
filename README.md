@@ -497,6 +497,75 @@ BLT 側の設定例です(BLT の式は Clojure。関数の名前などは BLT �
 - 波形の色は rekordbox で解析した曲の「RGB(カラー)波形」から取ります。3バンド波形の曲では色の意味が変わります
 - 波形の色は暗い所・白っぽい所もあるので、鮮やかな色にしたいときは BLT の式で彩度・明るさを上げてから送ってください
 
+### オート(曲の情報で自動、無ければ待機の色)
+
+「MIDI/OSC」タブの **オート** をONにすると、人が操作しなくても照明が動きます。
+
+- **曲の情報が届いている間**(BLT から `/dmx/main/rgb`・`/dmx/level`・`/dmx/phrase` のどれかが来ている間): 波形の色・大きさで色と明るさが変わり、フレーズでシーン・割り当て・組み込みの動きが切り替わります。テンポは Ableton Link
+- **フレーズの組み込みの動き**: フレーズに割り当てもシーンも無いときは、ムービングの動きとメイン/サブ色の入れ替え方をフレーズに合わせて変えます
+
+  | フレーズ | ムービング | 色 |
+  |---|---|---|
+  | イントロ / アウトロ | 円・4小節で1周 | 8拍でグラデーション |
+  | バース | 8の字・2小節 | 4拍ごとに入れ替え |
+  | ブリッジ | 左右・1小節(左右対称) | 4拍でグラデーション |
+  | アップ | 前後・2拍(揃える) | 2拍ごとに入れ替え |
+  | サビ | クロス・2拍(左右対称) | 1拍ごとに入れ替え |
+  | ダウン | ウェーブ・2小節 | 8拍でグラデーション |
+
+- **届かなくなったら**(DJ機器が止まった・BLTやDJ機器がつながっていない。既定で5秒): 全体を **薄い水色**(明るさ35%)でなめらかに光らせて待ちます。ムービングは止まり、レーザーは出しません。色・明るさ・待つ秒数は画面で変えられます。全体光量のフェーダーとブラックアウトは待機中も効きます
+
+### モニターの無いLinuxでオート(BLT と一緒に常駐)
+
+照明卓用の小さなPCに、DJ機器と同じネットワークでつないで置いておくだけで、電源を入れれば自動で動く構成です。
+
+```
+CDJ / XDJ ──(Pro DJ Link・LAN)── Linux PC ──(USB-DMX または Art-Net)── 照明
+                                  ├ Beat Link Trigger(仮想の画面の中)
+                                  │   ├ テンポ・拍 → Ableton Link
+                                  │   └ 波形の色・大きさ・フレーズ → OSC(127.0.0.1:9000)
+                                  └ dmxctl --headless(オート)
+```
+
+- `dmxctl --headless`: 画面を出さずに動きます(モニター・X11・SDL2 は不要)。起動すると、OSC受信・テンポの元(Ableton Link)・オートを必ずONにします。様子は標準出力に出ます(待機/受信中・フレーズ・BPM・Linkの台数)
+- Beat Link Trigger は画面のあるアプリなので、仮想の画面(Xvfb)の中で動かします。画面を出さずに動く [Open Beat Control](https://github.com/Deep-Symmetry/open-beat-control) もありますが、波形・フレーズは扱えないので、ここでは BLT を使います
+
+**準備**
+
+1. 照明の設定(機材・出力・シーン)は、画面のあるPC(または同じPCをモニターにつないで)で作り、`~/.config/dmxctl/` をこのPCにコピーします。フレーズ用のシーン(`サビ` など)を作っておくと、組み込みの動きの代わりにそちらを呼び出します
+2. このPCで `./scripts/build-linux.sh`(または Release の tar.gz の `dmxctl` を `dist/linux/` に置く)
+3. BLT の公式の `.deb` を入れます(`sudo apt install ./beat-link-trigger_*.deb`)。入った場所が `/opt/beat-link-trigger/bin/Beat Link Trigger` でなければ、`~/dmxctl/blt.env` に `BLT_CMD="起動コマンドの場所"` と書きます
+4. `./scripts/linux/install-headless.sh` で、dmxctl と BLT を電源を入れたら動くようにします(ユーザーのサービス。`--no-blt` なら dmxctl だけ)。USB-DMX のグループに入ったときは、一度再起動してください
+
+**BLT の設定(最初に1回)**
+
+仮想の画面に VNC で入って設定します。設定は BLT が覚えていて、次からはそのまま動きます。
+
+1. このPCで、VNC つきで BLT を起動し直します
+
+   ```
+   systemctl --user stop beat-link-trigger
+   BLT_VNC=1 ~/dmxctl/blt-headless.sh
+   ```
+
+2. 手元のPCから `ssh -L 5900:localhost:5900 ユーザー@このPC` でつなぎ、VNC ビューアで `localhost:5900` を開きます
+3. BLT で次を設定します
+   - Ableton Link: マスタープレイヤーのテンポと拍を Link に流す設定にする(BLT のバージョンによっては Carabiner を別に入れる必要があります)
+   - トリガーを1つ作り、Watch を Master Player に。Global Setup と Tracked Update に [Beat Link Trigger との連携](#beat-link-trigger-との連携) の式を入れる(波形の色・大きさを先読みで送る)
+   - フレーズを使うなら、Show に Phrase Trigger を作り、Started で `/dmx/phrase` を送る
+4. BLT を終了して(設定が保存されます)、端末で Ctrl+C。`systemctl --user start beat-link-trigger` で元に戻します
+
+**動かしているときの確認**
+
+```
+journalctl --user -u dmxctl-headless -f
+```
+
+`待機(薄い水色)` → DJ機器が曲を再生すると `曲の情報を受信中(フレーズ: chorus)` のように変わります。
+
+- 止める: `systemctl --user stop dmxctl-headless`(安全な値を送ってから止まります)。設定を画面で直したいときは、止めてから画面のあるほうで起動します
+- DJ機器と同じネットワークにつなぐこと(BLT は rekordbox と同じPCでは動かせません)
+
 ## バックアップ
 
 - **起動のたび**と、**別のファイルを開く前**に、保存ファイルを設定フォルダの `backups\project-日付-時刻.json` に自動で残します(最新20個。設定フォルダは [はじめに](#はじめに最初の準備) の最後を参照)

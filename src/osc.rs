@@ -191,7 +191,7 @@ pub fn encode(addr: &str, args: &[Arg]) -> Vec<u8> {
 // ------------------------------------------------------------ 動作
 
 /// フレーズの名前を揃える(大文字小文字・先頭の「:」・番号を除く。verse2 → verse)
-fn phrase_key(s: &str) -> String {
+pub(crate) fn phrase_key(s: &str) -> String {
     s.trim().trim_start_matches(':').to_lowercase().trim_end_matches(|c: char| c.is_ascii_digit()).trim_end_matches(['-', '_', ' ']).to_string()
 }
 
@@ -218,6 +218,7 @@ impl Core {
     /// 曲のフレーズが変わった(Beat Link Triggerのフレーズのトリガーなどから)。
     /// /dmx/phrase/<名前> に割り当てた動作を実行する。無ければ同じ名前のシーン(英語・日本語どちらでも)を呼び出す
     pub fn phrase(&mut self, name: &str) {
+        self.note_live_input();
         self.rt.phrase = name.trim().to_string();
         let key = phrase_key(name);
         let mut names = vec![name.trim().to_string(), key.clone()];
@@ -235,6 +236,9 @@ impl Core {
         let scene = self.project.scenes.iter().find(|s| names.iter().any(|n| s.name.eq_ignore_ascii_case(n))).map(|s| s.name.clone());
         if let Some(s) = scene {
             self.recall_scene(&s);
+        } else {
+            // 割り当てもシーンも無ければ、オートの組み込みの動き
+            self.auto_phrase(&key);
         }
     }
 

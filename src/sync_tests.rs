@@ -495,3 +495,49 @@ fn osc_level_scales_the_overall_brightness() {
     c.handle_osc(&msg("/dmx/level/off", vec![]));
     assert_eq!(out(&mut c), 255.0);
 }
+
+#[test]
+fn auto_idles_in_pale_blue_without_song_info_and_follows_phrases_with_it() {
+    let mut c = core();
+    c.project.auto.enabled = true;
+    c.handle_osc(&msg("/dmx/fixture/1/dimmer", vec![Arg::Float(1.0)]));
+    let dim_out = |c: &mut Core| {
+        // 出力の刻みを0.5秒ずつ進めて描く
+        c.rt.last_beat_t = Some(Instant::now() - Duration::from_millis(500));
+        c.render();
+        let i = c.project.fixture_index(SPOT).unwrap();
+        let fx = &c.project.fixtures[i];
+        let info = c.lib.info(&fx.profile, fx.mode).unwrap();
+        c.rt.frames[fx.universe][fx.address as usize - 1 + info.master[0]] as f32
+    };
+    // 曲の情報が無い: 待機(明るさ35%)へなめらかに
+    for _ in 0..5 {
+        dim_out(&mut c);
+    }
+    assert!(!c.auto_online());
+    assert_eq!(c.rt.idle_mix, 1.0);
+    assert!((dim_out(&mut c) - 255.0 * 0.35).abs() <= 1.0);
+    // フレーズが届いた: 本番へ。割り当ても無いので組み込みの動き(サビ = クロス)
+    c.handle_osc(&msg("/dmx/phrase", vec![Arg::Str("chorus".into())]));
+    for _ in 0..5 {
+        dim_out(&mut c);
+    }
+    assert!(c.auto_online());
+    assert_eq!(c.rt.idle_mix, 0.0);
+    assert_eq!(c.project.motion.shape, crate::motion::Shape::Cross);
+    assert!(c.project.palette.auto);
+    assert_eq!(dim_out(&mut c), 255.0);
+    // 届かなくなった: 待機に戻り、ムービングは止まる
+    c.rt.auto_last = Some(Instant::now() - Duration::from_secs(10));
+    for _ in 0..5 {
+        dim_out(&mut c);
+    }
+    assert_eq!(c.rt.idle_mix, 1.0);
+    assert_eq!(c.project.motion.shape, crate::motion::Shape::Still);
+    // オートを切れば、待機の色にはならない
+    c.project.auto.enabled = false;
+    for _ in 0..5 {
+        dim_out(&mut c);
+    }
+    assert_eq!(dim_out(&mut c), 255.0);
+}

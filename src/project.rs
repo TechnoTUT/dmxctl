@@ -548,6 +548,27 @@ pub struct OutputCfg {
     pub kind: OutputKind,
 }
 
+/// オートの設定
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct AutoCfg {
+    pub enabled: bool,
+    /// 曲の情報が届いていないとき(待機)の色(0〜1のRGB)。既定は薄い水色
+    pub idle_rgb: [f32; 3],
+    /// 待機の明るさ(0〜1)
+    pub idle_level: f32,
+    /// 曲の情報がこの秒数届かなければ待機にする
+    pub timeout_secs: f32,
+    /// フレーズに割り当てもシーンも無いとき、組み込みの動き(ムービング・色の入れ替え)を使う
+    pub builtin: bool,
+}
+
+impl Default for AutoCfg {
+    fn default() -> Self {
+        AutoCfg { enabled: false, idle_rgb: [0.45, 0.8, 1.0], idle_level: 0.35, timeout_secs: 5.0, builtin: true }
+    }
+}
+
 /// 古い保存ファイルにも、後から増えた項目の既定値を補って読めるようにしている
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -584,6 +605,8 @@ pub struct Project {
     pub osc_rgb_secs: f32,
     /// OSCで受けた明るさ(/dmx/level)の効き具合(0=効かない〜1=0まで暗くなる)
     pub osc_level_depth: f32,
+    /// オート(Beat Link Triggerなどから曲の情報が届いている間は自動で動かし、届かなければ待機の色で光らせる)
+    pub auto: AutoCfg,
     /// メイン色とサブ色
     pub palette: Palette,
     /// LEDバーのピクセルエフェクト(名前は通常のエフェクトと共通で、同じ名前ならまとめてON/OFF)
@@ -623,6 +646,7 @@ impl Default for Project {
             osc_port: 9000,
             osc_rgb_secs: 0.5,
             osc_level_depth: 0.7,
+            auto: AutoCfg::default(),
             palette: Palette::default(),
             pixel_fx: Vec::new(),
             fade_secs: 3.0,

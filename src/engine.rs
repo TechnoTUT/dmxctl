@@ -7,6 +7,7 @@
 //! - `scene`: シーン・位置プリセット・フェード
 //! - `binding`: MIDIの受信と割り当ての実行
 
+mod auto;
 mod binding;
 mod motion;
 mod pair;
@@ -135,6 +136,12 @@ pub struct Runtime {
     pub osc_rgb: [Option<OscRgb>; 2],
     /// OSCで受けた明るさ(/dmx/level。波形の大きさなど)。全体光量に掛ける。保存しない
     pub osc_level: Option<OscGlide<1>>,
+    /// オート: 最後に曲の情報(色・明るさ・フレーズ)が届いた時刻
+    pub auto_last: Option<Instant>,
+    /// オート: 前のフレームで、つながっていたか
+    pub auto_was_online: bool,
+    /// オート: 待機の見た目(薄い水色)の混ぜ具合(0=本番〜1=待機)
+    pub idle_mix: f32,
     /// 最後に受けたフレーズ(/dmx/phrase。Beat Link Triggerなどから)
     pub phrase: String,
     /// ムービングの動きの位置(1で1周)と、それを進めるための前回の拍
@@ -204,6 +211,9 @@ impl Runtime {
             live_sub: None,
             osc_rgb: [None, None],
             osc_level: None,
+            auto_last: None,
+            auto_was_online: false,
+            idle_mix: 0.0,
             phrase: String::new(),
             motion_phase: 0.0,
             motion_beat: None,
@@ -358,6 +368,7 @@ impl Core {
         let dt = self.rt.last_beat_t.map(|t| now.duration_since(t).as_secs_f64().min(0.5)).unwrap_or(0.0);
         self.rt.last_beat_t = Some(now);
         self.sync_beat(now, dt);
+        self.run_auto(dt);
         self.run_palette_auto();
         self.run_live_colors();
         self.step_dim(dt);
@@ -438,6 +449,9 @@ impl Core {
                 flash_values(mode, &info, &mut vals[i], white);
             }
         }
+
+        // オートで曲の情報が届いていないときは、薄い水色で待つ(ブラックアウトとARMは下で優先される)
+        self.apply_idle(&mut vals);
 
         for f in self.rt.frames.iter_mut() {
             *f = [0; 512];

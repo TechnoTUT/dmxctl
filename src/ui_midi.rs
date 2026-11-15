@@ -129,6 +129,7 @@ impl App {
                 }
             }
         });
+        self.auto_row(ui);
         egui::CollapsingHeader::new("OSCで使えるアドレス").id_salt("osc_help").show(ui, |ui| {
             ui.label(
                 RichText::new(
@@ -148,6 +149,36 @@ impl App {
         if apply {
             lock(&self.core).dirty = true;
             self.apply_services();
+        }
+    }
+
+    /// オート: Beat Link Triggerなどから曲の情報が届いている間は自動で動かし、届かなければ待機の色で光らせる
+    fn auto_row(&mut self, ui: &mut egui::Ui) {
+        let (mut cfg, online) = {
+            let c = lock(&self.core);
+            (c.project.auto.clone(), c.auto_online())
+        };
+        let before = cfg.clone();
+        ui.horizontal_wrapped(|ui| {
+            ui.checkbox(&mut cfg.enabled, "オート").on_hover_text(
+                "Beat Link Trigger などから色・明るさ・フレーズ(/dmx/main/rgb・/dmx/level・/dmx/phrase)が届いている間は、それに合わせて自動で動かします。\
+                 届かなくなったら(DJ機器が止まった・つながっていない)、待機の色で光らせて待ちます",
+            );
+            if cfg.enabled {
+                ui.label(RichText::new(if online { "● 曲の情報を受信中" } else { "○ 待機中" }).color(if online { crate::theme::ACCENT } else { crate::theme::TEXT_DIM }));
+            }
+            ui.label("待機の色");
+            ui.color_edit_button_rgb(&mut cfg.idle_rgb);
+            ui.label("明るさ");
+            ui.add(egui::Slider::new(&mut cfg.idle_level, 0.0..=1.0).custom_formatter(|v, _| format!("{:.0}%", v * 100.0)));
+            ui.label("待機までの秒数");
+            ui.add(egui::DragValue::new(&mut cfg.timeout_secs).range(1.0..=600.0).suffix(" 秒"));
+            ui.checkbox(&mut cfg.builtin, "フレーズで組み込みの動き").on_hover_text("フレーズに割り当てもシーンも無いとき、ムービングの動きと色の入れ替え方を、フレーズに合わせて自動で変えます(サビは速く大きく、イントロはゆっくり)");
+        });
+        if cfg != before {
+            let mut c = lock(&self.core);
+            c.project.auto = cfg;
+            c.dirty = true;
         }
     }
 
