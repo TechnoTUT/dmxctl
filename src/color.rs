@@ -4,7 +4,7 @@ use crate::fixture::{Mode, Range};
 use serde::{Deserialize, Serialize};
 
 /// パッドに割り当てられる色
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(schemars::JsonSchema, Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum NamedColor {
     Red,
     Orange,
@@ -181,7 +181,7 @@ pub fn plan_for_mode(mode: &Mode, rgb: [f32; 3]) -> ColorPlan {
 }
 
 /// 操作の対象
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(schemars::JsonSchema, Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ColorTarget {
     /// 「全体/個別」スイッチに従う
     Scope,
@@ -217,7 +217,7 @@ impl ColorTarget {
 }
 
 /// 機材がどちらの色の系統に従うか
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(schemars::JsonSchema, Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub enum ColorRole {
     #[default]
     Main,
@@ -238,7 +238,7 @@ impl ColorRole {
 }
 
 /// メイン色とサブ色。機材ごとにどちらを出すかは`FixtureInstance::color_role`
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(schemars::JsonSchema, Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct Palette {
     /// 0.0〜1.0のRGB
@@ -259,7 +259,7 @@ impl Default for Palette {
 }
 
 /// メイン/サブの系統の操作
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(schemars::JsonSchema, Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum PaletteOp {
     /// 押すたびに、メインとサブを入れ替える
     Swap,
@@ -305,7 +305,7 @@ pub fn same_rgb(a: [f32; 3], b: [f32; 3]) -> bool {
 }
 
 /// 「全体/個別」スイッチの操作
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(schemars::JsonSchema, Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ScopeOp {
     /// 押すたびに 全体 ⇄ 個別
     Toggle,
@@ -327,7 +327,7 @@ impl ScopeOp {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(schemars::JsonSchema, Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum SelectOp {
     /// この機材だけを選ぶ
     Only,

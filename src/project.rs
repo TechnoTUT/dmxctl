@@ -8,8 +8,9 @@ use std::path::{Path, PathBuf};
 
 pub const NUM_UNIVERSES: usize = 32;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(schemars::JsonSchema, Debug, Clone, Serialize, Deserialize)]
 pub struct FixtureInstance {
+    #[schemars(extend("readOnly"=true))]
     pub id: u32,
     pub name: String,
     pub profile: String,
@@ -38,14 +39,14 @@ fn yes() -> bool {
     true
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(schemars::JsonSchema, Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Group {
     pub name: String,
     pub fixtures: Vec<u32>,
 }
 
 /// 操作の対象(機材の選び方)
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(schemars::JsonSchema, Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum Selector {
     All,
     Fixture(u32),
@@ -54,7 +55,7 @@ pub enum Selector {
     Profile(String),
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(schemars::JsonSchema, Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub enum Wave {
     Sine,
     Triangle,
@@ -99,15 +100,18 @@ impl Wave {
 }
 
 /// 対象チャンネルを min〜max の間で周期的に動かす
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(schemars::JsonSchema, Debug, Clone, Serialize, Deserialize)]
 pub struct Effect {
     pub name: String,
     pub enabled: bool,
     pub sel: Selector,
     pub attr: String,
     pub wave: Wave,
+    #[schemars(range(min=0))]
     pub rate_hz: f32,
+    #[schemars(range(min=0,max=255))]
     pub min: f32,
+    #[schemars(range(min=0,max=255))]
     pub max: f32,
     /// 位相オフセット(度)
     pub phase: f32,
@@ -136,7 +140,7 @@ impl Effect {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(schemars::JsonSchema, Debug, Clone, Serialize, Deserialize)]
 pub struct SceneValue {
     pub fixture: u32,
     pub attr: String,
@@ -144,15 +148,16 @@ pub struct SceneValue {
     pub value: f32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(schemars::JsonSchema, Debug, Clone, Serialize, Deserialize)]
 pub struct Scene {
     pub name: String,
     /// 呼び出し時のフェード秒数
+    #[schemars(range(min=0,max=120))]
     pub fade: f32,
     pub values: Vec<SceneValue>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(schemars::JsonSchema, Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub enum TriggerKind {
     Note,
     Cc,
@@ -160,7 +165,7 @@ pub enum TriggerKind {
     Key,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(schemars::JsonSchema, Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub struct MidiTrigger {
     pub kind: TriggerKind,
     /// 0..15。Noneならどのチャンネルでも反応
@@ -182,7 +187,7 @@ impl MidiTrigger {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(schemars::JsonSchema, Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub enum PadMode {
     /// フェーダー/ノブ: 入力値0..127を off〜on に対応させる
     Continuous,
@@ -211,7 +216,7 @@ pub const BPM_MAX: f32 = 300.0;
 /// 1小節の拍数(拍の表示と「頭出し」の単位)
 pub const BEATS_PER_BAR: i64 = 4;
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(schemars::JsonSchema, Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub enum ChaseOrder {
     Forward,
     PingPong,
@@ -278,7 +283,7 @@ fn shuffled(round: i64, n: usize) -> Vec<usize> {
 }
 
 /// BPMに合わせてシーンを順番に呼び出す
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(schemars::JsonSchema, Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Chase {
     pub name: String,
@@ -298,7 +303,7 @@ impl Default for Chase {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(schemars::JsonSchema, Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub enum TempoOp {
     /// タップテンポ(叩いた間隔からBPMを決め、拍の位置も叩いたタイミングに合わせる)
     Tap,
@@ -314,7 +319,7 @@ pub enum TempoOp {
     Audio,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(schemars::JsonSchema, Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub enum PairOp {
     /// 連動のON/OFF
     Link,
@@ -323,7 +328,7 @@ pub enum PairOp {
 }
 
 /// 2台の機材のペア設定。`follower`は`leader`(元)の値に追従し、指定した機能は反転する
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(schemars::JsonSchema, Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Pair {
     pub name: String,
@@ -345,7 +350,7 @@ impl Default for Pair {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(schemars::JsonSchema, Debug, Clone, Serialize, Deserialize)]
 pub enum Action {
     SetValue { sel: Selector, attr: String, mode: PadMode, on: f32, off: f32 },
     Scene { name: String },
@@ -398,7 +403,7 @@ pub enum Action {
 }
 
 /// 色の系統の決め方
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(schemars::JsonSchema, Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum RoleOp {
     /// 押すたびに メイン ⇄ サブ
     Toggle,
@@ -425,7 +430,7 @@ pub const PAGES: u8 = 8;
 /// 位置プリセットに記録する機能(パン/チルト。16bitの下位は自動で含まれる)
 pub const POSITION_ATTRS: [&str; 2] = ["pan", "tilt"];
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(schemars::JsonSchema, Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub enum PageOp {
     /// 指定のページへ(0始まり)
     Go(u8),
@@ -444,7 +449,7 @@ impl PageOp {
 }
 
 /// テンポと拍の位置を、何に合わせるか
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Default)]
+#[derive(schemars::JsonSchema, Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Default)]
 pub enum TempoSource {
     /// このアプリのBPM(TAP・手入力)
     #[default]
@@ -502,10 +507,11 @@ impl Action {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(schemars::JsonSchema, Debug, Clone, Serialize, Deserialize)]
 pub struct Binding {
     /// Persistent identity for CLI controls; zero is assigned on first use/load.
     #[serde(default)]
+    #[schemars(extend("readOnly"=true))]
     pub id: u64,
     pub name: String,
     pub trigger: Option<MidiTrigger>,
@@ -524,7 +530,7 @@ impl Binding {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(schemars::JsonSchema, Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum OutputKind {
     ArtNet { ip: String, art_universe: u16 },
     /// FTDI系USB-DMXをCOMポートとして使う
@@ -543,7 +549,7 @@ impl OutputKind {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(schemars::JsonSchema, Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct OutputCfg {
     pub enabled: bool,
     /// このアプリ内のユニバース番号(0始まり)
@@ -552,7 +558,7 @@ pub struct OutputCfg {
 }
 
 /// オートの設定
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(schemars::JsonSchema, Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct AutoCfg {
     pub enabled: bool,
@@ -589,7 +595,7 @@ pub const PHRASES: [(&str, &str); 7] = [
 ];
 
 /// フレーズの見た目のプリセット(名前と、フレーズごとの見た目)
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(schemars::JsonSchema, Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct AutoPreset {
     pub name: String,
@@ -604,7 +610,7 @@ impl Default for AutoPreset {
 }
 
 /// メイン色/サブ色の動き方
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(schemars::JsonSchema, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum ColorMove {
     /// 変えない(今のまま)
     #[default]
@@ -616,7 +622,7 @@ pub enum ColorMove {
 }
 
 /// 1つのフレーズでの見た目
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(schemars::JsonSchema, Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct PhraseLook {
     /// ムービングの形・1周の拍数・揃え方・向き(None=今の向きのまま)
@@ -694,7 +700,7 @@ impl Default for AutoCfg {
 }
 
 /// 古い保存ファイルにも、後から増えた項目の既定値を補って読めるようにしている
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(schemars::JsonSchema, Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Project {
     pub next_binding_id: u64,
@@ -710,6 +716,7 @@ pub struct Project {
     /// 「全体光量」を右端のフェーダーに初期割り当てしたか(消しても復活させないための印)
     pub master_seeded: bool,
     /// 全体のテンポ
+    #[schemars(range(min=20,max=300))]
     pub bpm: f32,
     pub chases: Vec<Chase>,
     pub pairs: Vec<Pair>,

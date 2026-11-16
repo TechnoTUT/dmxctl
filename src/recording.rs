@@ -120,3 +120,61 @@ impl Recorder {
             "changes":changes, "safety":core.rt.safety_events}));
     }
 }
+
+impl Core {
+    /// External inputs are root operations; remotely replayed inputs already
+    /// have a command event, so do not record their dispatch a second time.
+    pub(crate) fn record_input(&self,command:Value) {
+        if self.rt.audit_depth!=0 {return;}
+        if let Some(recorder)=&self.rt.recorder {
+            recorder.emit(json!({"type":"command","source":"input","command":command,
+                "learning":self.rt.learn.is_some() || self.rt.osc_learn.is_some(),
+                "t_ms":self.now().saturating_duration_since(self.rt.t0).as_millis() as u64,
+                "applies_from_frame":recorder.next_frame(),"applies_from_engine_frame":self.rt.frame_id+1}));
+        }
+    }
+
+    pub(crate) fn history_state(&self)->Option<Value> {
+        self.rt.recorder.as_ref()?;
+        Some(json!({"project":crate::editing::redact(&serde_json::to_value(&self.project).unwrap()),
+            "profiles":self.lib.profiles.iter().map(|p|p.as_ref()).collect::<Vec<_>>(),
+            "runtime":{"master":self.rt.master,"blackout":self.rt.blackout,"page":self.rt.page,"key_page":self.rt.key_page,
+                "armed":self.project.fixtures.iter().map(|f|json!({"fixture":f.id,"armed":f.armed})).collect::<Vec<_>>(),
+                "muted":self.rt.muted,"flash":self.rt.flash,"selected":self.rt.selected,"color_global":self.rt.color_global}}))
+    }
+
+    pub(crate) fn record_observation(&self,before:Option<Value>,source:&str) {
+        let (Some(before),Some(after),Some(recorder))=(before,self.history_state(),&self.rt.recorder) else{return;};
+        if before==after {return;}
+        // An observation spans a GUI frame, not an atomic engine operation.
+        // Keep it separate from executable commands rather than inventing one.
+        recorder.emit(json!({"type":"state_change","source":source,"before":before,"after":after,
+            "t_ms":self.now().saturating_duration_since(self.rt.t0).as_millis() as u64,
+            "observed_at_engine_frame":self.rt.frame_id,"replayable":false}));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn input_history_suppresses_remote_duplicates_and_redacts_observations() {
+        let path=std::env::temp_dir().join(format!("dmxctl-history-{}.jsonl",std::process::id()));
+        let _=std::fs::remove_file(&path);
+        let recording=Recording::start(Some(&path),false,true).unwrap();
+        let (lib,_)=crate::fixture::Library::load(Path::new("none"));
+        let mut c=Core::new(crate::project::Project::starter(&lib),Arc::new(lib));
+        c.project.web_pin="secret-history-pin".into();
+        c.rt.recorder=Some(recording.recorder.clone());
+        c.handle_key(16,true);
+        crate::commands::apply(&mut c,&json!({"cmd":"input","source":"key","number":16,"pressed":false})).unwrap();
+        let before=c.history_state();c.project.bpm=125.0;c.record_observation(before,"gui_frame");
+        c.rt.recorder=None;recording.finish().unwrap();
+        let text=std::fs::read_to_string(&path).unwrap();
+        assert!(!text.contains("secret-history-pin"));
+        let events:Vec<Value>=text.lines().map(|s|serde_json::from_str(s).unwrap()).collect();
+        assert_eq!(events.iter().filter(|v|v["type"]=="command").count(),1);
+        assert!(events.iter().any(|v|v["type"]=="state_change" && v["after"]["project"]["bpm"]==125.0));
+        std::fs::remove_file(path).unwrap();
+    }
+}

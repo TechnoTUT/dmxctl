@@ -62,7 +62,7 @@ fn local_address(value: &str) -> anyhow::Result<SocketAddr> {
     Ok(address)
 }
 
-struct Request { value: Value, reply: mpsc::Sender<Value> }
+struct Request { value: Value, reply: mpsc::Sender<Value>, deadline:Instant }
 
 pub(crate) struct Host {
     pub address: SocketAddr,
@@ -100,7 +100,7 @@ impl Host {
                                 ensure!(line.len() as u64 <= MAX_REQUEST && line.last() == Some(&b'\n'), "request is too large or incomplete");
                                 let value: Value = serde_json::from_slice(&line)?;
                                 let (reply, rx) = mpsc::channel();
-                                tx.try_send(Request { value, reply }).context("control queue is full or closed")?;
+                                tx.try_send(Request { value, reply, deadline:Instant::now()+Duration::from_secs(4) }).context("control queue is full or closed")?;
                                 ctx.request_repaint();
                                 Ok(rx.recv_timeout(Duration::from_secs(5)).context("application did not respond")?)
                             })();
@@ -122,8 +122,19 @@ impl Host {
         for _ in 0..16 {
             let Ok(request) = self.requests.try_recv() else { break; };
             let op = request.value["op"].as_str().unwrap_or("");
-            let response = if shutdown { Err(anyhow::anyhow!("application is stopping")) }
+            let before=if ["profile_save","profile_delete","reload"].contains(&op) {
+                engine::lock(&app.core).history_state()
+            }else{None};
+            let response = if Instant::now()>=request.deadline {Err(anyhow::anyhow!("queued request expired"))}
+                else if shutdown { Err(anyhow::anyhow!("application is stopping")) }
                 else { self.execute(app, &request.value) };
+            engine::lock(&app.core).record_observation(before,op);
+            let mut response=response;
+            if let Ok(result)=&mut response {
+                if ["reload","profile_save","profile_delete"].contains(&op) && request.value["dry_run"]!=true {
+                    result["takes_effect_from_frame"]=json!(engine::lock(&app.core).rt.frame_id+1);
+                }
+            }
             let ok = response.is_ok();
             let response = match response {
                 Ok(result) => json!({"ok":true,"result":result}),
@@ -138,7 +149,7 @@ impl Host {
     fn execute(&mut self, app: &mut App, request: &Value) -> anyhow::Result<Value> {
         match request["op"].as_str().context("op is required")? {
             "status" => {
-                let core = engine::lock(&app.core);
+                let mut core = engine::lock(&app.core);
                 let mut state = crate::web::state(&core);
                 state["frame"] = json!(core.rt.frame_id);
                 state["output_enabled"] = json!(app.launch.output);
@@ -146,8 +157,16 @@ impl Host {
                 state["dirty"] = json!(core.dirty);
                 state["project_path"] = json!(app.project_path);
                 state["recording"] = json!(self.recording.is_some());
+                state["version"]=core.version();
                 Ok(state)
             }
+            "version"=>Ok(engine::lock(&app.core).version()),
+            "clock"=>{let core=engine::lock(&app.core);Ok(json!({"frame":core.rt.frame_id,"beat":core.rt.beat,"session":core.rt.session,
+                "emergency":engine::EMERGENCY.load(Ordering::SeqCst)}))},
+            "schema"=>crate::diagnostics::schema(&mut engine::lock(&app.core),request["entity"].as_str().unwrap_or("project")),
+            "trace_start"=>engine::lock(&app.core).start_trace(u32::try_from(request["fixture"].as_u64().context("fixture is required")?)?,request["attr"].as_str().context("attr is required")?),
+            "trace_result"=>engine::lock(&app.core).trace_result(request["ticket"].as_u64().context("ticket is required")?),
+            "check"=>crate::diagnostics::check(&engine::lock(&app.core),request),
             "inspect" => {
                 let core = engine::lock(&app.core);
                 let mut project = serde_json::to_value(&core.project)?;
@@ -175,12 +194,15 @@ impl Host {
                 let dry_run=commands::flag(request,"dry_run",false)?;
                 let mut core=engine::lock(&app.core);
                 ensure!(!engine::EMERGENCY.load(Ordering::SeqCst),"application is in emergency stop");
+                core.check_version(request)?;
                 let old_midi=core.project.midi_input.clone();
                 let result=crate::editing::apply(&mut core,&request["operations"],dry_run);
                 let command=json!({"cmd":"edit","operations":request["operations"],"dry_run":dry_run,"id":request.get("id")});
                 log_command(&core,&command,result.as_ref().err().map(|e|e.to_string()));
                 let mut result=result?;
                 let changed_midi=old_midi!=core.project.midi_input;
+                result["version"]=core.version();
+                result["takes_effect_from_frame"]=if dry_run{Value::Null}else{json!(core.rt.frame_id+1)};
                 drop(core);
                 if !dry_run {
                     if changed_midi { result["midi_error"]=json!(app.sync_midi_choice().err().map(|e|e.to_string())); }
@@ -196,8 +218,12 @@ impl Host {
             "command" => {
                 let command = &request["command"];
                 if command["cmd"]=="edit" {
-                    return self.execute(app,&json!({"op":"edit","operations":command["operations"],
-                        "dry_run":command.get("dry_run").cloned().unwrap_or(json!(false)),"id":command.get("id")}));
+                    let mut delegated=json!({"op":"edit","operations":command["operations"],
+                        "dry_run":command.get("dry_run").cloned().unwrap_or(json!(false)),"id":command.get("id")});
+                    for key in ["expected_revision","expected_session"] {
+                        if let Some(value)=request.get(key).or_else(||command.get(key)){delegated[key]=value.clone();}
+                    }
+                    return self.execute(app,&delegated);
                 }
                 let hold = if command["cmd"] == "flash" && command["on"] != false {
                     let ms = command.get("hold_ms").map(|v|v.as_u64().context("hold_ms must be an integer")).transpose()?.unwrap_or(500);
@@ -237,6 +263,8 @@ impl Host {
                 project["web_pin"] = json!("");
                 recording.recorder.emit(json!({"type":"start","version":1,"hz":40,"clock":"real",
                     "output":app.launch.output,"project":project,"frame":core.rt.frame_id,
+                    "t_ms":core.now().saturating_duration_since(core.rt.t0).as_millis() as u64,
+                    "configuration_version":core.version(),
                     "profiles":core.lib.profiles.iter().map(|p|p.as_ref()).collect::<Vec<_>>()}));
                 core.rt.recorder = Some(recording.recorder.clone());
                 self.recording = Some(recording);
@@ -298,13 +326,21 @@ fn snapshot(core: &engine::Core, request: &Value) -> anyhow::Result<Value> {
 }
 
 pub fn request(address: SocketAddr, value: &Value) -> anyhow::Result<Value> {
+    request_with_timeout(address,value,Duration::from_secs(6))
+}
+
+pub fn request_with_timeout(address:SocketAddr,value:&Value,timeout:Duration)->anyhow::Result<Value> {
     ensure!(address.ip().is_loopback(), "control client must connect to loopback");
-    let mut stream = TcpStream::connect_timeout(&address,Duration::from_secs(2)).context("cannot connect to running application")?;
-    stream.set_read_timeout(Some(Duration::from_secs(6)))?;
-    stream.set_write_timeout(Some(Duration::from_secs(2)))?;
+    ensure!(!timeout.is_zero(),"request timed out");
+    let started=Instant::now();
+    let mut stream = TcpStream::connect_timeout(&address,timeout.min(Duration::from_secs(2))).context("cannot connect to running application")?;
+    let remaining=timeout.saturating_sub(started.elapsed());ensure!(!remaining.is_zero(),"request timed out");
+    stream.set_write_timeout(Some(remaining.min(Duration::from_secs(2))))?;
     let line = serde_json::to_string(value)?;
     ensure!(line.len() as u64 + 1 <= MAX_REQUEST, "request is too large");
     writeln!(stream,"{line}")?;
+    let remaining=timeout.saturating_sub(started.elapsed());ensure!(!remaining.is_zero(),"request timed out");
+    stream.set_read_timeout(Some(remaining))?;
     let mut response = Vec::new();
     BufReader::new(stream.take(MAX_RESPONSE+1)).read_until(b'\n',&mut response)?;
     ensure!(response.len() as u64<=MAX_RESPONSE && response.last()==Some(&b'\n'), "response is too large or incomplete");
@@ -319,12 +355,15 @@ pub fn client(args: &[String]) -> anyhow::Result<()> {
     let mut positional = Vec::new();
     let mut options = std::collections::BTreeMap::new();
     let mut dry_run=false;
+    let mut wait_after=false;
     let mut i = 0;
     while i < args.len() {
+        if args[i]=="--wait" {ensure!(!wait_after,"duplicate --wait");wait_after=true;i+=1;continue;}
         if args[i]=="--dry-run" {ensure!(!dry_run,"duplicate --dry-run");dry_run=true;i+=1;continue;}
         if args[i].starts_with("--") {
             let key = args[i].as_str();
-            ensure!(["--connect","--json","--file","--fixture","--attrs","--attr","--value","--duration","--interval-ms","--hold-ms","--channel","--number","--kind","--index"].contains(&key), "unknown control option: {key}");
+            ensure!(["--connect","--json","--file","--fixture","--attrs","--attr","--value","--duration","--interval-ms","--hold-ms","--channel","--number","--kind","--index",
+                "--frames","--beats","--ms","--equals","--min","--max","--tolerance","--after-frame","--timeout-ms","--expected-revision","--expected-session"].contains(&key), "unknown control option: {key}");
             i += 1;
             let value = args.get(i).context("control option needs a value")?;
             ensure!(options.insert(key,value.as_str()).is_none(), "duplicate control option");
@@ -332,6 +371,10 @@ pub fn client(args: &[String]) -> anyhow::Result<()> {
         i += 1;
     }
     let address = local_address(options.get("--connect").copied().unwrap_or(DEFAULT_ADDRESS))?;
+    if positional.first().is_some_and(|p|["schema","version","explain","wait","assert"].contains(p)) {
+        ensure!(!dry_run && !wait_after,"--dry-run/--wait is not supported by this command");
+        return crate::diagnostics::client(address,&positional,&options);
+    }
     let mut used = vec!["--connect"];
     let mut payload = match positional.as_slice() {
         ["status"] => json!({"op":"status"}),
@@ -428,14 +471,34 @@ pub fn client(args: &[String]) -> anyhow::Result<()> {
         _ => bail!("unknown control command; see dmxctl-cli --help"),
     };
     let watching = positional.as_slice()==["watch"];
+    if payload["op"]=="edit" || (payload["op"]=="command" && payload["command"]["cmd"]=="edit") {
+        used.extend(["--expected-revision","--expected-session"]);
+        if let Some(revision)=options.get("--expected-revision") {payload["expected_revision"]=json!(revision.parse::<u64>()?);}
+        if let Some(session)=options.get("--expected-session") {payload["expected_session"]=json!(session);}
+    }
+    if wait_after {
+        ensure!(!dry_run && ["command","edit","reload","profile_save","profile_delete"].contains(&payload["op"].as_str().unwrap_or("")),"--wait requires an operation that changes live state");
+        used.push("--timeout-ms");
+    }
     if dry_run {
         ensure!(["edit","reload","profile_save","profile_delete"].contains(&payload["op"].as_str().unwrap_or("")),"--dry-run requires edit, reload/restore or profile save/delete");
         payload["dry_run"]=json!(true);
     }
     if watching { used.extend(["--duration","--interval-ms"]); }
     for key in options.keys() { ensure!(used.contains(key),"option is not supported by this command: {key}"); }
+    let wait_timeout=if wait_after {
+        let timeout=options.get("--timeout-ms").map(|s|s.parse::<u64>()).transpose()?.unwrap_or(5000);
+        ensure!((1..=300000).contains(&timeout),"timeout-ms must be in 1..300000");timeout
+    }else{30000};
     if !watching {
-        println!("{}",request(address,&payload)?);
+        let before=if wait_after{Some(request(address,&json!({"op":"clock"}))?)}else{None};
+        let mut result=request(address,&payload)?;
+        if let Some(before)=before {
+            let target=result["takes_effect_from_frame"].as_u64().unwrap_or(before["frame"].as_u64().unwrap_or(0)+1);
+            let observed=crate::diagnostics::wait_for(address,&json!({"frame":target,"session":before["session"]}),wait_timeout)?;
+            result["observed"]=observed;
+        }
+        println!("{result}");
         return Ok(());
     }
     let duration = options.get("--duration").map(|value|value.parse::<f64>()).transpose()?;

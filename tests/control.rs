@@ -56,6 +56,25 @@ impl Drop for Running {
 }
 
 #[test]
+fn concurrent_readers_reconnect_while_commands_keep_rendering() {
+    let mut host=Running::start();
+    let start=host.request(json!({"op":"clock"}))["frame"].as_u64().unwrap();
+    let readers:Vec<_>=(0..4).map(|_|{
+        let address=host.address;
+        std::thread::spawn(move || {for _ in 0..15 {
+            assert!(control::request(address,&json!({"op":"output","fixture":1})).unwrap()["frame"].as_u64().is_some());
+        }})
+    }).collect();
+    for n in 0..12 {host.request(json!({"op":"command","command":{"cmd":"set","fixture":1,"attr":"pan","value":n}}));}
+    for reader in readers {reader.join().unwrap();}
+    assert!(host.request(json!({"op":"clock"}))["frame"].as_u64().unwrap()>start);
+    host.request(json!({"op":"save"}));
+    host.request(json!({"op":"reload"}));
+    assert_eq!(host.request(json!({"op":"inspect"}))["project"]["fixtures"][0]["values"][0],11);
+    host.stop();
+}
+
+#[test]
 fn persistent_host_changes_the_live_core_and_saves_only_on_request() {
     let mut host=Running::start();
     let original=std::fs::read(host.dir.join("project.json")).unwrap();
@@ -137,6 +156,41 @@ fn momentary_flash_expires_even_when_the_client_disconnects() {
 fn non_local_addresses_are_rejected() {
     assert!(control::Launch::parse(&["--listen".into(),"0.0.0.0:9190".into()],false).is_err());
     assert!(control::client(&["--connect".into(),"192.0.2.1:9190".into(),"status".into()]).is_err());
+}
+
+#[test]
+fn diagnostics_clients_wait_for_render_assert_and_explain_actual_output() {
+    let mut host=Running::start();
+    let result=host.cli(&["fixture","set","1","--attr","pan","--value","77","--wait","--timeout-ms","1000"]);
+    assert!(result.status.success(),"{}",String::from_utf8_lossy(&result.stderr));
+    let result:Value=serde_json::from_slice(&result.stdout).unwrap();assert_eq!(result["observed"]["matched"],true);
+    assert!(host.cli(&["assert","--fixture","1","--attr","pan","--equals","77"]).status.success());
+    let failed=host.cli(&["assert","--fixture","1","--attr","pan","--equals","78"]);
+    assert!(!failed.status.success());assert_eq!(serde_json::from_slice::<Value>(&failed.stdout).unwrap()["passed"],false);
+    assert!(host.cli(&["wait","--frames","2","--timeout-ms","1000"]).status.success());
+    assert!(host.cli(&["wait","--fixture","1","--attr","pan","--equals","77","--timeout-ms","1000"]).status.success());
+    assert!(!host.cli(&["wait","--fixture","1","--attr","pan","--equals","78","--timeout-ms","80"]).status.success());
+    let explained=host.cli(&["explain","--fixture","1","--attr","pan","--timeout-ms","1000"]);
+    assert!(explained.status.success(),"{}",String::from_utf8_lossy(&explained.stderr));
+    let explained:Value=serde_json::from_slice(&explained.stdout).unwrap();
+    assert_eq!(explained["stages"].as_array().unwrap().last().unwrap()["channels"][0]["value"],77.0);
+    assert!(!host.cli(&["fixture","set","1","--attr","pan","--value","99","--wait","--timeout-ms","0"]).status.success());
+    assert_eq!(host.request(json!({"op":"output","fixture":1,"attrs":["pan"]}))["channels"][0]["value"],77);
+    host.stop();
+}
+
+#[test]
+fn schema_and_version_guard_clients_prevent_stale_edits() {
+    let mut host=Running::start();
+    let schema=host.cli(&["schema","motion"]);assert!(schema.status.success());
+    let schema:Value=serde_json::from_slice(&schema.stdout).unwrap();assert_eq!(schema["entity"],"motion");
+    let revision=schema["version"]["revision"].as_u64().unwrap().to_string();
+    let session=schema["version"]["session"].as_str().unwrap();
+    let first=host.cli(&["group","create","--json",r#"{"name":"First"}"#,"--expected-revision",&revision,"--expected-session",session]);
+    assert!(first.status.success(),"{}",String::from_utf8_lossy(&first.stderr));
+    assert!(!host.cli(&["group","create","--json",r#"{"name":"Stale"}"#,"--expected-revision",&revision]).status.success());
+    let groups=host.request(json!({"op":"entity_list","entity":"group"}));assert_eq!(groups.as_array().unwrap().len(),1);
+    host.stop();
 }
 
 #[test]

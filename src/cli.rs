@@ -35,17 +35,27 @@ dmxctl-cli ctl output snapshot [--fixture ID] [--attrs pan,tilt]
 dmxctl-cli ctl watch [--fixture ID] [--attrs pan,tilt] [--duration SECONDS]
 dmxctl-cli ctl record start --file NEW.jsonl
 dmxctl-cli ctl record stop
+dmxctl-cli ctl schema [ENTITY]
+dmxctl-cli ctl version
+dmxctl-cli ctl explain --fixture ID --attr pan
+dmxctl-cli ctl assert --fixture ID --attr pan --equals 80 [--tolerance 0.1]
+dmxctl-cli ctl wait --frames 2 | --beats 4 | --ms 100
+dmxctl-cli ctl wait --fixture ID --attr pan --min 80 [--timeout-ms 5000]
+dmxctl-cli ctl fixture set ID --attr pan --value 80 --wait
 dmxctl-cli simulate --project FILE [--scenario FILE] [--duration SECONDS] [--log NEW.jsonl]
 dmxctl-cli run --project FILE [--scenario FILE] [--duration SECONDS] [--stdin] [--log NEW.jsonl] [--output]
 dmxctl-cli watch --project FILE [--duration SECONDS] [--stdin] [--log NEW.jsonl]
 dmxctl-cli log summarize FILE
+dmxctl-cli log scenario FILE --out NEW_DIRECTORY
 dmxctl-cli log query FILE [--from-ms N] [--to-ms N] [--universe N] [--address N] [--fixture N] [--attrs pan,tilt]
 dmxctl-cli diff BEFORE.jsonl AFTER.jsonl
 
 All commands return JSON/JSONL. simulate advances a virtual 40 Hz clock without waiting.
 run/watch stream at real time; --stdin accepts one command JSON object per line.
-No MIDI/OSC/NDI/Link input is opened. Only run --output opens configured DMX outputs.
-ARM, safety definitions, limits, raw output and original project files cannot be changed.
+simulate/run/watch open no MIDI/OSC/NDI/Link input and never save the source project.
+Only run --output or serve --output live sends to configured DMX outputs.
+serve defaults to configured inputs; use --inputs none for an isolated session.
+ARM and safety definitions remain read-only through CLI controls.
 Scenario: [{"at_ms":0,"command":{"cmd":"set","fixture":1,"attr":"pan","value":50}}]
 Commands: set, effect, motion, blackout, master, fade, flash, bpm, auto, auto_resume,
 preset, look, color, swap, scene, tap, resync. id is optional and echoed in the log.
@@ -61,7 +71,7 @@ impl Args {
                 "--stdin" => result.stdin = true,
                 "--output" => result.output = true,
                 s if s.starts_with("--") => {
-                    ensure!(["--project","--fixtures","--scenario","--duration","--log","--from-ms","--to-ms","--universe","--address","--fixture","--attrs"].contains(&s), "unknown option: {s}");
+                    ensure!(["--project","--fixtures","--scenario","--duration","--log","--out","--from-ms","--to-ms","--universe","--address","--fixture","--attrs"].contains(&s), "unknown option: {s}");
                     let value = args.next().context("option needs a value")?;
                     ensure!(result.options.insert(arg, value).is_none(), "duplicate option");
                 }
@@ -118,7 +128,7 @@ pub fn run(args: Vec<String>) -> anyhow::Result<()> {
             json!({"id":f.id,"name":f.name,"profile":f.profile,"universe":f.universe+1,
                 "address":f.address,"armed":false,"limits":f.limits,"channels":mode.channels})
         }).collect();
-        println!("{}", json!({"fixtures":fixtures,"project":core.project,"commands":["set","effect","motion","blackout","master","fade","flash","bpm","auto","auto_resume","preset","look","color","swap","scene","tap","resync"]}));
+        println!("{}", json!({"fixtures":fixtures,"project":crate::editing::redact(&serde_json::to_value(&core.project)?),"commands":["set","effect","motion","blackout","master","fade","flash","bpm","auto","auto_resume","preset","look","color","swap","scene","tap","resync"]}));
         return Ok(());
     }
     let seconds: f64 = args.options.get("--duration").map(|s| s.parse()).transpose()?.unwrap_or(10.0);
@@ -131,7 +141,12 @@ pub fn run(args: Vec<String>) -> anyhow::Result<()> {
     ensure!(events.windows(2).all(|w| w[0].at_ms <= w[1].at_ms), "scenario must be ordered by at_ms");
     ensure!(events.iter().all(|e| e.at_ms < ticks * 25), "scenario event is beyond duration");
     let mut check = Core::new(core.project.clone(), core.lib.clone());
-    for event in &events { apply(&mut check, &event.command)?; }
+    let check_origin=check.rt.t0;
+    for event in &events {
+        check.rt.virtual_now=Some(check_origin+Duration::from_millis(event.at_ms));
+        check.expire_remote_controls(check.now());
+        apply(&mut check, &event.command)?;
+    }
     let recording = Recording::start(args.path("--log"), true, command == "simulate")?;
     let mut metadata = serde_json::to_value(&core.project)?;
     metadata["web_pin"] = json!("");
@@ -226,12 +241,16 @@ fn log_command(args: &Args) -> anyhow::Result<()> {
     let path = args.positional.get(2).context("log path required")?;
     ensure!(args.positional.len()==3, "unexpected argument");
     let events = read_log(path)?;
-    if mode == "summarize" {
+    if mode == "scenario" {
+        args.allow(&["--out"])?;
+        return export_scenario(&events,args.path("--out").context("--out NEW_DIRECTORY is required")?);
+    } else if mode == "summarize" {
         args.allow(&[])?;
         let frames: Vec<_> = events.iter().filter(|e|e["type"]=="frame").collect();
         println!("{}",json!({"frames":frames.len(),"last_t_ms":frames.last().map(|v|&v["t_ms"]),
             "commands":events.iter().filter(|e|e["type"]=="command").count(),
             "command_errors":events.iter().filter(|e|e["type"]=="command_error").count(),
+            "state_changes":events.iter().filter(|e|e["type"]=="state_change").count(),
             "safety_corrections":frames.iter().map(|v|v["safety"].as_array().map_or(0,Vec::len)).sum::<usize>(),
             "complete":events.iter().any(|e|e["type"]=="complete"),
             "closed":events.last().is_some_and(|e|e["type"]=="end"),
@@ -265,6 +284,49 @@ fn log_command(args: &Args) -> anyhow::Result<()> {
             writeln!(out,"{event}")?;
         }
     } else {bail!("unknown log command");}
+    Ok(())
+}
+
+fn export_scenario(events:&[Value],out:&Path)->anyhow::Result<()> {
+    ensure!(events.last().is_some_and(|v|v["type"]=="end" && v["dropped"]==0)
+        && events.iter().any(|v|v["type"]=="complete"),"scenario export requires a completed recording without dropped events");
+    ensure!(events.iter().filter(|v|v.get("seq").is_some()).enumerate().all(|(i,v)|v["seq"]==i as u64),"log sequence gap");
+    ensure!(!events.iter().any(|v|v["type"]=="state_change" || v["type"]=="command_error" || v["learning"]==true),
+        "recording contains non-replayable state changes, input learning or failed commands; inspect the history first");
+    let start=events.first().filter(|v|v["type"]=="start" && v["version"]==1).context("unsupported log header")?;
+    let project:Project=serde_json::from_value(start["project"].clone())?;
+    let profiles:Vec<crate::fixture::Profile>=serde_json::from_value(start["profiles"].clone())?;
+    let mut library=Library::default();
+    for profile in &profiles {library.add(profile.clone());}
+    validate(&project,&library)?;
+    let mut core=Core::new(project,Arc::new(library));
+    let origin=core.rt.t0;
+    let started=start["t_ms"].as_u64().unwrap_or(0);
+    let mut scenario=Vec::new();
+    let mut last=0;
+    for event in events.iter().filter(|e|e["type"]=="command") {
+        if ["lease_expired","project_edit"].iter().any(|s|event["source"]==*s) {continue;}
+        let at=event["t_ms"].as_u64().context("command has no timestamp")?.checked_sub(started).context("command precedes recording start")?;
+        ensure!(at>=last,"command timestamps are not ordered");last=at;
+        core.rt.virtual_now=Some(origin+Duration::from_millis(at));
+        core.expire_remote_controls(core.now());
+        apply(&mut core,&event["command"]).context("recorded command cannot be safely replayed")?;
+        scenario.push(json!({"at_ms":at,"command":crate::editing::redact(&event["command"])}));
+    }
+    let duration=events.iter().filter_map(|v|v["t_ms"].as_u64()).max().unwrap_or(started).saturating_sub(started).max(last+25);
+    // Validate everything before creating a new, self-contained directory.
+    std::fs::create_dir(out).context("export directory must not already exist")?;
+    std::fs::create_dir(out.join("fixtures"))?;
+    for (i,profile) in profiles.iter().enumerate() {
+        std::fs::write(out.join("fixtures").join(format!("{i}.json")),serde_json::to_vec_pretty(profile)?)?;
+    }
+    std::fs::write(out.join("project.json"),serde_json::to_vec_pretty(&start["project"])?)?;
+    std::fs::write(out.join("scenario.json"),serde_json::to_vec_pretty(&scenario)?)?;
+    let manifest=json!({"commands":scenario.len(),"duration_seconds":duration as f64/1000.0,
+        "source_clock":start["clock"],"runtime":"fresh internal clock; live beat phase, active fades and input service state are not restored",
+        "project":"project.json","scenario":"scenario.json","fixtures":"fixtures"});
+    std::fs::write(out.join("manifest.json"),serde_json::to_vec_pretty(&manifest)?)?;
+    println!("{}",json!({"directory":out,"manifest":manifest}));
     Ok(())
 }
 

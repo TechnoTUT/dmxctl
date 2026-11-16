@@ -13,7 +13,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 /// メイン色/サブ色を、何から作るか
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(schemars::JsonSchema, Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub enum LiveSource {
     /// 使わない(パッド・フェーダーで決めた色)
     #[default]
@@ -35,7 +35,7 @@ impl LiveSource {
 }
 
 /// NDIの設定(保存する)
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(schemars::JsonSchema, Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct NdiCfg {
     /// 受信する

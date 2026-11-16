@@ -53,6 +53,13 @@ pub struct MidiMsg {
 }
 
 pub struct Runtime {
+    pub(crate) audit_depth: usize,
+    pub trace: Option<crate::diagnostics::Trace>,
+    pub trace_ticket: u64,
+    pub revision: u64,
+    pub revision_hash: Option<u64>,
+    pub session: String,
+    pub physical_output_enabled: bool,
     pub project_path: Option<std::path::PathBuf>,
     pub remote_holds: HashMap<u64, crate::controls::Hold>,
     pub frame_id: u64,
@@ -189,6 +196,7 @@ pub struct Runtime {
 impl Runtime {
     fn new() -> Self {
         Runtime {
+            audit_depth: 0,
             blackout: false,
             fades: Vec::new(),
             pad_state: HashMap::new(),
@@ -214,6 +222,12 @@ impl Runtime {
             output_status: Vec::new(),
             output_gen: 0,
             frame_id: 0,
+            trace: None,
+            trace_ticket: 0,
+            revision: 0,
+            revision_hash: None,
+            session: format!("{}-{}",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos()),
+            physical_output_enabled: false,
             project_path: None,
             remote_holds: HashMap::new(),
             flash_deadline: None,
@@ -430,6 +444,7 @@ impl Core {
                     "t_ms":now.saturating_duration_since(self.rt.t0).as_millis() as u64}));
             }
         }
+        self.trace_begin();
         // 拍を進める(ウィンドウ移動などで止まった直後に、拍が大きく飛ばないよう上限を付ける)
         let dt = self.rt.last_beat_t.map(|t| now.duration_since(t).as_secs_f64().min(0.5)).unwrap_or(0.0);
         self.rt.last_beat_t = Some(now);
@@ -440,6 +455,7 @@ impl Core {
         self.step_dim(dt);
         self.run_chases();
         self.advance_fades(now);
+        self.trace_stage("automation_and_fades",None,serde_json::Value::Null);
         let t = (now - self.rt.t0).as_secs_f64();
         let lib = self.lib.clone();
 
@@ -466,11 +482,19 @@ impl Core {
             }
         }
 
+        if self.rt.trace.as_ref().is_some_and(|trace|trace.result.is_none()) {
+            let id=self.rt.trace.as_ref().unwrap().fixture;
+            let effects:Vec<_>=self.project.effects.iter().filter(|e|e.enabled && self.resolve_ids(&e.sel).contains(&id)).collect();
+            let details=serde_json::json!({"effects":effects});
+            self.trace_stage("effects",Some(&vals),details);
+        }
         // ムービングの動き(形・1周の長さ・揃え方・向き)
         self.render_motion(&mut vals);
+        self.trace_stage("motion",Some(&vals),serde_json::Value::Null);
 
         // ピクセルエフェクト(LEDバー)
         self.render_pixel_fx(&mut vals);
+        self.trace_stage("pixel",Some(&vals),serde_json::Value::Null);
 
         // ペア: フォロワーの値を、(エフェクト適用後の)リーダーの値から作る。反転もここで行う
         for p in self.project.pairs.iter().filter(|p| p.enabled) {
@@ -481,6 +505,7 @@ impl Core {
             apply_pair(&plan, lm, fm, &lvals, &mut vals[plan.fi]);
         }
 
+        self.trace_stage("pairs",Some(&vals),serde_json::Value::Null);
         // 全体光量: 各機材のディマー(無ければ色の強さのチャンネル)に掛ける
         // 暗転フェードと機材ごとの明るさ(フェーダー)も、全体光量と同じところにかける
         // OSCで受けた明るさ(波形の大きさなど)も同じところにかける。効き具合(depth)が0なら効かない
@@ -506,6 +531,10 @@ impl Core {
             }
         }
 
+        if self.rt.trace.as_ref().is_some_and(|t|t.result.is_none()) {
+            let details=serde_json::json!({"master":self.rt.master,"dim":self.rt.dim,"osc_level":level,"auto_brightness":bright,"fixture_levels":self.rt.level});
+            self.trace_stage("master",Some(&vals),details);
+        }
         // フラッシュ: 全開にする(全体光量より優先。ブラックアウトとARMは下で優先される)。レーザーなどARMが必要な機材には掛けない
         if let Some(white) = self.rt.flash {
             for (i, fx) in self.project.fixtures.iter().enumerate() {
@@ -518,8 +547,10 @@ impl Core {
             }
         }
 
+        self.trace_stage("flash",Some(&vals),serde_json::Value::Null);
         // オートで曲の情報が届いていないときは、薄い水色で待つ(ブラックアウトとARMは下で優先される)
         self.apply_idle(&mut vals);
+        self.trace_stage("idle",Some(&vals),serde_json::Value::Null);
 
         for f in self.rt.frames.iter_mut() {
             *f = [0; 512];
@@ -534,7 +565,7 @@ impl Core {
             let Some(profile) = lib.get(&fx.profile) else { continue };
             let Some(mode) = profile.modes.get(fx.mode) else { continue };
             let v = &mut vals[i];
-            let requested = self.rt.recorder.as_ref().map(|_| v.clone());
+            let requested = (self.rt.recorder.is_some() || self.rt.trace.as_ref().is_some_and(|t|t.fixture==fx.id && t.result.is_none())).then(||v.clone());
             if v.len() != mode.channels.len() || fx.universe >= NUM_UNIVERSES || fx.address == 0 {
                 continue;
             }
@@ -553,9 +584,15 @@ impl Core {
                     }
                 }
             }
+            if let Some(trace)=self.rt.trace.as_mut().filter(|t|t.fixture==fx.id && t.result.is_none()) {
+                trace.capture_single(fx.id,mode,v,"gates",serde_json::json!({"blackout":dark,"muted":muted,"armed":fx.armed,"needs_arm":profile.needs_arm}));
+            }
             // 禁止の値(レーザーのオートショーなど)と、動いてよい範囲は、何をしていても最後に必ず直す
             let gated = requested.as_ref().map(|_| v.clone());
             guard_values(mode, &fx.limits, v);
+            if let Some(trace)=self.rt.trace.as_mut().filter(|t|t.fixture==fx.id && t.result.is_none()) {
+                trace.capture_single(fx.id,mode,v,"safety",serde_json::json!({"limits":fx.limits}));
+            }
             if let Some(before) = requested {
                 let gated = gated.unwrap();
                 for (ch, (&requested, &applied)) in before.iter().zip(v.iter()).enumerate() {
@@ -589,6 +626,7 @@ impl Core {
             self.rt.used_len[u] = n.clamp(MIN_SLOTS, 512);
         }
         self.rt.frame_id += 1;
+        self.trace_finish();
         if let Some(recorder) = self.rt.recorder.clone() {
             recorder.frame(self, false);
         }
@@ -907,6 +945,7 @@ impl Engine {
 
     /// Keep rendering at 40 Hz even when physical output is disabled.
     pub fn spawn_with_output(core: Shared, output_enabled: bool) -> Engine {
+        lock(&core).rt.physical_output_enabled=output_enabled;
         let stop = Arc::new(AtomicBool::new(false));
         let s2 = stop.clone();
         let handle = std::thread::Builder::new()

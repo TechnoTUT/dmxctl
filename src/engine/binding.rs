@@ -39,6 +39,10 @@ impl Core {
     }
 
     pub fn handle_midi(&mut self, m: MidiMsg) {
+        if m.kind != TriggerKind::Key {
+            self.record_input(serde_json::json!({"cmd":"input","source":"midi","kind":m.kind,
+                "channel":m.channel,"number":m.number,"value":m.value}));
+        }
         self.note_manual();
         let k = match m.kind {
             TriggerKind::Note => "Note",
@@ -91,6 +95,7 @@ impl Core {
     /// キーボードのキー(crate::keys の番号)を押した/離した。
     /// キーボードの割り当ては APC のページとは関係なく、数字の段だけ「模様のセット」(key_page)で切り替わる
     pub fn handle_key(&mut self, number: u8, pressed: bool) {
+        self.record_input(serde_json::json!({"cmd":"input","source":"key","number":number,"pressed":pressed}));
         self.note_manual();
         self.rt.keys_down.retain(|k| *k != number);
         if pressed {

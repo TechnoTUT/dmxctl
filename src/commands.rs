@@ -14,6 +14,13 @@ pub(crate) fn flag(value:&Value,key:&str,default:bool)->anyhow::Result<bool> {
 }
 
 pub(crate) fn apply(core: &mut Core, value: &Value) -> anyhow::Result<()> {
+    core.rt.audit_depth += 1;
+    let result=apply_inner(core,value);
+    core.rt.audit_depth -= 1;
+    result
+}
+
+fn apply_inner(core: &mut Core, value: &Value) -> anyhow::Result<()> {
     let cmd = value["cmd"].as_str().context("cmd is required")?;
     match cmd {
         "button" => core.remote_button(value)?,
@@ -41,7 +48,8 @@ pub(crate) fn apply(core: &mut Core, value: &Value) -> anyhow::Result<()> {
                 data[key] = value.clone();
             }
             effect = serde_json::from_value(data)?;
-            ensure!(effect.beats >= 0.0 && effect.rate_hz >= 0.0, "negative effect period/rate");
+            ensure!(effect.beats >= 0.0 && effect.rate_hz >= 0.0
+                && (0.0..=255.0).contains(&effect.min) && (0.0..=255.0).contains(&effect.max), "invalid effect range/period/rate");
             *core.project.effects.iter_mut().find(|e|e.name == name).unwrap() = effect;
         }
         "motion" => {
@@ -57,7 +65,14 @@ pub(crate) fn apply(core: &mut Core, value: &Value) -> anyhow::Result<()> {
                 && motion.points.iter().flatten().all(|v|v.is_finite() && v.abs() <= 90.0), "invalid motion parameters");
             core.project.motion = motion;
         }
-        "blackout"|"master"|"fade"|"flash"|"bpm"|"auto"|"auto_resume"|"preset"|"look"|"color"|"swap"|"scene"|"tap"|"resync" => {
+        "flash" => {
+            let on=flag(value,"on",true)?;
+            let ms=value.get("hold_ms").map(|v|v.as_u64().context("hold_ms must be an integer")).transpose()?.unwrap_or(500);
+            ensure!((1..=5000).contains(&ms),"hold_ms must be in 1..5000");
+            crate::web::command(core,value).map_err(anyhow::Error::msg)?;
+            core.rt.flash_deadline=on.then(||core.now()+std::time::Duration::from_millis(ms));
+        }
+        "blackout"|"master"|"fade"|"bpm"|"auto"|"auto_resume"|"preset"|"look"|"color"|"swap"|"scene"|"tap"|"resync" => {
             if let Some(number) = value.get("value") { finite(number)?; }
             if let Some(on) = value.get("on") { ensure!(on.is_boolean(), "on must be boolean"); }
             crate::web::command(core, value).map_err(anyhow::Error::msg)?;

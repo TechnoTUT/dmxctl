@@ -6,7 +6,7 @@ use crate::engine::Core;
 use crate::project::Selector;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(schemars::JsonSchema, Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum PixelKind {
     /// 色相がバーに沿って流れる
     Rainbow,
@@ -70,7 +70,7 @@ impl PixelKind {
 }
 
 /// 複数のバーを平行に並べた「面」で、模様をどちら向きに流すか
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(schemars::JsonSchema, Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub enum PixelAxis {
     /// バーの長さ方向(今までの動き)
     #[default]
@@ -89,7 +89,7 @@ impl PixelAxis {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(schemars::JsonSchema, Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub enum PixelColor {
     Main,
     Sub,
@@ -114,7 +114,7 @@ impl PixelColor {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(schemars::JsonSchema, Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PixelFx {
     pub name: String,
@@ -435,7 +435,7 @@ impl Energy {
 // ---------------------------------------------------------------- フェーダーで変える速さ・斜め
 
 /// フェーダーで変える、ピクセルエフェクト全体の調整
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(schemars::JsonSchema, Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum PixelParam {
     /// 速さの倍率(1/4・1/2・1・2・4倍の5段階。真ん中が等倍)
     Speed,

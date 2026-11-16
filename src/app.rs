@@ -770,7 +770,9 @@ impl App {
         if let (Some(p), Some(cpu)) = (self.perf.as_mut(), cpu_usage) {
             p.frame_cpu += cpu;
         }
+        let before=lock(&self.core).history_state();
         self.ui_timed(ui);
+        lock(&self.core).record_observation(before,"gui_frame");
         if let Some(s) = self.shot.as_mut() {
             s.tick(ui.ctx());
         }

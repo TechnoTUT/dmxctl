@@ -14,7 +14,7 @@ pub fn category_order(name: &str) -> (usize, String) {
     (CATEGORIES.iter().position(|c| *c == name).unwrap_or(CATEGORIES.len()), name.to_string())
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(schemars::JsonSchema, Debug, Clone, Deserialize, Serialize)]
 pub struct Range {
     pub from: u8,
     pub to: u8,
@@ -85,7 +85,7 @@ pub fn range_issues(ranges: &[Range]) -> Vec<String> {
     issues
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(schemars::JsonSchema, Debug, Clone, Deserialize, Serialize)]
 pub struct ChannelDef {
     pub name: String,
     /// 機能名(pan / tilt / dimmer / color ...)。MIDI割り当てやエフェクトはこの名前で対象を指定する
@@ -142,7 +142,7 @@ impl ChannelDef {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(schemars::JsonSchema, Debug, Clone, Deserialize, Serialize)]
 pub struct Mode {
     pub name: String,
     pub channels: Vec<ChannelDef>,
@@ -321,7 +321,7 @@ impl Mode {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(schemars::JsonSchema, Debug, Clone, Deserialize, Serialize)]
 pub struct Profile {
     pub id: String,
     pub name: String,

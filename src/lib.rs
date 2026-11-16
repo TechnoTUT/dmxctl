@@ -71,3 +71,4 @@ mod commands;
 pub mod control;
 pub mod controls;
 pub mod editing;
+pub mod diagnostics;

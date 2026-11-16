@@ -28,12 +28,33 @@ fn events(output: &std::process::Output) -> Vec<Value> {
 }
 
 #[test]
+fn exported_scenario_bundles_initial_state_and_reproduces_virtual_output() {
+    let dir=Sandbox::new();dir.project();
+    std::fs::write(dir.file("scenario.json"),r#"[{"at_ms":0,"command":{"cmd":"set","fixture":1,"attr":"pan","value":63}},{"at_ms":0,"command":{"cmd":"flash","on":true,"hold_ms":50}},{"at_ms":100,"command":{"cmd":"blackout","on":true}}]"#).unwrap();
+    events(&dir.run(&["simulate","--project","project.json","--scenario","scenario.json","--duration","0.2","--log","source.jsonl"]));
+    let export=events(&dir.run(&["log","scenario","source.jsonl","--out","export"]));
+    assert_eq!(export[0]["manifest"]["commands"],3);
+    events(&dir.run(&["simulate","--project","export/project.json","--scenario","export/scenario.json","--duration","0.2","--log","replay.jsonl"]));
+    assert_eq!(events(&dir.run(&["diff","source.jsonl","replay.jsonl"]))[0]["differences"],json!([]));
+    assert!(!dir.run(&["log","scenario","source.jsonl","--out","export"]).status.success());
+    let source=std::fs::read_to_string(dir.file("source.jsonl")).unwrap();
+    let mut rows:Vec<Value>=source.lines().map(|s|serde_json::from_str(s).unwrap()).collect();
+    rows.insert(1,json!({"type":"state_change","replayable":false}));
+    for (i,row) in rows.iter_mut().filter(|v|v["type"]!="end").enumerate() {row["seq"]=json!(i);}
+    std::fs::write(dir.file("observed.jsonl"),rows.iter().map(|v|format!("{v}\n")).collect::<String>()).unwrap();
+    assert!(!dir.run(&["log","scenario","observed.jsonl","--out","rejected"]).status.success());
+    assert!(!dir.file("rejected").exists());
+}
+
+#[test]
 fn simulation_is_deterministic_and_logs_safety_and_queries() {
     let dir = Sandbox::new();
     let mut project=dir.project();
     project.web_pin="private-test-pin".into();
     project.fixtures[1].limits.insert("pan".into(),[20,90]);
     project.save(&dir.file("project.json")).unwrap();
+    let inspection=events(&dir.run(&["inspect","--project","project.json"]));
+    assert_eq!(inspection[0]["project"]["web_pin"],"");
     std::fs::write(dir.file("scenario.json"),serde_json::to_vec(&json!([
         {"at_ms":0,"command":{"cmd":"set","id":"pan-change","fixture":1,"attr":"pan","value":50}},
         {"at_ms":25,"command":{"cmd":"set","fixture":2,"attr":"mode","value":30}},
