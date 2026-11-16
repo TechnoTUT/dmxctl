@@ -1,72 +1,22 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod apcmini;
-mod audio;
-mod app;
-#[cfg(test)]
-mod binding_tests;
-mod color;
-mod engine;
-#[cfg(test)]
-mod engine_tests;
-mod fixture;
-mod keys;
+use dmxctl::{app, engine, layout};
 #[cfg(all(target_os = "linux", feature = "kmsdrm"))]
-mod kmsdrm;
-mod layout;
-#[cfg(test)]
-mod layout_tests;
-mod led;
-mod link;
-mod look;
-#[cfg(test)]
-mod bpm_tests;
-#[cfg(test)]
-mod color_tests;
-#[cfg(test)]
-mod led_tests;
-#[cfg(test)]
-mod master_tests;
-#[cfg(test)]
-mod perf_tests;
-#[cfg(test)]
-mod pair_tests;
-#[cfg(test)]
-mod live_tests;
-#[cfg(test)]
-mod pixel_tests;
-#[cfg(test)]
-mod palette_tests;
-#[cfg(test)]
-mod safety_tests;
-#[cfg(test)]
-mod sync_tests;
-mod midi;
-mod motion;
-mod ndi;
-mod opendmx;
-mod osc;
-mod output;
-mod pixel;
-mod project;
-mod shot;
-mod theme;
-mod web;
-mod ui_auto;
-mod ui_binding;
-mod ui_control;
-mod ui_keys;
-mod ui_laser;
-mod ui_map;
-mod ui_midi;
-mod ui_output;
-mod ui_pair;
-mod ui_patch;
-mod ui_profile;
-mod ui_sequence;
-mod ui_show;
+use dmxctl::kmsdrm;
 
 fn main() -> eframe::Result {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().is_some_and(|arg|arg == "serve" || arg == "ctl") {
+        if let Err(error) = dmxctl::cli::run(args) {
+            eprintln!("{error}");
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
+    let launch = dmxctl::control::Launch::parse(&args, false).unwrap_or_else(|error| {
+        eprintln!("{error}");
+        std::process::exit(1);
+    });
     // `dmxctl --apply-layout`: 保存してあるプロジェクトを、おすすめのMIDI配置にする(画面は開かない)
     if std::env::args().any(|a| a == "--apply-layout") {
         if let Err(e) = layout::cli() {
@@ -79,7 +29,7 @@ fn main() -> eframe::Result {
     engine::install_safety_hooks();
     // 画面を出さずに動かす(モニターの無いPCで、Beat Link Triggerなどと一緒にオートで動かす)
     if std::env::args().any(|a| a == "--headless") || std::env::var_os("DMXCTL_HEADLESS").is_some_and(|v| v == "1") {
-        app::App::run_headless();
+        app::App::run_headless_with_options(launch);
     }
     // デスクトップ環境の無いLinux(またはDMXCTL_KMSDRM=1 / --kmsdrm)では、画面に直接(KMS/DRM)出す
     #[cfg(all(target_os = "linux", feature = "kmsdrm"))]
@@ -104,5 +54,8 @@ fn main() -> eframe::Result {
         viewport: eframe::egui::ViewportBuilder::default().with_inner_size(size.unwrap_or([1280.0, 800.0])).with_min_inner_size([960.0, 620.0]).with_title("DMX Controller").with_app_id("dmxctl"),
         ..Default::default()
     };
-    eframe::run_native("dmxctl", options, Box::new(|cc| Ok(Box::new(app::App::new(&cc.egui_ctx, false)))))
+    eframe::run_native("dmxctl", options, Box::new(move |cc| {
+        app::App::with_options(&cc.egui_ctx, false, launch)
+            .map(|app|Box::new(app) as Box<dyn eframe::App>).map_err(|error|error.into())
+    }))
 }

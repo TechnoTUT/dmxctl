@@ -103,7 +103,8 @@ pub fn run() -> Result<(), String> {
     }
     // ここから先で失敗して戻ると app.shutdown()(ブラックアウト・保存)を通らないので、失敗しうるものは先に用意する
     let mut pump = sdl.event_pump()?;
-    let mut app = App::new(&ctx, true);
+    let launch = crate::control::Launch::parse(&std::env::args().skip(1).collect::<Vec<_>>(),false).map_err(|error|error.to_string())?;
+    let mut app = App::with_options(&ctx, true, launch).map_err(|error|error.to_string())?;
     if !can_read_input() {
         let msg = "キーボード・マウスを読めません(/dev/input の権限が無い)。`sudo usermod -aG input $USER` のあとログインし直してください。終了は Ctrl+C(起動した端末で)";
         eprintln!("{msg}");

@@ -52,7 +52,7 @@ impl Core {
             LiveSource::Video => st.video,
         };
         // OSCのRGBは、受けた色へなめらかに近づける
-        let now = Instant::now();
+        let now = self.now();
         let osc = self.rt.osc_rgb.each_mut().map(|o| o.as_mut().map(|o| o.step(now)));
         let cfg = &self.project.ndi;
         let (main, sub) = if cfg.enabled { (pick(cfg.main, &self.rt.ndi), pick(cfg.sub, &self.rt.ndi)) } else { (None, None) };
@@ -110,7 +110,7 @@ impl Core {
         if self.manual_active() || self.rt.wave_color_off {
             return;
         }
-        let now = Instant::now();
+        let now = self.now();
         let secs = secs.unwrap_or(self.project.osc_rgb_secs).clamp(0.0, 30.0);
         let due = at.map(|a| now + Duration::from_secs_f32(a.clamp(0.0, 30.0)));
         // 初めてなら、今出している色から近づける
@@ -125,7 +125,7 @@ impl Core {
         if self.manual_active() {
             return;
         }
-        let now = Instant::now();
+        let now = self.now();
         let secs = secs.unwrap_or(self.project.osc_rgb_secs).clamp(0.0, 30.0);
         let due = at.map(|a| now + Duration::from_secs_f32(a.clamp(0.0, 30.0)));
         OscGlide::aim(&mut self.rt.osc_level, [v.clamp(0.0, 1.0)], [1.0], secs, due, now);

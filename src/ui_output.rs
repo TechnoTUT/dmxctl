@@ -8,6 +8,9 @@ use eframe::egui::{self, Align2, Color32, FontId, RichText, Sense};
 
 impl App {
     pub fn tab_output(&mut self, ui: &mut egui::Ui) {
+        if !self.launch.output {
+            ui.colored_label(WARN, "シミュレーション中です。出力先の設定を変更しても、実機には送信しません。");
+        }
         let shared = self.core.clone();
         let mut guard = lock(&shared);
         let core = &mut *guard;

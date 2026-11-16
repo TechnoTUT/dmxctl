@@ -53,6 +53,13 @@ pub struct MidiMsg {
 }
 
 pub struct Runtime {
+    pub frame_id: u64,
+    /// Deadline for remote momentary controls; enforced by the output thread.
+    pub flash_deadline: Option<Instant>,
+    /// Automation can supply a monotonic clock without changing the GUI clock.
+    pub virtual_now: Option<Instant>,
+    pub recorder: Option<crate::recording::Recorder>,
+    pub safety_events: Vec<serde_json::Value>,
     pub blackout: bool,
     pub fades: Vec<Fade>,
     /// バインディングごとの「押されている」状態(エッジ検出用)
@@ -204,6 +211,11 @@ impl Runtime {
             used_len: vec![MIN_SLOTS; NUM_UNIVERSES],
             output_status: Vec::new(),
             output_gen: 0,
+            frame_id: 0,
+            flash_deadline: None,
+            virtual_now: None,
+            recorder: None,
+            safety_events: Vec::new(),
             t0: Instant::now(),
             page: 0,
             link: None,
@@ -266,6 +278,10 @@ pub struct Core {
 }
 
 impl Core {
+    pub fn now(&self) -> Instant {
+        self.rt.virtual_now.unwrap_or_else(Instant::now)
+    }
+
     pub fn new(project: Project, lib: Arc<Library>) -> Self {
         let mut rt = Runtime::new();
         // 個別モードの初期の選択は、先頭の機材
@@ -396,7 +412,18 @@ impl Core {
 
     /// ベース値 + エフェクト + ブラックアウト/ARMゲートを合成して、ユニバースごとのフレームを作る
     pub fn render(&mut self) {
-        let now = Instant::now();
+        let now = self.now();
+        self.rt.safety_events.clear();
+        if self.rt.flash_deadline.is_some_and(|deadline|now >= deadline) {
+            self.rt.flash = None;
+            self.rt.flash_deadline = None;
+            if let Some(recorder) = self.rt.recorder.as_ref() {
+                recorder.emit(serde_json::json!({"type":"command","source":"lease_expired",
+                    "command":{"cmd":"flash","on":false},"applies_from_frame":recorder.next_frame(),
+                    "applies_from_engine_frame":self.rt.frame_id+1,
+                    "t_ms":now.saturating_duration_since(self.rt.t0).as_millis() as u64}));
+            }
+        }
         // 拍を進める(ウィンドウ移動などで止まった直後に、拍が大きく飛ばないよう上限を付ける)
         let dt = self.rt.last_beat_t.map(|t| now.duration_since(t).as_secs_f64().min(0.5)).unwrap_or(0.0);
         self.rt.last_beat_t = Some(now);
@@ -501,6 +528,7 @@ impl Core {
             let Some(profile) = lib.get(&fx.profile) else { continue };
             let Some(mode) = profile.modes.get(fx.mode) else { continue };
             let v = &mut vals[i];
+            let requested = self.rt.recorder.as_ref().map(|_| v.clone());
             if v.len() != mode.channels.len() || fx.universe >= NUM_UNIVERSES || fx.address == 0 {
                 continue;
             }
@@ -520,7 +548,28 @@ impl Core {
                 }
             }
             // 禁止の値(レーザーのオートショーなど)と、動いてよい範囲は、何をしていても最後に必ず直す
+            let gated = requested.as_ref().map(|_| v.clone());
             guard_values(mode, &fx.limits, v);
+            if let Some(before) = requested {
+                let gated = gated.unwrap();
+                for (ch, (&requested, &applied)) in before.iter().zip(v.iter()).enumerate() {
+                    if requested != applied {
+                        let mut reasons = Vec::new();
+                        if requested != gated[ch] {
+                            reasons.push(if dark { "blackout" } else if muted { "mute" } else { "not_armed" });
+                        }
+                        let [a, b] = fx.limits.get(&mode.channels[ch].attr).copied().unwrap_or([0, 255]);
+                        let clamped = gated[ch].clamp(a.min(b), a.max(b));
+                        if gated[ch] != clamped { reasons.push("limits"); }
+                        if mode.channels[ch].is_forbidden(clamped) { reasons.push("forbid"); }
+                        self.rt.safety_events.push(serde_json::json!({
+                            "fixture": fx.id, "attr": mode.channels[ch].attr,
+                            "channel": ch + 1, "requested": requested, "applied": applied,
+                            "reason": reasons.join("+"), "reasons": reasons
+                        }));
+                    }
+                }
+            }
             let base = fx.address as usize - 1;
             for (c, &b) in v.iter().enumerate() {
                 let a = base + c;
@@ -532,6 +581,10 @@ impl Core {
         }
         for (u, n) in used.into_iter().enumerate() {
             self.rt.used_len[u] = n.clamp(MIN_SLOTS, 512);
+        }
+        self.rt.frame_id += 1;
+        if let Some(recorder) = self.rt.recorder.clone() {
+            recorder.frame(self, false);
         }
     }
 }
@@ -552,10 +605,17 @@ fn safe_values(mode: &Mode, info: &crate::fixture::ModeInfo, v: &mut [u8]) {
 pub fn guard_values(mode: &Mode, limits: &BTreeMap<String, [u8; 2]>, v: &mut [u8]) {
     for (c, ch) in mode.channels.iter().enumerate() {
         let Some(x) = v.get_mut(c) else { break };
-        if let Some(&[a, b]) = limits.get(&ch.attr) {
-            *x = (*x).clamp(a.min(b), a.max(b));
-        }
-        *x = ch.allowed(*x);
+        let [a, b] = limits.get(&ch.attr).copied().unwrap_or([0, 255]);
+        let (lo, hi) = (a.min(b), a.max(b));
+        let clamped = (*x).clamp(lo, hi);
+        let allowed = ch.allowed(clamped);
+        *x = if (lo..=hi).contains(&allowed) && !ch.is_forbidden(allowed) {
+            allowed
+        } else {
+            // Preserve both constraints when the safe replacement is outside the limits.
+            (lo..=hi).filter(|&n| !ch.is_forbidden(n))
+                .min_by_key(|&n| n.abs_diff(clamped)).unwrap_or(allowed)
+        };
     }
 }
 
@@ -836,11 +896,16 @@ pub struct Engine {
 
 impl Engine {
     pub fn spawn(core: Shared) -> Engine {
+        Self::spawn_with_output(core, true)
+    }
+
+    /// Keep rendering at 40 Hz even when physical output is disabled.
+    pub fn spawn_with_output(core: Shared, output_enabled: bool) -> Engine {
         let stop = Arc::new(AtomicBool::new(false));
         let s2 = stop.clone();
         let handle = std::thread::Builder::new()
             .name("dmx-engine".into())
-            .spawn(move || run(core, s2))
+            .spawn(move || run(core, s2, output_enabled))
             .expect("engine thread");
         Engine { stop, handle: Some(handle) }
     }
@@ -853,7 +918,11 @@ impl Engine {
     }
 }
 
-fn run(core: Shared, stop: Arc<AtomicBool>) {
+impl Drop for Engine {
+    fn drop(&mut self) { self.stop(); }
+}
+
+fn run(core: Shared, stop: Arc<AtomicBool>, output_enabled: bool) {
     struct Running;
     impl Drop for Running {
         fn drop(&mut self) {
@@ -875,6 +944,15 @@ fn run(core: Shared, stop: Arc<AtomicBool>) {
             // 安全停止中: Coreを待たずに(画面のスレッドが止まっていても)安全なフレームを送り続ける
             if let Some((frames, lens)) = &safe {
                 send_frames(&cfgs, &mut outs, frames, lens);
+                // Safety output uses a separate path from render: record it too.
+                if let Ok(mut c) = core.try_lock() {
+                    c.rt.frames = frames.clone();
+                    c.rt.frame_id += 1;
+                    c.rt.safety_events.clear();
+                    if let Some(recorder) = c.rt.recorder.clone() {
+                        recorder.frame(&c, true);
+                    }
+                }
             }
             safe_sent += 1;
             if safe_sent >= SAFE_TICKS && EXIT_AFTER_SAFE.load(Ordering::SeqCst) {
@@ -890,7 +968,7 @@ fn run(core: Shared, stop: Arc<AtomicBool>) {
             let (frames, lens, cfg_now, gen_now) = (c.rt.frames.clone(), c.rt.used_len.clone(), c.project.outputs.clone(), c.rt.output_gen);
             safe = Some((c.safe_frames(), lens.clone()));
             drop(c);
-            if gen_now != gen_seen {
+            if output_enabled && gen_now != gen_seen {
                 // 先に古い出力を閉じてからポートを開き直す
                 outs.clear();
                 outs = cfg_now.iter().map(output::create).collect();
