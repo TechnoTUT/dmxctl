@@ -9,11 +9,16 @@ fn finite(value: &Value) -> anyhow::Result<f32> {
     Ok(v as f32)
 }
 
+pub(crate) fn flag(value:&Value,key:&str,default:bool)->anyhow::Result<bool> {
+    value.get(key).map(|v|v.as_bool().with_context(||format!("{key} must be boolean"))).transpose().map(|v|v.unwrap_or(default))
+}
+
 pub(crate) fn apply(core: &mut Core, value: &Value) -> anyhow::Result<()> {
     let cmd = value["cmd"].as_str().context("cmd is required")?;
     match cmd {
         "button" => core.remote_button(value)?,
         "input" => core.remote_input(value)?,
+        "edit" => {crate::editing::apply(core,&value["operations"],flag(value,"dry_run",false)?)?;}
         "set" => {
             let id = u32::try_from(value["fixture"].as_u64().context("fixture id required")?)?;
             let index = core.project.fixture_index(id).context("unknown fixture")?;

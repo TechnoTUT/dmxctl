@@ -70,3 +70,4 @@ pub mod cli;
 mod commands;
 pub mod control;
 pub mod controls;
+pub mod editing;

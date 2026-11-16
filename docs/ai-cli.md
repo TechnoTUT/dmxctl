@@ -81,6 +81,73 @@ IDは `button list` から取得してください。例の42番が必ず存在�
 
 期限切れの解放はGUIの更新ではなく、40Hzの出力スレッドで処理します。割り当てを削除・変更した場合も、押下時の動作を保持して解放します。
 
+### 設定の作成・編集・削除
+
+常駐中の設定を編集できます。`fixture`, `group`, `binding`, `scene`, `position`, `effect`, `pixel`, `chase`, `pair`, `output`, `auto_preset` が対象です。
+
+```powershell
+./target/debug/dmxctl-cli ctl group create --json '{"name":"Spots","fixtures":[1]}'
+./target/debug/dmxctl-cli ctl effect create --json '{"name":"Pulse","sel":{"Group":"Spots"},"attr":"dimmer","beats":2}'
+./target/debug/dmxctl-cli ctl effect update Pulse --json '{"enabled":true,"beats":4}'
+./target/debug/dmxctl-cli ctl scene capture Intro --json '{"fade":1,"fixtures":[1]}'
+./target/debug/dmxctl-cli ctl scene update Intro --json '{"fade":2}'
+./target/debug/dmxctl-cli ctl settings update --json '{"bpm":128,"auto":{"enabled":false}}'
+./target/debug/dmxctl-cli ctl scene list
+./target/debug/dmxctl-cli ctl binding list
+./target/debug/dmxctl-cli ctl scene delete Intro
+```
+
+対象の指定は、機材は数値ID、割り当ては `binding:ID`、その他は名前です。出力先や、同じ名前でまとめたエフェクトなどは `--index N` で一覧の0始まりの位置を指定します。並びを変更した場合は、一覧を取り直してください。名前が複数一致する場合は変更を拒否します。`fixture list` は従来の機材一覧、`fixture get` は編集用の全フィールドを返します。
+
+`--json` の代わりに `--file FILE.json` も使えます。編集データは `project.json` と同じ構造です。ユニバース番号、機材モード、ページ、プリセット番号、`--index` は0始まりです。DMXアドレスは1始まりです。`scene capture` はGUIの「現在の状態を保存」と同じく基準値を保存し、エフェクト合成後の出力を焼き込む機能ではありません。
+
+複数の変更をまとめる場合は、編集ファイルを使います。
+
+```powershell
+./target/debug/dmxctl-cli ctl edit --file examples/cli/edits.json --dry-run
+./target/debug/dmxctl-cli ctl edit --file examples/cli/edits.json
+```
+
+ファイルは次の形式の配列です。`create` の `data` には省略可能な既定値を補い、`update` は指定したフィールドだけを変更します。
+
+```json
+[
+  {"entity":"scene","op":"update","key":"Intro","data":{"name":"Intro 2"}},
+  {"entity":"chase","op":"update","key":"Chase","data":{"steps":["Intro 2"]}}
+]
+```
+
+検証するのは変更全体を適用した後の状態です。アドレスを2台で入れ替える場合など、途中だけ重複する変更も一括で扱えます。参照切れ、アドレス重複、ペアの循環、不正な数値などがあれば、設定と実行状態は変更しません。名前の変更や削除では、その名前を参照する割り当てやチェイスなども同じバッチで修正してください。参照先を自動で削除する機能はありません。
+
+`--dry-run` は検証だけを行い、機材・割り当てのIDも消費しません。ボタンを押したまま、またはMIDI/OSCラーン中には編集を受け付けません。先に解放・終了してください。今回のGUI共通化には、機材・グループの追加、シーンの保存・削除、割り当て削除、機材定義の保存・削除、プロジェクト読込、保存時の検証を含みます。既存GUIの数値・名前の直接編集は、引き続きタブごとの処理を使います。
+
+### 差分・再読込・復元
+
+```powershell
+./target/debug/dmxctl-cli ctl project diff
+./target/debug/dmxctl-cli ctl project save
+./target/debug/dmxctl-cli ctl project reload --dry-run
+./target/debug/dmxctl-cli ctl project reload
+./target/debug/dmxctl-cli ctl project restore --file runs/backups/before-load-....json
+```
+
+`diff` は保存済みファイルと現在の設定との差分を返します。WebパネルのPINは表示・記録せず、変更の有無だけを `redacted_changes.web_pin` に返します。
+
+再読込・復元では、ファイル全体を検証してから、現在の未保存状態をプロジェクトと同じフォルダの `backups/` へ保存し、実行中の設定を置き換えます。読込や検証に失敗した場合は元の状態を維持します。復元元のファイルへ保存先を変更する操作ではありません。自動保存を無効にしている場合、復元した設定を残すには `project save` が必要です。ARMは解除します。
+
+### 機材定義
+
+```powershell
+./target/debug/dmxctl-cli ctl profile list
+./target/debug/dmxctl-cli ctl profile save --file fixture.json --dry-run
+./target/debug/dmxctl-cli ctl profile save --file fixture.json
+./target/debug/dmxctl-cli ctl profile delete user/example
+```
+
+機材定義は個別のJSONファイルに明示的に保存します。プロジェクトの編集バッチには含められません。使用中、または保存済みプロジェクトが参照している定義は、そのまま削除できません。使用中のチャンネル構造を変更するときは、先に機材をパッチから外してプロジェクトを保存してください。パッチを外す際に、参照するシーン・割り当てなども修正する必要があります。名前や範囲のラベルなど、チャンネル構造を変えない編集は使用中でも行えます。
+
+安全制限のある機材は、CLIから削除・再パッチ・有効状態の変更を行えません。ARM、可動範囲、禁止値・安全値の定義、ムービングの校正値も通常のCLI編集から変更できません。既存の安全設定をGUIで変更する操作とは区別しています。
+
 ## 独立したシミュレーション
 
 以下の `simulate` / `run` は、常駐本体へ接続せず独立して実行します。元の設定ファイルは保存・変更しません。

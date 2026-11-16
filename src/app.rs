@@ -153,6 +153,7 @@ impl App {
         crate::theme::apply(egui_ctx);
 
         let path = options.project.clone().unwrap_or_else(default_project_path);
+        let path = if path.is_absolute() {path}else{std::env::current_dir()?.join(path)};
         let fixture_dir = if options.project.is_some() {
             path.parent().unwrap_or(std::path::Path::new(".")).join("fixtures")
         } else { config_dir().join("fixtures") };
@@ -195,7 +196,9 @@ impl App {
             notice = format!("{notice} 右端のフェーダーは別の用途で使われているため、全体光量は未割り当てです(MIDIタブで割り当てられます)");
         }
         let midi_choice = project.midi_input.clone();
-        let core: Shared = Arc::new(Mutex::new(Core::new(project, lib)));
+        let mut initial_core=Core::new(project,lib);
+        initial_core.rt.project_path=Some(path.clone());
+        let core: Shared = Arc::new(Mutex::new(initial_core));
         // 初回のoutput_gen(0)でエンジンが出力を組み立てる
         let control = options.listen.map(|address|crate::control::Host::start(address,egui_ctx.clone())).transpose()?;
         let engine = Engine::spawn_with_output(core.clone(), options.output);
@@ -366,6 +369,7 @@ impl App {
         let project = {
             let mut c = lock(&self.core);
             c.project.ensure_binding_ids();
+            crate::editing::validate(&c.project,&c.lib)?;
             c.dirty = false;
             c.project.clone()
         };
@@ -378,27 +382,9 @@ impl App {
     }
 
     fn load_from(&mut self, path: PathBuf) {
-        // 読み込むと今の内容は置き換わる(自動保存で上書きされる)ので、先に保存してバックアップに残す
-        self.save();
-        backup_to(&self.project_path, &backup_dir(), BACKUP_KEEP);
-        match Project::load(&path) {
-            Ok(p) => {
-                let mut c = lock(&self.core);
-                c.release_remote_controls();
-                c.project = p;
-                c.project.ensure_binding_ids();
-                c.rt.fades.clear();
-                c.rt.pad_state.clear();
-                c.rt.toggle_state.clear();
-                c.rt.learn = None;
-                c.rt.osc_learn = None;
-                c.rt.page = 0;
-                c.apply_outputs_changed();
-                drop(c);
-                self.apply_services();
-                self.notice = format!("読み込みました: {}", path.display());
-            }
-            Err(e) => self.notice = format!("読み込みに失敗しました: {e}"),
+        match self.reload_checked(Some(&path), false, false) {
+            Ok(_) => self.notice = format!("読み込みました: {}", path.display()),
+            Err(error) => self.notice = format!("読み込みに失敗しました: {error}"),
         }
     }
 

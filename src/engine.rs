@@ -53,6 +53,7 @@ pub struct MidiMsg {
 }
 
 pub struct Runtime {
+    pub project_path: Option<std::path::PathBuf>,
     pub remote_holds: HashMap<u64, crate::controls::Hold>,
     pub frame_id: u64,
     /// Deadline for remote momentary controls; enforced by the output thread.
@@ -213,6 +214,7 @@ impl Runtime {
             output_status: Vec::new(),
             output_gen: 0,
             frame_id: 0,
+            project_path: None,
             remote_holds: HashMap::new(),
             flash_deadline: None,
             virtual_now: None,

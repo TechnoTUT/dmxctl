@@ -23,8 +23,11 @@ impl App {
             });
             if ui.button("＋ 機材を追加").clicked()
                 && let Some(p) = lib.profiles.get(self.add_profile) {
-                core.project.add_fixture(&lib, &p.id);
-                changed = true;
+                let count=core.project.fixtures.iter().filter(|f|f.profile==p.id).count()+1;
+                match crate::editing::gui_apply(core,&serde_json::json!([{"entity":"fixture","op":"create",
+                    "data":{"profile":p.id,"name":format!("{} {}",p.name,count)}}])) {
+                    Ok(_)=>changed=true,Err(error)=>self.notice=format!("機材を追加できません: {error}"),
+                }
             }
             crate::theme::help(ui, &format!("機材定義は「機材定義」タブで作れます。{} に .json を置いても増やせます", crate::project::config_dir().join("fixtures").display()));
         });
@@ -128,9 +131,9 @@ impl App {
             ui.horizontal(|ui| {
                 ui.add(egui::TextEdit::singleline(&mut self.new_group).hint_text("新しいグループ名").desired_width(160.0));
                 if ui.button("＋ グループ追加").clicked() && !self.new_group.trim().is_empty() {
-                    core.project.groups.push(Group { name: self.new_group.trim().to_string(), fixtures: Vec::new() });
-                    self.new_group.clear();
-                    changed = true;
+                    match crate::editing::gui_apply(core,&serde_json::json!([{"entity":"group","op":"create","data":{"name":self.new_group.trim()}}])) {
+                        Ok(_)=>{self.new_group.clear();changed=true;},Err(error)=>self.notice=format!("グループを追加できません: {error}"),
+                    }
                 }
             });
         });

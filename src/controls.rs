@@ -20,6 +20,8 @@ fn continuous(action: &Action) -> bool {
         |Action::Motion{op:MotionOp::Size|MotionOp::Glide})
 }
 
+pub(crate) fn is_slider(action:&Action)->bool {continuous(action)}
+
 fn duration(value: &Value, default: u64) -> anyhow::Result<Duration> {
     let ms=value.get("hold_ms").map(|v|v.as_u64().context("hold_ms must be an integer")).transpose()?.unwrap_or(default);
     ensure!((1..=5000).contains(&ms),"hold_ms must be in 1..5000");
@@ -97,6 +99,7 @@ impl Core {
             }
             "key" => {
                 let number=byte(value,"number",u8::MAX)?;
+                ensure!((number as u16)<crate::keys::SHIFT as u16*2,"unknown key number");
                 ensure!(crate::keys::name(number)!="?" && crate::keys::name(number)!="Shift+?","unknown key number");
                 let pressed=value["pressed"].as_bool().context("pressed must be boolean")?;
                 for (i,b) in self.project.bindings.iter().enumerate() {

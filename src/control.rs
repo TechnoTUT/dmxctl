@@ -8,7 +8,7 @@ use std::{io::{BufRead, BufReader, Read, Write}, net::{SocketAddr, TcpListener, 
     thread::JoinHandle, time::{Duration, Instant}};
 
 pub const DEFAULT_ADDRESS: &str = "127.0.0.1:9190";
-const MAX_REQUEST: u64 = 64 * 1024;
+const MAX_REQUEST: u64 = 1024 * 1024;
 const MAX_RESPONSE: u64 = 4 * 1024 * 1024;
 
 #[derive(Clone)]
@@ -164,8 +164,41 @@ impl Host {
             }
             "output" => snapshot(&engine::lock(&app.core), request),
             "controls" => Ok(engine::lock(&app.core).controls()),
+            "entity_list" => crate::editing::list(&engine::lock(&app.core),request["entity"].as_str().context("entity is required")?),
+            "profile_list" => Ok(json!(engine::lock(&app.core).lib.profiles.iter().map(|p|p.as_ref()).collect::<Vec<_>>())),
+            "profile_save" => {
+                let profile:crate::fixture::Profile=serde_json::from_value(request["data"].clone())?;
+                engine::lock(&app.core).save_profile(&profile,true,commands::flag(request,"dry_run",false)?)
+            }
+            "profile_delete" => engine::lock(&app.core).delete_profile(request["id"].as_str().context("profile ID is required")?,true,commands::flag(request,"dry_run",false)?),
+            "edit" => {
+                let dry_run=commands::flag(request,"dry_run",false)?;
+                let mut core=engine::lock(&app.core);
+                ensure!(!engine::EMERGENCY.load(Ordering::SeqCst),"application is in emergency stop");
+                let old_midi=core.project.midi_input.clone();
+                let result=crate::editing::apply(&mut core,&request["operations"],dry_run);
+                let command=json!({"cmd":"edit","operations":request["operations"],"dry_run":dry_run,"id":request.get("id")});
+                log_command(&core,&command,result.as_ref().err().map(|e|e.to_string()));
+                let mut result=result?;
+                let changed_midi=old_midi!=core.project.midi_input;
+                drop(core);
+                if !dry_run {
+                    if changed_midi { result["midi_error"]=json!(app.sync_midi_choice().err().map(|e|e.to_string())); }
+                    app.apply_services();
+                }
+                Ok(result)
+            }
+            "project_diff" => app.project_diff(),
+            "reload" => {
+                let file=request.get("file").map(|v|v.as_str().context("file must be a string")).transpose()?;
+                app.reload_checked(file.map(std::path::Path::new),true,commands::flag(request,"dry_run",false)?)
+            }
             "command" => {
                 let command = &request["command"];
+                if command["cmd"]=="edit" {
+                    return self.execute(app,&json!({"op":"edit","operations":command["operations"],
+                        "dry_run":command.get("dry_run").cloned().unwrap_or(json!(false)),"id":command.get("id")}));
+                }
                 let hold = if command["cmd"] == "flash" && command["on"] != false {
                     let ms = command.get("hold_ms").map(|v|v.as_u64().context("hold_ms must be an integer")).transpose()?.unwrap_or(500);
                     ensure!((1..=5000).contains(&ms), "hold_ms must be in 1..5000");
@@ -190,7 +223,7 @@ impl Host {
             "save" => {
                 {
                     let core = engine::lock(&app.core);
-                    commands::validate(&core.project, &core.lib)?;
+                    crate::editing::validate(&core.project, &core.lib)?;
                 }
                 app.save_checked()?;
                 Ok(json!({"saved":app.project_path}))
@@ -236,7 +269,7 @@ impl Drop for Host {
 
 fn log_command(core: &engine::Core, command: &Value, error: Option<String>) {
     if let Some(recorder) = &core.rt.recorder {
-        recorder.emit(json!({"type":if error.is_none(){"command"}else{"command_error"},"command":command,
+        recorder.emit(json!({"type":if error.is_none(){"command"}else{"command_error"},"command":crate::editing::redact(command),
             "id":command.get("id"),"error":error,"applies_from_frame":recorder.next_frame(),
             "applies_from_engine_frame":core.rt.frame_id+1,
             "t_ms":core.now().saturating_duration_since(core.rt.t0).as_millis() as u64}));
@@ -285,11 +318,13 @@ pub fn request(address: SocketAddr, value: &Value) -> anyhow::Result<Value> {
 pub fn client(args: &[String]) -> anyhow::Result<()> {
     let mut positional = Vec::new();
     let mut options = std::collections::BTreeMap::new();
+    let mut dry_run=false;
     let mut i = 0;
     while i < args.len() {
+        if args[i]=="--dry-run" {ensure!(!dry_run,"duplicate --dry-run");dry_run=true;i+=1;continue;}
         if args[i].starts_with("--") {
             let key = args[i].as_str();
-            ensure!(["--connect","--json","--file","--fixture","--attrs","--attr","--value","--duration","--interval-ms","--hold-ms","--channel","--number","--kind"].contains(&key), "unknown control option: {key}");
+            ensure!(["--connect","--json","--file","--fixture","--attrs","--attr","--value","--duration","--interval-ms","--hold-ms","--channel","--number","--kind","--index"].contains(&key), "unknown control option: {key}");
             i += 1;
             let value = args.get(i).context("control option needs a value")?;
             ensure!(options.insert(key,value.as_str()).is_none(), "duplicate control option");
@@ -298,7 +333,7 @@ pub fn client(args: &[String]) -> anyhow::Result<()> {
     }
     let address = local_address(options.get("--connect").copied().unwrap_or(DEFAULT_ADDRESS))?;
     let mut used = vec!["--connect"];
-    let payload = match positional.as_slice() {
+    let mut payload = match positional.as_slice() {
         ["status"] => json!({"op":"status"}),
         ["inspect"] => json!({"op":"inspect"}),
         ["stop"] => json!({"op":"stop"}),
@@ -342,6 +377,39 @@ pub fn client(args: &[String]) -> anyhow::Result<()> {
             json!({"op":"command","command":command})
         }
         ["project","save"] => json!({"op":"save"}),
+        ["profile","list"] => json!({"op":"profile_list"}),
+        ["profile","save"] => {used.extend(["--file","--json"]);json!({"op":"profile_save","data":client_data(&options)?})}
+        ["profile","delete",id] => json!({"op":"profile_delete","id":id}),
+        ["project","diff"] => json!({"op":"project_diff"}),
+        ["project",op] if *op=="reload" || *op=="restore" => {
+            used.push("--file");
+            let mut payload=json!({"op":"reload"});
+            if let Some(path)=options.get("--file") {payload["file"]=json!(absolute_path(path)?);}
+            ensure!(*op!="restore" || options.contains_key("--file"),"restore requires --file");
+            payload
+        }
+        ["edit"] => {
+            used.extend(["--file","--json"]);
+            let data=client_data(&options)?;
+            if let Some(object)=data.as_object() {ensure!(object.keys().all(|key|key=="operations"),"edit file supports an operations array only; use --dry-run on the command line");}
+            json!({"op":"edit","operations":if data.is_array(){data}else{data["operations"].clone()}})
+        }
+        [entity,"list"]|[entity,"get"] if editable(entity) => json!({"op":"entity_list","entity":entity}),
+        [entity,op]|[entity,op,_] if editable(entity) && ["create","update","delete","capture"].contains(op) => {
+            used.extend(["--file","--json","--index"]);
+            let mut operation=json!({"entity":entity,"op":op});
+            if *op!="delete" {
+                let data=if options.contains_key("--json") || options.contains_key("--file") {client_data(&options)?}else{json!({})};
+                operation["data"]=data;
+            }
+            if let Some(key)=positional.get(2) {
+                if *op=="capture" {operation["data"]["name"]=json!(key);}
+                else if *entity=="fixture" {operation["key"]=json!(key.parse::<u32>()?);}
+                else {operation["key"]=json!(key);}
+            }
+            if let Some(index)=options.get("--index") {operation["index"]=json!(index.parse::<u64>()?);}
+            json!({"op":"edit","operations":[operation]})
+        }
         ["output","snapshot"]|["watch"] => {
             used.extend(["--fixture","--attrs"]);
             let mut payload = json!({"op":"output"});
@@ -360,6 +428,10 @@ pub fn client(args: &[String]) -> anyhow::Result<()> {
         _ => bail!("unknown control command; see dmxctl-cli --help"),
     };
     let watching = positional.as_slice()==["watch"];
+    if dry_run {
+        ensure!(["edit","reload","profile_save","profile_delete"].contains(&payload["op"].as_str().unwrap_or("")),"--dry-run requires edit, reload/restore or profile save/delete");
+        payload["dry_run"]=json!(true);
+    }
     if watching { used.extend(["--duration","--interval-ms"]); }
     for key in options.keys() { ensure!(used.contains(key),"option is not supported by this command: {key}"); }
     if !watching {
@@ -387,4 +459,20 @@ pub fn client(args: &[String]) -> anyhow::Result<()> {
         std::thread::sleep(delay);
     }
     Ok(())
+}
+
+fn editable(entity:&str)->bool {
+    ["fixture","group","binding","scene","position","effect","pixel","chase","pair","output","auto_preset","settings"].contains(&entity)
+}
+
+fn absolute_path(path:&str)->anyhow::Result<PathBuf> {
+    let path=PathBuf::from(path);
+    Ok(if path.is_absolute(){path}else{std::env::current_dir()?.join(path)})
+}
+
+fn client_data(options:&std::collections::BTreeMap<&str,&str>)->anyhow::Result<Value> {
+    ensure!(options.contains_key("--json")!=options.contains_key("--file"),"provide exactly one of --json or --file");
+    let text=if let Some(data)=options.get("--json") {data.to_string()}
+        else {std::fs::read_to_string(absolute_path(options["--file"])?)?};
+    Ok(serde_json::from_str(text.trim_start_matches('\u{feff}'))?)
 }

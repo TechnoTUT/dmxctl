@@ -19,6 +19,18 @@ dmxctl-cli ctl input osc --json '{"address":"/dmx/bpm","args":[128]}'
 dmxctl-cli ctl fixture set ID --attr pan --value 80
 dmxctl-cli ctl command --json '{"cmd":"motion","params":{"shape":"Circle"}}'
 dmxctl-cli ctl project save
+dmxctl-cli ctl edit --file operations.json [--dry-run]
+dmxctl-cli ctl fixture|group|binding|scene|position|effect|pixel|chase|pair|output|auto_preset list
+dmxctl-cli ctl ENTITY create --json '{...}'
+dmxctl-cli ctl ENTITY update KEY --json '{...}'
+dmxctl-cli ctl ENTITY delete KEY
+dmxctl-cli ctl ENTITY update --index N --json '{...}'
+dmxctl-cli ctl scene capture NAME [--json '{"fade":1,"fixtures":[1]}']
+dmxctl-cli ctl settings update --json '{"bpm":128}'
+dmxctl-cli ctl profile list|save|delete [--file FILE] [--dry-run]
+dmxctl-cli ctl project diff
+dmxctl-cli ctl project reload [--file FILE] [--dry-run]
+dmxctl-cli ctl project restore --file FILE [--dry-run]
 dmxctl-cli ctl output snapshot [--fixture ID] [--attrs pan,tilt]
 dmxctl-cli ctl watch [--fixture ID] [--attrs pan,tilt] [--duration SECONDS]
 dmxctl-cli ctl record start --file NEW.jsonl
@@ -197,7 +209,7 @@ fn record_command(core: &mut Core, value: &Value, elapsed: u64) {
         recorder.emit(json!({"type":if result.is_ok(){"command"}else{"command_error"},
             "id":value.get("id").cloned().unwrap_or_else(||json!(format!("command-{}",recorder.next_sequence()))),"t_ms":elapsed,
             "applies_from_frame":recorder.next_frame(),
-            "command":value,"error":result.err().map(|e| e.to_string())}));
+            "command":crate::editing::redact(value),"error":result.err().map(|e| e.to_string())}));
     }
 }
 

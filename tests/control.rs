@@ -157,6 +157,68 @@ fn button_and_input_clients_use_persistent_controls() {
 }
 
 #[test]
+fn editing_clients_commit_atomically_and_reload_backs_up_unsaved_work() {
+    let mut host=Running::start();
+    let dry=host.cli(&["group","create","--json",r#"{"name":"Spots","fixtures":[1]}"#,"--dry-run"]);
+    assert!(dry.status.success(),"{}",String::from_utf8_lossy(&dry.stderr));
+    assert_eq!(host.request(json!({"op":"entity_list","entity":"group"})),json!([]));
+    assert!(control::request(host.address,&json!({"op":"edit","dry_run":"true","operations":[{"entity":"group","op":"create","data":{"name":"Must not apply"}}]})).is_err());
+    assert_eq!(host.request(json!({"op":"entity_list","entity":"group"})),json!([]));
+    assert!(host.cli(&["group","create","--json",r#"{"name":"Spots","fixtures":[1]}"#]).status.success());
+    let invalid=host.request(json!({"op":"inspect"}));
+    assert!(control::request(host.address,&json!({"op":"edit","operations":[
+        {"entity":"settings","op":"update","data":{"bpm":150}},
+        {"entity":"fixture","op":"delete","key":1}
+    ]})).is_err());
+    assert_eq!(host.request(json!({"op":"inspect"}))["project"],invalid["project"]);
+    assert!(host.cli(&["settings","update","--json",r#"{"bpm":128}"#]).status.success());
+    let diff=host.cli(&["project","diff"]);assert!(diff.status.success());
+    let diff:Value=serde_json::from_slice(&diff.stdout).unwrap();
+    assert!(diff["changes"].as_array().unwrap().iter().any(|v|v["path"]=="/bpm"));
+    let restored=host.request(json!({"op":"reload"}));
+    assert_eq!(host.request(json!({"op":"status"}))["bpm"],120.0);
+    let backup=Project::load(std::path::Path::new(restored["backup"].as_str().unwrap())).unwrap();
+    assert_eq!(backup.bpm,128.0);assert_eq!(backup.groups[0].name,"Spots");
+    assert!(host.cli(&["scene","capture","Intro","--json",r#"{"fixtures":[1],"fade":1}"#]).status.success());
+    assert_eq!(host.request(json!({"op":"entity_list","entity":"scene"}))[0]["data"]["name"],"Intro");
+    let before=host.request(json!({"op":"inspect"}))["project"].clone();
+    std::fs::write(host.dir.join("broken.json"),"{broken").unwrap();
+    assert!(!host.cli(&["project","restore","--file","broken.json"]).status.success());
+    assert_eq!(host.request(json!({"op":"inspect"}))["project"],before);
+    host.stop();
+}
+
+#[test]
+fn profiles_are_saved_validated_and_cannot_weaken_laser_guards() {
+    use dmxctl::fixture::{Profile,Mode,ChannelDef};
+    let mut host=Running::start();
+    let profile=Profile{id:"user/test".into(),name:"Test".into(),manufacturer:"Test".into(),needs_arm:false,
+        modes:vec![Mode{name:"1ch".into(),channels:vec![ChannelDef::blank("Dimmer","dimmer","光量")]}]};
+    let text=serde_json::to_string(&profile).unwrap();
+    let result=host.cli(&["profile","save","--json",&text,"--dry-run"]);assert!(result.status.success(),"{}",String::from_utf8_lossy(&result.stderr));
+    assert!(!host.dir.join("fixtures/user_test.json").exists());
+    let result=host.cli(&["profile","save","--json",&text]);assert!(result.status.success(),"{}",String::from_utf8_lossy(&result.stderr));
+    assert!(host.dir.join("fixtures/user_test.json").exists());
+    let result=host.cli(&["fixture","create","--json",r#"{"profile":"user/test"}"#]);assert!(result.status.success(),"{}",String::from_utf8_lossy(&result.stderr));
+    let mut changed=profile.clone();
+    changed.modes[0].channels.push(ChannelDef::blank("Red","red","色"));
+    assert!(control::request(host.address,&json!({"op":"profile_save","data":changed})).is_err(),"in-use channel layout must remain consistent with saved values");
+    host.request(json!({"op":"save"}));
+    assert!(!host.cli(&["profile","delete","user/test"]).status.success(),"in-use profile must not disappear");
+    assert!(host.cli(&["fixture","delete","3"]).status.success());
+    assert!(!host.cli(&["profile","delete","user/test"]).status.success(),"saved project still references this profile");
+    host.request(json!({"op":"save"}));
+    assert!(host.cli(&["profile","delete","user/test"]).status.success());
+    assert!(!host.dir.join("fixtures/user_test.json").exists());
+    let profiles=host.request(json!({"op":"profile_list"}));
+    let mut laser=profiles.as_array().unwrap().iter().find(|p|p["id"]=="stage-evolution/laserscan300").unwrap().clone();
+    laser["needs_arm"]=json!(false);
+    assert!(control::request(host.address,&json!({"op":"profile_save","data":laser})).is_err());
+    assert!(!host.dir.join("fixtures/stage_evolution_laserscan300.json").exists());
+    host.stop();
+}
+
+#[test]
 fn disabled_output_keeps_rendering_without_sending_artnet() {
     let receiver=std::net::UdpSocket::bind("127.0.0.1:6454").unwrap();
     receiver.set_read_timeout(Some(Duration::from_millis(200))).unwrap();
@@ -185,6 +247,7 @@ fn gui_frame_processes_commands_against_its_own_core() {
         project:Some(dir.join("project.json")),listen:Some(address),output:false,inputs:false,autosave:false,
     }).unwrap();
     for command in [json!({"cmd":"set","fixture":1,"attr":"pan","value":83}),
+        json!({"cmd":"edit","operations":[{"entity":"group","op":"create","data":{"name":"GUI shared edit","fixtures":[1]}}]}),
         json!({"cmd":"flash","on":true,"hold_ms":100})] {
         let (tx,rx)=mpsc::channel();
         let client=std::thread::spawn(move || {let _=tx.send(control::request(address,&json!({
@@ -202,6 +265,7 @@ fn gui_frame_processes_commands_against_its_own_core() {
         client.join().unwrap();
     }
     assert_eq!(dmxctl::engine::lock(&app.core).project.fixtures[0].values[0],83);
+    assert_eq!(dmxctl::engine::lock(&app.core).project.groups[0].name,"GUI shared edit");
     // No GUI frames or control polling: the engine must enforce the lease itself.
     std::thread::sleep(Duration::from_millis(200));
     assert!(dmxctl::engine::lock(&app.core).rt.flash.is_none());

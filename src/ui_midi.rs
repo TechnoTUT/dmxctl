@@ -50,11 +50,9 @@ impl App {
 
         if let Some(i) = remove {
             core.release_remote_controls();
-            core.project.bindings.remove(i);
-            core.rt.pad_state.clear();
-            core.rt.toggle_state.clear();
-            core.rt.learn = None;
-            changed = true;
+            match crate::editing::gui_apply(core,&serde_json::json!([{"entity":"binding","op":"delete","index":i}])) {
+                Ok(_)=>changed=true,Err(error)=>self.notice=format!("割り当てを削除できません: {error}"),
+            }
         }
         if changed {
             core.dirty = true;
