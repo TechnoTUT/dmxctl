@@ -64,7 +64,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist/windows | Out-Null
-          Compress-Archive -Force -Path target/release/dmxctl.exe -DestinationPath dist/windows/DMX-Controller-windows.zip
+          Compress-Archive -Force -Path target/release/dmxctl.exe,target/release/dmxctl-cli.exe -DestinationPath dist/windows/DMX-Controller-windows.zip
       - uses: actions/upload-artifact@v7
         with:
           name: DMX-Controller-windows

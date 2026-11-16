@@ -19,7 +19,8 @@ mkdir -p "$OUT"
 rm -f "$OUT/dmxctl-kmsdrm"
 cargo build --release
 cp target/release/dmxctl "$OUT/dmxctl"
-FILES="dmxctl dmxctl.desktop"
+cp target/release/dmxctl-cli "$OUT/dmxctl-cli"
+FILES="dmxctl dmxctl-cli dmxctl.desktop"
 if [ -z "${DMXCTL_NO_KMSDRM:-}" ]; then
   cargo build --release --features kmsdrm
   cp target/release/dmxctl "$OUT/dmxctl-kmsdrm"

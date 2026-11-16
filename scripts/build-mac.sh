@@ -25,6 +25,11 @@ lipo -create \
   target/x86_64-apple-darwin/release/dmxctl \
   -output "$APP/Contents/MacOS/dmxctl"
 cp scripts/mac/Info.plist "$APP/Contents/Info.plist"
+lipo -create \
+  target/aarch64-apple-darwin/release/dmxctl-cli \
+  target/x86_64-apple-darwin/release/dmxctl-cli \
+  -output "$OUT/dmxctl-cli"
+codesign --force --sign - "$OUT/dmxctl-cli"
 
 # FTDIのD2XXライブラリを同梱する(third_party/ftd2xx/mac/libftd2xx.dylib があれば)
 D2XX="third_party/ftd2xx/mac/libftd2xx.dylib"
@@ -38,5 +43,6 @@ fi
 codesign --force --deep --sign - "$APP"
 
 (cd "$OUT" && rm -f DMX-Controller-mac.zip && ditto -c -k --keepParent "$APP_NAME.app" DMX-Controller-mac.zip)
+(cd "$OUT" && zip -q DMX-Controller-mac.zip dmxctl-cli)
 echo "できました: $APP"
 echo "配布用: $OUT/DMX-Controller-mac.zip"

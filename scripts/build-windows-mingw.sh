@@ -12,6 +12,7 @@ CC_x86_64_pc_windows_gnu=x86_64-w64-mingw32-gcc CXX_x86_64_pc_windows_gnu=x86_64
   cargo build --release --target x86_64-pc-windows-gnu
 mkdir -p "$OUT"
 cp target/x86_64-pc-windows-gnu/release/dmxctl.exe "$OUT/dmxctl.exe"
-(cd "$OUT" && rm -f DMX-Controller-windows.zip && zip -q DMX-Controller-windows.zip dmxctl.exe)
+cp target/x86_64-pc-windows-gnu/release/dmxctl-cli.exe "$OUT/dmxctl-cli.exe"
+(cd "$OUT" && rm -f DMX-Controller-windows.zip && zip -q DMX-Controller-windows.zip dmxctl.exe dmxctl-cli.exe)
 echo "できました: $OUT/dmxctl.exe"
 echo "配布用: $OUT/DMX-Controller-windows.zip"
