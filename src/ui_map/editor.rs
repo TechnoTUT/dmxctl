@@ -59,7 +59,7 @@ pub(super) fn control_editor(ui: &mut egui::Ui, core: &mut Core, ctl: Ctl, page:
     if ui.button("＋ このコントロールに割り当てを追加").clicked() {
         // ページを使っているときは、パッドの新しい割り当ては表示中のページ専用にする
         let pg = (use_pages && matches!(ctl, Ctl::Pad(_))).then_some(page);
-        core.project.bindings.push(Binding {
+        core.project.bindings.push(Binding { id: 0,
             name: ctl.short_name(),
             trigger: Some(MidiTrigger { kind, channel: None, number: num }),
             action: default_action(matches!(ctl, Ctl::Fader(_))),

@@ -358,7 +358,7 @@ pub fn add_template(project: &mut crate::project::Project) -> (usize, usize) {
             return;
         }
         let (kind, number) = ctl.trigger();
-        project.bindings.push(Binding { name, trigger: Some(MidiTrigger { kind, channel: None, number }), action, page: None, osc: None });
+        project.bindings.push(Binding { id: 0, name, trigger: Some(MidiTrigger { kind, channel: None, number }), action, page: None, osc: None });
         added += 1;
     };
     let palette = [NamedColor::Red, NamedColor::Orange, NamedColor::Yellow, NamedColor::Green, NamedColor::Cyan, NamedColor::Blue, NamedColor::Violet, NamedColor::White];
@@ -389,7 +389,7 @@ pub fn add_palette_template(project: &mut crate::project::Project) -> (usize, us
             return;
         };
         let (kind, number) = ctl.trigger();
-        project.bindings.push(Binding { name, trigger: Some(MidiTrigger { kind, channel: None, number }), action, page: None, osc: None });
+        project.bindings.push(Binding { id: 0, name, trigger: Some(MidiTrigger { kind, channel: None, number }), action, page: None, osc: None });
         added += 1;
     };
     let colors = [NamedColor::Red, NamedColor::Orange, NamedColor::Yellow, NamedColor::Green, NamedColor::Cyan, NamedColor::Blue, NamedColor::Violet, NamedColor::White];

@@ -69,7 +69,7 @@ fn armed_state_is_not_persisted() {
 fn midi_learn_then_toggle_pad() {
     let mut c = core();
     c.project.bindings.clear(); // 初期の全体光量の割り当てを外し、先頭を試験対象にする
-    c.project.bindings.push(Binding {
+    c.project.bindings.push(Binding { id: 0,
         name: "dimmer toggle".into(),
         trigger: None,
         action: Action::SetValue { sel: Selector::Profile(SPOT.into()), attr: "dimmer".into(), mode: PadMode::Toggle, on: 255.0, off: 0.0 },
@@ -94,14 +94,14 @@ fn midi_learn_then_toggle_pad() {
 #[test]
 fn momentary_and_continuous() {
     let mut c = core();
-    c.project.bindings.push(Binding {
+    c.project.bindings.push(Binding { id: 0,
         name: "strobe flash".into(),
         trigger: Some(MidiTrigger { kind: TriggerKind::Note, channel: None, number: 37 }),
         action: Action::SetValue { sel: Selector::All, attr: "strobe".into(), mode: PadMode::Momentary, on: 200.0, off: 0.0 },
         page: None,
         osc: None,
     });
-    c.project.bindings.push(Binding {
+    c.project.bindings.push(Binding { id: 0,
         name: "pan fader".into(),
         trigger: Some(MidiTrigger { kind: TriggerKind::Cc, channel: Some(9), number: 1 }),
         action: Action::SetValue { sel: Selector::Fixture(1), attr: "pan".into(), mode: PadMode::Continuous, on: 255.0, off: 0.0 },
@@ -186,7 +186,7 @@ fn effect_oscillates_within_range_and_16bit_is_smooth() {
 fn effect_toggle_via_midi() {
     let mut c = core();
     c.project.effects.push(Effect::new("fx", "pan"));
-    c.project.bindings.push(Binding {
+    c.project.bindings.push(Binding { id: 0,
         name: "fx toggle".into(),
         trigger: Some(MidiTrigger { kind: TriggerKind::Note, channel: None, number: 40 }),
         action: Action::Effect { name: "fx".into(), mode: PadMode::Toggle },
@@ -204,7 +204,7 @@ fn effect_toggle_via_midi() {
 #[test]
 fn blackout_via_midi_momentary() {
     let mut c = core();
-    c.project.bindings.push(Binding {
+    c.project.bindings.push(Binding { id: 0,
         name: "bo".into(),
         trigger: Some(MidiTrigger { kind: TriggerKind::Note, channel: None, number: 44 }),
         action: Action::Blackout { mode: PadMode::Momentary },
@@ -228,7 +228,7 @@ fn map_state_tracks_pressed_notes_and_fader_values() {
     c.handle_midi(msg(TriggerKind::Cc, 0x30, 77));
     assert_eq!(c.rt.cc_value[0x30], Some(77));
     // MIDIラーン中でも状態は追跡する(図が止まらないように)
-    c.project.bindings.push(Binding { name: "x".into(), trigger: None, action: Action::Blackout { mode: PadMode::Toggle }, page: None, osc: None });
+    c.project.bindings.push(Binding { id: 0, name: "x".into(), trigger: None, action: Action::Blackout { mode: PadMode::Toggle }, page: None, osc: None });
     c.rt.learn = Some(0);
     c.handle_midi(msg(TriggerKind::Note, 0x39, 100));
     assert!(c.rt.notes_down[0x39]);

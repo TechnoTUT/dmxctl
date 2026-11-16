@@ -184,7 +184,7 @@ fn pixel_fx_toggle_by_effect_pad() {
     let mut c = core();
     add_bar(&mut c, 8);
     c.project.pixel_fx.push(PixelFx { name: "虹".into(), kind: PixelKind::Rainbow, ..PixelFx::default() });
-    c.project.bindings.push(Binding {
+    c.project.bindings.push(Binding { id: 0,
         name: "b".into(),
         trigger: Some(MidiTrigger { kind: TriggerKind::Note, channel: None, number: 3 }),
         action: Action::Effect { name: "虹".into(), mode: PadMode::Toggle },
@@ -327,14 +327,14 @@ fn pad_template_places_patterns_on_top_row() {
 fn pad_template_uses_the_next_free_pad() {
     let mut c = core();
     // 左上のパッドが使用中なら、そこを飛ばして詰めて置く(最上段の残り7個 + 2段目の左端)
-    c.project.bindings.push(Binding { name: "x".into(), trigger: Some(MidiTrigger { kind: TriggerKind::Note, channel: None, number: 0x38 }), action: Action::Blackout { mode: PadMode::Toggle }, page: None, osc: None });
+    c.project.bindings.push(Binding { id: 0, name: "x".into(), trigger: Some(MidiTrigger { kind: TriggerKind::Note, channel: None, number: 0x38 }), action: Action::Blackout { mode: PadMode::Toggle }, page: None, osc: None });
     assert_eq!(crate::pixel::add_pad_template(&mut c.project, None), (8, 0));
     let pad_of = |name: &str| c.project.bindings.iter().find(|b| matches!(&b.action, Action::Effect { name: n, .. } if n == name)).and_then(|b| b.trigger).map(|t| t.number);
     assert_eq!(pad_of("縞々"), Some(0x39));
     assert_eq!(pad_of("センター縞"), Some(0x30));
     // ページ専用: 別のページの割り当てとは重ならない扱い
     let mut d = core();
-    d.project.bindings.push(Binding { name: "y".into(), trigger: Some(MidiTrigger { kind: TriggerKind::Note, channel: None, number: 0x38 }), action: Action::Blackout { mode: PadMode::Toggle }, page: Some(0), osc: None });
+    d.project.bindings.push(Binding { id: 0, name: "y".into(), trigger: Some(MidiTrigger { kind: TriggerKind::Note, channel: None, number: 0x38 }), action: Action::Blackout { mode: PadMode::Toggle }, page: Some(0), osc: None });
     assert_eq!(crate::pixel::add_pad_template(&mut d.project, Some(1)), (8, 0));
     assert!(d.project.bindings.iter().any(|b| b.page == Some(1) && b.trigger.is_some_and(|t| t.number == 0x38)));
 }

@@ -18,7 +18,7 @@ fn core() -> Core {
 
 /// 割り当てを足して、その番号を返す
 fn bind(c: &mut Core, action: Action) -> usize {
-    c.project.bindings.push(Binding { name: "t".into(), trigger: None, action, page: None, osc: None });
+    c.project.bindings.push(Binding { id: 0, name: "t".into(), trigger: None, action, page: None, osc: None });
     c.project.bindings.len() - 1
 }
 

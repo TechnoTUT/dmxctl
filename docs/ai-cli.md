@@ -59,6 +59,28 @@ New-Item -ItemType Directory -Force runs
 
 `ctl watch` は既定100ms間隔で最終値を取得する監視機能です。`--interval-ms` で25〜10000msを指定できます。40Hzすべてのフレームを残す用途では `ctl record start` を使ってください。ログの `frame` は記録内のフレーム番号、`engine_frame` はアプリ本体のフレーム番号です。
 
+### ボタン・スライダーと入力の再現
+
+```powershell
+./target/debug/dmxctl-cli ctl button list
+./target/debug/dmxctl-cli ctl button click binding:42
+./target/debug/dmxctl-cli ctl button hold binding:42 --hold-ms 500
+./target/debug/dmxctl-cli ctl button press binding:42 --hold-ms 1000
+./target/debug/dmxctl-cli ctl button release binding:42
+./target/debug/dmxctl-cli ctl button set binding:1 --value 0.5
+./target/debug/dmxctl-cli ctl input midi --kind Note --channel 9 --number 40 --value 127
+./target/debug/dmxctl-cli ctl input key --json '{"number":16,"pressed":true}'
+./target/debug/dmxctl-cli ctl input osc --json '{"address":"/dmx/bpm","args":[128]}'
+```
+
+IDは `button list` から取得してください。例の42番が必ず存在するわけではありません。割り当てに保存するIDなので、並べ替えや他の割り当ての削除で変わりません。古い設定は読み込み時にIDを付与し、保存すると次回も引き継ぎます。IDのない割り当てを新規作成すると新しいIDが付きます。
+
+ボタンIDの直接操作はページに依存しません。MIDI・キー・OSCの再現は、現在のページや割り当てを含めてGUIと同じ処理を通します。MIDIのチャンネルは0〜15、番号と値は0〜127です。キーの番号はASCIIではなく既存のキー配置コードで、16はQです。
+
+`click` は既定50ms押してから解放、`press` / `hold` は既定1000ms、`--hold-ms` は1〜5000msです。`press` を繰り返すと期限を更新します。トグルやワンショットはGUI同様、解放しても設定した状態が残ります。スライダーの `set` は0〜1を指定し、値はそのまま維持します。ARMのボタンは一覧に `remote_allowed: false` と表示され、入力再現からも起動できません。入力再現はMIDI/OSCラーン中には受け付けません。
+
+期限切れの解放はGUIの更新ではなく、40Hzの出力スレッドで処理します。割り当てを削除・変更した場合も、押下時の動作を保持して解放します。
+
 ## 独立したシミュレーション
 
 以下の `simulate` / `run` は、常駐本体へ接続せず独立して実行します。元の設定ファイルは保存・変更しません。

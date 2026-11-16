@@ -10,6 +10,12 @@ const HELP: &str = r#"dmxctl-cli inspect --project FILE [--fixtures DIR]
 dmxctl-cli serve --project FILE [--listen 127.0.0.1:9190] [--output none|live] [--inputs none|configured] [--autosave]
 dmxctl-cli ctl [--connect 127.0.0.1:9190] status|inspect|stop
 dmxctl-cli ctl fixture list
+dmxctl-cli ctl button list
+dmxctl-cli ctl button click|press|release|hold binding:ID [--hold-ms N]
+dmxctl-cli ctl button set binding:ID --value 0.5
+dmxctl-cli ctl input midi --kind Note --channel 9 --number 40 --value 127
+dmxctl-cli ctl input key --json '{"number":16,"pressed":true}'
+dmxctl-cli ctl input osc --json '{"address":"/dmx/bpm","args":[128]}'
 dmxctl-cli ctl fixture set ID --attr pan --value 80
 dmxctl-cli ctl command --json '{"cmd":"motion","params":{"shape":"Circle"}}'
 dmxctl-cli ctl project save

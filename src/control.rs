@@ -163,6 +163,7 @@ impl Host {
                 })).collect::<Vec<_>>()))
             }
             "output" => snapshot(&engine::lock(&app.core), request),
+            "controls" => Ok(engine::lock(&app.core).controls()),
             "command" => {
                 let command = &request["command"];
                 let hold = if command["cmd"] == "flash" && command["on"] != false {
@@ -288,7 +289,7 @@ pub fn client(args: &[String]) -> anyhow::Result<()> {
     while i < args.len() {
         if args[i].starts_with("--") {
             let key = args[i].as_str();
-            ensure!(["--connect","--json","--file","--fixture","--attrs","--attr","--value","--duration","--interval-ms"].contains(&key), "unknown control option: {key}");
+            ensure!(["--connect","--json","--file","--fixture","--attrs","--attr","--value","--duration","--interval-ms","--hold-ms","--channel","--number","--kind"].contains(&key), "unknown control option: {key}");
             i += 1;
             let value = args.get(i).context("control option needs a value")?;
             ensure!(options.insert(key,value.as_str()).is_none(), "duplicate control option");
@@ -302,6 +303,31 @@ pub fn client(args: &[String]) -> anyhow::Result<()> {
         ["inspect"] => json!({"op":"inspect"}),
         ["stop"] => json!({"op":"stop"}),
         ["fixture","list"] => json!({"op":"fixtures"}),
+        ["button","list"] => json!({"op":"controls"}),
+        ["button",event,id] => {
+            ensure!(["click","press","release","hold","set"].contains(event),"unknown button event");
+            used.extend(["--hold-ms","--value"]);
+            let mut command=json!({"cmd":"button","control":id,"event":event});
+            if let Some(value)=options.get("--hold-ms") {command["hold_ms"]=json!(value.parse::<u64>()?);}
+            if let Some(value)=options.get("--value") {command["value"]=json!(value.parse::<f64>()?);}
+            json!({"op":"command","command":command})
+        }
+        ["input","midi"] => {
+            used.extend(["--kind","--channel","--number","--value","--hold-ms"]);
+            let mut command=json!({"cmd":"input","source":"midi","kind":options.get("--kind").context("--kind is required")?});
+            for (option,key) in [("--channel","channel"),("--number","number"),("--value","value")] {
+                command[key]=json!(options.get(option).with_context(||format!("{option} is required"))?.parse::<u64>()?);
+            }
+            if let Some(value)=options.get("--hold-ms") {command["hold_ms"]=json!(value.parse::<u64>()?);}
+            json!({"op":"command","command":command})
+        }
+        ["input",source] if *source=="key" || *source=="osc" => {
+            used.push("--json");
+            let mut command:Value=serde_json::from_str(options.get("--json").context("--json is required")?)?;
+            ensure!(command.is_object(),"input JSON must be an object");
+            command["cmd"]=json!("input"); command["source"]=json!(source);
+            json!({"op":"command","command":command})
+        }
         ["fixture","set",id] => {
             used.extend(["--attr","--value"]);
             let fixture: u32 = id.parse()?;

@@ -191,7 +191,7 @@ pub fn apply(p: &mut Project, lib: &Library) -> Report {
     // page: None=全ページ共通 / Some(0)=1ページ目(演出) / Some(1)=2ページ目(設定)
     let mut put = |p: &mut Project, page: Option<u8>, ctl: Ctl, name: String, action: Action| {
         let (kind, number) = ctl.trigger();
-        p.bindings.push(Binding { name, trigger: Some(MidiTrigger { kind, channel: None, number }), action, page, osc: None });
+        p.bindings.push(Binding { id: 0, name, trigger: Some(MidiTrigger { kind, channel: None, number }), action, page, osc: None });
         r.bindings += 1;
     };
 
@@ -382,7 +382,7 @@ pub fn apply_keys(p: &mut Project, lib: &Library) -> usize {
     p.bindings.retain(|b| !b.trigger.is_some_and(|t| t.kind == TriggerKind::Key));
     let mut n = 0;
     let mut put = |p: &mut Project, row: usize, col: usize, page: Option<u8>, name: String, action: Action| {
-        p.bindings.push(Binding { name, trigger: Some(MidiTrigger { kind: TriggerKind::Key, channel: None, number: keys::code(row, col) }), action, page, osc: None });
+        p.bindings.push(Binding { id: 0, name, trigger: Some(MidiTrigger { kind: TriggerKind::Key, channel: None, number: keys::code(row, col) }), action, page, osc: None });
         n += 1;
     };
     let mode = |f: &FixtureInstance| lib.mode(&f.profile, f.mode);

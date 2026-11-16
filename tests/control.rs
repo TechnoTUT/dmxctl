@@ -140,6 +140,23 @@ fn non_local_addresses_are_rejected() {
 }
 
 #[test]
+fn button_and_input_clients_use_persistent_controls() {
+    let mut host=Running::start();
+    let output=host.cli(&["button","list"]);assert!(output.status.success());
+    let controls:Value=serde_json::from_slice(&output.stdout).unwrap();
+    let master=controls.as_array().unwrap().iter().find(|v|v["kind"]=="slider").unwrap();
+    let id=master["id"].as_str().unwrap();
+    assert!(host.cli(&["button","set",id,"--value","0.3"]).status.success());
+    assert!((host.request(json!({"op":"status"}))["master"].as_f64().unwrap()-0.3).abs()<0.001);
+    for value in ["100","20"] {
+        let output=host.cli(&["input","midi","--kind","Cc","--channel","0","--number","56","--value",value]);
+        assert!(output.status.success(),"{}",String::from_utf8_lossy(&output.stderr));
+    }
+    assert!((host.request(json!({"op":"status"}))["master"].as_f64().unwrap()-20.0/127.0).abs()<0.001);
+    host.stop();
+}
+
+#[test]
 fn disabled_output_keeps_rendering_without_sending_artnet() {
     let receiver=std::net::UdpSocket::bind("127.0.0.1:6454").unwrap();
     receiver.set_read_timeout(Some(Duration::from_millis(200))).unwrap();

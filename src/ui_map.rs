@@ -48,7 +48,7 @@ fn add_page_template(p: &mut Project) -> (usize, usize) {
             continue;
         }
         let (kind, number) = ctl.trigger();
-        p.bindings.push(Binding {
+        p.bindings.push(Binding { id: 0,
             name: format!("ページ{}", i + 1),
             trigger: Some(MidiTrigger { kind, channel: None, number }),
             action: Action::Page { op: PageOp::Go(i) },
@@ -222,6 +222,7 @@ impl App {
         }
         changed |= self.apply_menu(core, &menu, page, use_pages);
         if let Some(i) = editor.remove {
+            core.release_remote_controls();
             core.project.bindings.remove(i);
             core.rt.pad_state.clear();
             core.rt.toggle_state.clear();
@@ -275,6 +276,7 @@ impl App {
         self.save();
         let backup = backup_to(&self.project_path, &backup_dir(), BACKUP_KEEP);
         let mut c = lock(&self.core);
+        c.release_remote_controls();
         let lib = c.lib.clone();
         let r = crate::layout::apply(&mut c.project, &lib);
         c.rt.pad_state.clear();

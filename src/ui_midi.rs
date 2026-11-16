@@ -26,7 +26,7 @@ impl App {
 
         ui.horizontal(|ui| {
             if ui.button("＋ 割り当てを追加").clicked() {
-                core.project.bindings.push(Binding {
+                core.project.bindings.push(Binding { id: 0,
                     name: format!("割り当て{}", core.project.bindings.len() + 1),
                     trigger: None,
                     action: default_action(false),
@@ -49,6 +49,7 @@ impl App {
         });
 
         if let Some(i) = remove {
+            core.release_remote_controls();
             core.project.bindings.remove(i);
             core.rt.pad_state.clear();
             core.rt.toggle_state.clear();

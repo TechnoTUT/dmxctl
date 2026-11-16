@@ -80,7 +80,7 @@ fn flash_goes_full_without_touching_base_values() {
     // バーは暗めの青
     c.set_attr(&Selector::Fixture(bar), "blue", 100.0);
     c.rt.master = 0.4;
-    c.project.bindings.push(Binding {
+    c.project.bindings.push(Binding { id: 0,
         name: "f".into(),
         trigger: Some(MidiTrigger { kind: TriggerKind::Note, channel: None, number: 7 }),
         action: Action::Flash { white: false, mode: PadMode::Momentary },
@@ -130,7 +130,7 @@ fn white_flash_and_blackout_priority() {
 #[test]
 fn flash_toggle_and_osc() {
     let mut c = core();
-    c.project.bindings.push(Binding {
+    c.project.bindings.push(Binding { id: 0,
         name: "f".into(),
         trigger: Some(MidiTrigger { kind: TriggerKind::Note, channel: None, number: 7 }),
         action: Action::Flash { white: true, mode: PadMode::Toggle },
@@ -196,7 +196,7 @@ fn color_pads_light_in_their_actual_color() {
     use crate::led::{compute, Led};
     let mut c = core();
     c.project.led_idle = 1; // 待機中 25%
-    let bind = |c: &mut Core, n: u8, action: Action| c.project.bindings.push(Binding { name: "b".into(), trigger: Some(MidiTrigger { kind: TriggerKind::Note, channel: None, number: n }), action, page: None, osc: None });
+    let bind = |c: &mut Core, n: u8, action: Action| c.project.bindings.push(Binding { id: 0, name: "b".into(), trigger: Some(MidiTrigger { kind: TriggerKind::Note, channel: None, number: n }), action, page: None, osc: None });
     bind(&mut c, 0, Action::Color { color: Some(NamedColor::Orange), target: ColorTarget::Scope });
     bind(&mut c, 1, Action::Color { color: Some(NamedColor::Pink), target: ColorTarget::Sub });
     bind(&mut c, 2, Action::Select { fixture: SPOT, op: SelectOp::Only });
@@ -274,7 +274,7 @@ fn fade_to_black_and_back() {
 fn fade_pad_modes_and_osc() {
     let mut c = core();
     let press = |c: &mut Core, v: u8| c.handle_midi(MidiMsg { kind: TriggerKind::Note, channel: 0, number: 9, value: v });
-    c.project.bindings.push(Binding { name: "d".into(), trigger: Some(MidiTrigger { kind: TriggerKind::Note, channel: None, number: 9 }), action: Action::Fade { secs: 4.0, mode: PadMode::Toggle }, page: None, osc: None });
+    c.project.bindings.push(Binding { id: 0, name: "d".into(), trigger: Some(MidiTrigger { kind: TriggerKind::Note, channel: None, number: 9 }), action: Action::Fade { secs: 4.0, mode: PadMode::Toggle }, page: None, osc: None });
     press(&mut c, 127);
     press(&mut c, 0);
     assert_eq!((c.rt.dim_target, c.rt.dim_secs), (0.0, 4.0));

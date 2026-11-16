@@ -365,6 +365,7 @@ impl App {
     pub(crate) fn save_checked(&mut self) -> anyhow::Result<()> {
         let project = {
             let mut c = lock(&self.core);
+            c.project.ensure_binding_ids();
             c.dirty = false;
             c.project.clone()
         };
@@ -383,7 +384,9 @@ impl App {
         match Project::load(&path) {
             Ok(p) => {
                 let mut c = lock(&self.core);
+                c.release_remote_controls();
                 c.project = p;
+                c.project.ensure_binding_ids();
                 c.rt.fades.clear();
                 c.rt.pad_state.clear();
                 c.rt.toggle_state.clear();

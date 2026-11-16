@@ -25,7 +25,7 @@ fn cc(n: u8, v: u8) -> MidiMsg {
 }
 
 fn bind(c: &mut Core, kind: TriggerKind, num: u8, page: Option<u8>, action: Action) {
-    c.project.bindings.push(Binding { name: "b".into(), trigger: Some(MidiTrigger { kind, channel: None, number: num }), action, page, osc: None });
+    c.project.bindings.push(Binding { id: 0, name: "b".into(), trigger: Some(MidiTrigger { kind, channel: None, number: num }), action, page, osc: None });
 }
 
 fn dimmer(c: &Core) -> f32 {
@@ -326,7 +326,7 @@ fn osc_builtin_addresses() {
 #[test]
 fn osc_triggers_bindings_and_learns_addresses() {
     let mut c = core();
-    c.project.bindings.push(Binding {
+    c.project.bindings.push(Binding { id: 0,
         name: "t".into(),
         trigger: None,
         action: Action::SetValue { sel: Selector::Fixture(SPOT), attr: "dimmer".into(), mode: PadMode::Toggle, on: 255.0, off: 0.0 },
@@ -348,7 +348,7 @@ fn osc_triggers_bindings_and_learns_addresses() {
     assert_eq!(dimmer(&c), 0.0);
 
     // 連続値(0〜1)はMIDIより細かく届く
-    c.project.bindings.push(Binding { name: "m".into(), trigger: None, action: Action::Master { mode: PadMode::Continuous, on: 100.0, off: 0.0 }, page: None, osc: Some("/td/master".into()) });
+    c.project.bindings.push(Binding { id: 0, name: "m".into(), trigger: None, action: Action::Master { mode: PadMode::Continuous, on: 100.0, off: 0.0 }, page: None, osc: Some("/td/master".into()) });
     c.handle_osc(&msg("/td/master", vec![Arg::Float(0.333)]));
     assert!((c.rt.master - 0.333).abs() < 1e-4);
 }
@@ -425,7 +425,7 @@ fn osc_phrase_runs_bindings_or_recalls_a_scene_of_the_same_name() {
     assert_eq!(c.rt.last_scene.as_deref(), Some("サビ"));
     assert_eq!(c.rt.phrase, "Chorus");
     // /dmx/phrase/<名前> に割り当てた動作があれば、それを実行する(アドレスに名前を入れて送ってきても同じ)
-    c.project.bindings.push(Binding {
+    c.project.bindings.push(Binding { id: 0,
         name: "intro".into(),
         trigger: None,
         action: Action::SetValue { sel: Selector::Fixture(SPOT), attr: "dimmer".into(), mode: PadMode::Toggle, on: 255.0, off: 0.0 },

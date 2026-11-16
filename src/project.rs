@@ -504,6 +504,9 @@ impl Action {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Binding {
+    /// Persistent identity for CLI controls; zero is assigned on first use/load.
+    #[serde(default)]
+    pub id: u64,
     pub name: String,
     pub trigger: Option<MidiTrigger>,
     pub action: Action,
@@ -694,6 +697,7 @@ impl Default for AutoCfg {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Project {
+    pub next_binding_id: u64,
     pub fixtures: Vec<FixtureInstance>,
     pub groups: Vec<Group>,
     pub effects: Vec<Effect>,
@@ -750,6 +754,7 @@ pub struct Project {
 impl Default for Project {
     fn default() -> Self {
         Project {
+            next_binding_id: 1,
             fixtures: Vec::new(),
             groups: Vec::new(),
             effects: Vec::new(),
@@ -787,6 +792,23 @@ impl Default for Project {
 }
 
 impl Project {
+    pub fn ensure_binding_ids(&mut self) {
+        use std::collections::HashSet;
+        let mut used = HashSet::new();
+        let highest = self.bindings.iter().map(|b| b.id).filter(|&id| id < u64::MAX).max().unwrap_or(0);
+        self.next_binding_id = self.next_binding_id.max(highest + 1).max(1);
+        for binding in &mut self.bindings {
+            if binding.id == 0 || binding.id == u64::MAX || !used.insert(binding.id) {
+                while used.contains(&self.next_binding_id) || self.next_binding_id == u64::MAX {
+                    self.next_binding_id = self.next_binding_id.wrapping_add(1).max(1);
+                }
+                binding.id = self.next_binding_id;
+                used.insert(binding.id);
+                self.next_binding_id = self.next_binding_id.wrapping_add(1).max(1);
+            }
+        }
+    }
+
     pub fn load(path: &Path) -> anyhow::Result<Project> {
         Ok(Project::load_lenient(path)?.0)
     }
@@ -854,7 +876,7 @@ impl Project {
 
     /// 全体光量の初期割り当て: 右端のフェーダー(APC mini mk2 のマスターフェーダー = CC 0x38)
     pub fn default_master_binding() -> Binding {
-        Binding {
+        Binding { id: 0,
             name: "全体光量".into(),
             trigger: Some(MidiTrigger { kind: TriggerKind::Cc, channel: None, number: 0x38 }),
             action: Action::Master { mode: PadMode::Continuous, on: 100.0, off: 0.0 },
@@ -1067,8 +1089,8 @@ mod tests {
     fn newer_files_load_by_skipping_what_this_version_does_not_know() {
         // 新しい版で保存したファイル: 知らない動きの形と、知らない種類の割り当てがある
         let mut p = Project { bpm: 133.0, ..Project::default() };
-        p.bindings.push(Binding { name: "ok".into(), trigger: None, action: Action::Blackout { mode: PadMode::Toggle }, page: None, osc: None });
-        p.bindings.push(Binding { name: "new".into(), trigger: None, action: Action::Blackout { mode: PadMode::Toggle }, page: None, osc: None });
+        p.bindings.push(Binding { id: 0, name: "ok".into(), trigger: None, action: Action::Blackout { mode: PadMode::Toggle }, page: None, osc: None });
+        p.bindings.push(Binding { id: 0, name: "new".into(), trigger: None, action: Action::Blackout { mode: PadMode::Toggle }, page: None, osc: None });
         let mut v = serde_json::to_value(&p).unwrap();
         v["motion"]["shape"] = "Hyperspace".into();
         v["bindings"][1]["action"] = serde_json::json!({"Teleport": {"to": 3}});
@@ -1089,7 +1111,7 @@ mod tests {
     fn project_roundtrip() {
         let mut p = Project::default();
         p.effects.push(Effect::new("test", "pan"));
-        p.bindings.push(Binding {
+        p.bindings.push(Binding { id: 0,
             name: "pad".into(),
             trigger: Some(MidiTrigger { kind: TriggerKind::Note, channel: Some(9), number: 36 }),
             action: Action::SetValue { sel: Selector::Profile("x".into()), attr: "dimmer".into(), mode: PadMode::Toggle, on: 255.0, off: 0.0 },

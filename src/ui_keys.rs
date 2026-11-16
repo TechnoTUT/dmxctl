@@ -111,7 +111,7 @@ impl crate::app::App {
                 let mut active = false;
                 let (fill, text) = match b {
                     // 色を選ぶキーは、その色で塗る(選んでいる色は白い枠)
-                    Some(Binding { action: Action::Color { color: Some(nc), .. }, .. }) => {
+                    Some(Binding { id: 0, action: Action::Color { color: Some(nc), .. }, .. }) => {
                         let [cr, cg, cb] = nc.rgb().map(|v| (v.clamp(0.0, 1.0) * 255.0) as u8);
                         let col = Color32::from_rgb(cr, cg, cb);
                         active = crate::led::is_active(core, &b.unwrap().action);

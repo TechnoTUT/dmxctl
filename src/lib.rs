@@ -69,3 +69,4 @@ pub mod ui_show;
 pub mod cli;
 mod commands;
 pub mod control;
+pub mod controls;

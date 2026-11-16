@@ -181,7 +181,7 @@ fn midi_can_switch_link_and_mirror() {
     let mut c = two_spots();
     c.project.bindings.clear();
     for (n, op, mode) in [(1, PairOp::Mirror, PadMode::Toggle), (2, PairOp::Link, PadMode::Momentary)] {
-        c.project.bindings.push(Binding {
+        c.project.bindings.push(Binding { id: 0,
             name: "b".into(),
             trigger: Some(MidiTrigger { kind: TriggerKind::Note, channel: None, number: n }),
             action: Action::Pair { name: "LR".into(), op, mode },

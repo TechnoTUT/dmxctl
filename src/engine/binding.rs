@@ -207,8 +207,12 @@ impl Core {
 
     /// 割り当てを実行する。`v`=入力値(0.0〜1.0。フェーダー/ノブ用)、`pressed`=押されているか(ボタン用)
     pub fn apply_binding(&mut self, idx: usize, v: f32, pressed: bool) {
-        use crate::pixel::PixelParam;
         let Some(action) = self.project.bindings.get(idx).map(|b| b.action.clone()) else { return };
+        self.apply_action(idx, action, v, pressed);
+    }
+
+    pub(crate) fn apply_action(&mut self, idx: usize, action: Action, v: f32, pressed: bool) {
+        use crate::pixel::PixelParam;
         let v = v.clamp(0.0, 1.0);
         let was = self.rt.pad_state.insert(idx, pressed).unwrap_or(false);
         let edge = Edge { pressed, was };

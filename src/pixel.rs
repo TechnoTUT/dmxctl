@@ -539,7 +539,7 @@ pub fn add_pad_template(p: &mut crate::project::Project, page: Option<u8>) -> (u
             continue;
         };
         let (kind, number) = ctl.trigger();
-        p.bindings.push(Binding {
+        p.bindings.push(Binding { id: 0,
             name: format!("模様:{name}"),
             trigger: Some(MidiTrigger { kind, channel: None, number }),
             action: Action::Effect { name: (*name).into(), mode: PadMode::Toggle },

@@ -53,6 +53,7 @@ pub struct MidiMsg {
 }
 
 pub struct Runtime {
+    pub remote_holds: HashMap<u64, crate::controls::Hold>,
     pub frame_id: u64,
     /// Deadline for remote momentary controls; enforced by the output thread.
     pub flash_deadline: Option<Instant>,
@@ -212,6 +213,7 @@ impl Runtime {
             output_status: Vec::new(),
             output_gen: 0,
             frame_id: 0,
+            remote_holds: HashMap::new(),
             flash_deadline: None,
             virtual_now: None,
             recorder: None,
@@ -282,7 +284,8 @@ impl Core {
         self.rt.virtual_now.unwrap_or_else(Instant::now)
     }
 
-    pub fn new(project: Project, lib: Arc<Library>) -> Self {
+    pub fn new(mut project: Project, lib: Arc<Library>) -> Self {
+        project.ensure_binding_ids();
         let mut rt = Runtime::new();
         // 個別モードの初期の選択は、先頭の機材
         if let Some(f) = project.fixtures.first() {
@@ -414,6 +417,7 @@ impl Core {
     pub fn render(&mut self) {
         let now = self.now();
         self.rt.safety_events.clear();
+        self.expire_remote_controls(now);
         if self.rt.flash_deadline.is_some_and(|deadline|now >= deadline) {
             self.rt.flash = None;
             self.rt.flash_deadline = None;

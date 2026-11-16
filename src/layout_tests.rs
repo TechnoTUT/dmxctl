@@ -81,7 +81,7 @@ fn press(c: &mut Core, ctl: Ctl) {
 
 /// 割り当てを1回だけ実行する(フェーダーの値 v=0〜1)
 fn run(c: &mut Core, action: Action, v: f32) {
-    c.project.bindings.push(Binding { name: "t".into(), trigger: None, action, page: None, osc: None });
+    c.project.bindings.push(Binding { id: 0, name: "t".into(), trigger: None, action, page: None, osc: None });
     let i = c.project.bindings.len() - 1;
     c.apply_binding(i, v, false);
     c.project.bindings.pop();
@@ -183,8 +183,8 @@ fn recommended_layout_fills_the_controller_without_conflicts() {
 fn applying_twice_keeps_one_copy_and_other_devices() {
     let mut c = rig();
     // 他のMIDI機器(ch10)とOSCだけの割り当ては残す
-    c.project.bindings.push(Binding { name: "外部".into(), trigger: Some(MidiTrigger { kind: TriggerKind::Note, channel: Some(9), number: 60 }), action: Action::Tempo { op: TempoOp::Tap }, page: None, osc: None });
-    c.project.bindings.push(Binding { name: "OSC".into(), trigger: None, action: Action::Tempo { op: TempoOp::Tap }, page: None, osc: Some("/tap".into()) });
+    c.project.bindings.push(Binding { id: 0, name: "外部".into(), trigger: Some(MidiTrigger { kind: TriggerKind::Note, channel: Some(9), number: 60 }), action: Action::Tempo { op: TempoOp::Tap }, page: None, osc: None });
+    c.project.bindings.push(Binding { id: 0, name: "OSC".into(), trigger: None, action: Action::Tempo { op: TempoOp::Tap }, page: None, osc: Some("/tap".into()) });
     let lib = c.lib.clone();
     let first = crate::layout::apply(&mut c.project, &lib);
     let (n, fx, px) = (c.project.bindings.len(), c.project.effects.len(), c.project.pixel_fx.len());
