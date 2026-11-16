@@ -72,7 +72,7 @@ cargo test --release --features kmsdrm   # Linux: KMSDRMの部分(キーの変�
 | `src/project.rs` | 保存する設定(`project.json`)と割り当ての種類(`Action`) |
 | `src/layout.rs` | おすすめのMIDI配置(APC mini mk2) |
 | `src/pixel.rs` | LEDバーの模様(面向けプリセット4セット) |
-| `src/ndi.rs` | NDI受信(映像の平均色・音の色) |
+| `src/ndi.rs` | NDI受信(映像の平均色・音の色)。NDIの読み込み・呼び出しは moip-engine の `ndi` クレート(Cargo.toml の `moip-ndi`、git の rev で固定) |
 | `src/web.rs` / `src/web/panel.html` | ブラウザの操作パネル(std の TCP で最小限の HTTP。`GET /` でページ、`GET /api/state` で様子、`POST /api/cmd` で操作。合言葉は `X-Pin` ヘッダー) |
 | `src/ui_map.rs` | MIDI画面(メイン画面)。`src/ui_map/` に図の描画(`pad.rs`)と右のパネル(`stage.rs` / `settings.rs`) |
 | `src/ui_laser.rs` | レーザータブ(位置・大きさ・動いてよい範囲をマウスで合わせる) |
@@ -114,7 +114,7 @@ DMXCTL_SHEET_DIR=保存先 cargo test --release preset_sheet -- --ignored       
 ## はまりどころ
 
 - **USB-DMXが開けない(Resource busy)**: QLC+ など別の照明ソフトが使っていないか確認する
-- **NDIのライブラリは同梱しない**(配布条件のため)。インストール済みの NDI Tools(Linux は NDI SDK)のものを読み込む
+- **NDIのライブラリは同梱しない**(配布条件のため)。インストール済みの NDI Tools(Linux は NDI SDK)のものを読み込む。探す場所: `DMXCTL_NDI_LIB` → (macOS)NDI Tools のアプリの中 → `NDI_RUNTIME_DIR_V6`/`V5` → 各OSの標準の場所(後ろ2つは moip-engine の `ndi` クレート)
 - **D2XX**: Mac版は `third_party/ftd2xx/mac/libftd2xx.dylib` をアプリに同梱。Windowsは FTDIドライバの `ftd2xx.dll`
 - **レーザーの安全処理**(`engine.rs` の `guard_values` / `emergency_stop`): 機材定義の `forbid`(オートショー・サウンド・パン/チルトの自動の動き)と、機材ごとの `limits`(動いてよい範囲)は、出力の直前に必ず直す。内蔵の定義を上書きしても `forbid` は引き継ぐ。落ちたとき・終了のシグナル・シャットダウン(Windowsは見えないウィンドウで `WM_ENDSESSION` を受ける。`watch_windows_shutdown`)・Mac/Linuxで画面を通らずに exit() したとき(`atexit`)では、安全なフレーム(レーザーOFF・明るさ0)を約0.3秒送ってから終わる
 - **KMSDRM**: 画面が出ない(「画面を開けませんでした」)ときは、`video` グループに入っているか、デスクトップ環境など他のアプリが画面を使っていないかを確認。キー・マウスが効かないときは `input` グループ。`DMXCTL_SHOT` での画面の撮影は KMSDRM でも使える(SSHから確かめるのに便利)

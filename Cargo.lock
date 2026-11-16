@@ -553,6 +553,7 @@ dependencies = [
  "libc",
  "libloading 0.9.0",
  "midir",
+ "ndi",
  "rfd",
  "sdl2",
  "serde",
@@ -1496,6 +1497,14 @@ dependencies = [
  "indexmap",
  "rustc-hash 1.1.0",
  "thiserror 2.0.20",
+]
+
+[[package]]
+name = "ndi"
+version = "0.1.0"
+source = "git+https://github.com/TechnoTUT/moip-engine?rev=8cb6110105162db182e7fc7561ad9de584d58918#8cb6110105162db182e7fc7561ad9de584d58918"
+dependencies = [
+ "libloading 0.9.0",
 ]
 
 [[package]]
