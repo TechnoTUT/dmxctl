@@ -1,6 +1,6 @@
 # dmxctl
 
-## 導入方法(Rust は不要)
+## 導入方法
 
 使うだけなら、ビルドは要りません。**[Releases](https://github.com/TechnoTUT/dmxctl/releases/latest)** から、使うPCに合ったファイルを落とします。
 
