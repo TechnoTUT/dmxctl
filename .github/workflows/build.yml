@@ -122,7 +122,8 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+      # このジョブはリポジトリを取ってこない(checkoutしない)ので、--repo でリポジトリを明示する
       - name: Releaseを作って成果物を添付
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes dist/DMX-Controller-mac.zip dist/DMX-Controller-windows.zip dist/DMX-Controller-linux.tar.gz
+        run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$GITHUB_REF_NAME" --generate-notes dist/DMX-Controller-mac.zip dist/DMX-Controller-windows.zip dist/DMX-Controller-linux.tar.gz
