@@ -59,7 +59,7 @@ pub struct NdiState {
 
 // ---------------------------------------------------------------- NDIのライブラリ(読み込みと呼び出しは moip-engine の ndi クレート)
 
-use moip_ndi::{Bandwidth, Capture, ColorFormat, FOURCC_BGRA, FOURCC_BGRX, FOURCC_RGBA, FOURCC_RGBX, FOURCC_UYVA, FOURCC_UYVY, RecvOptions};
+use moip_ndi::{Bandwidth, Capture, ColorFormat, ErrorKind, FOURCC_BGRA, FOURCC_BGRX, FOURCC_RGBA, FOURCC_RGBX, FOURCC_UYVA, FOURCC_UYVY, RecvOptions};
 
 /// ndiクレートが探す場所(NDIランタイムの環境変数・標準の場所)より先に探す場所:
 /// 直接の指定(`DMXCTL_NDI_LIB`)と、macOSでNDI Toolsのアプリに入っているもの
@@ -247,8 +247,8 @@ fn set_state(core: &Shared, f: impl FnOnce(&mut NdiState)) {
 fn run(core: Shared, ctx: Option<eframe::egui::Context>, stop: Arc<AtomicBool>) {
     if let Err(e) = moip_ndi::init_with_paths(&extra_lib_paths()) {
         eprintln!("NDI: {e}");
-        let msg = e.to_string();
-        set_state(&core, |s| s.status = load_error_status(&msg));
+        let msg = load_error_status(e.kind(), e.detail(), &e.to_string());
+        set_state(&core, |s| s.status = msg);
         return;
     }
     // 同じPCのソース(TouchDesignerなど)は、マルチキャストの探索が使えないときでも見つかるよう、自分宛ても直接たずねる
@@ -383,12 +383,16 @@ fn run(core: Shared, ctx: Option<eframe::egui::Context>, stop: Arc<AtomicBool>) 
     });
 }
 
-/// 読み込めなかったときに画面に出す文。ndiクレートのエラーは、試した場所ごとに1行ずつ理由が並ぶ。
-/// ライブラリはあったのに使えなかった(関数が足りない・初期化できない)ときはその行を、そうでなければ「見つからない」を出す
-fn load_error_status(msg: &str) -> String {
-    match msg.lines().map(str::trim).find(|l| l.contains("missing NDI symbol") || l.contains("NDIlib_initialize failed")) {
-        Some(line) => format!("NDIのライブラリを使えません: {line}"),
-        None => "NDIのライブラリが見つかりません(NDI Tools をインストールしてください)".into(),
+/// 読み込めなかったときに画面に出す文。ndiクレートが返すエラーの種類で分ける(エラー文の言い回しには頼らない)。
+/// ライブラリはあったのに使えなかった(関数が足りない・初期化できない)ときはその理由を、見つからなかったときはインストールの案内を出す
+fn load_error_status(kind: ErrorKind, detail: Option<&str>, msg: &str) -> String {
+    let first_line = || msg.lines().next().unwrap_or_default();
+    match kind {
+        ErrorKind::RuntimeNotFound => "NDIのライブラリが見つかりません(NDI Tools をインストールしてください)".into(),
+        ErrorKind::RuntimeMissingSymbol | ErrorKind::RuntimeInitFailed => {
+            format!("NDIのライブラリを使えません: {}", detail.unwrap_or_else(first_line))
+        }
+        _ => format!("NDIのライブラリを読み込めませんでした: {}", first_line()),
     }
 }
 
@@ -459,10 +463,14 @@ mod tests {
 
     #[test]
     fn load_error_says_not_found_unless_the_library_was_broken() {
-        let not_found = "NDI runtime (libndi.so.6) could not be loaded. Install the NDI runtime or set NDI_RUNTIME_DIR_V6.\n  /usr/local/lib/libndi.so.6: not found\n  libndi.so.6: libndi.so.6: cannot open shared object file";
-        assert!(load_error_status(not_found).contains("見つかりません"));
-        let broken = "NDI runtime (libndi.so.6) could not be loaded. Install the NDI runtime or set NDI_RUNTIME_DIR_V6.\n  /usr/local/lib/libndi.so.6: not found\n  /opt/x/libndi.so.6: missing NDI symbol: NDIlib_recv_capture_v3";
-        assert_eq!(load_error_status(broken), "NDIのライブラリを使えません: /opt/x/libndi.so.6: missing NDI symbol: NDIlib_recv_capture_v3");
+        let msg = "NDI runtime (libndi.so.6) could not be loaded.\n  /usr/local/lib/libndi.so.6: not found";
+        assert!(load_error_status(ErrorKind::RuntimeNotFound, None, msg).contains("見つかりません"));
+        let line = "/opt/x/libndi.so.6: missing NDI symbol: NDIlib_recv_capture_v3";
+        assert_eq!(load_error_status(ErrorKind::RuntimeMissingSymbol, Some(line), msg), format!("NDIのライブラリを使えません: {line}"));
+        let line = "/opt/x/libndi.so.6: NDIlib_initialize failed (unsupported CPU?)";
+        assert_eq!(load_error_status(ErrorKind::RuntimeInitFailed, Some(line), msg), format!("NDIのライブラリを使えません: {line}"));
+        // 種類が分からないときは、エラー文の1行目を出す
+        assert_eq!(load_error_status(ErrorKind::Other, None, "boom\n  more"), "NDIのライブラリを読み込めませんでした: boom");
     }
 }
 
