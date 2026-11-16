@@ -12,6 +12,8 @@
 # できるもの: dist/linux/dmxctl・dmxctl-kmsdrm と dist/linux/DMX-Controller-linux.tar.gz
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# NDIのクレート(サブモジュール moip-engine/)が無ければ取ってくる(--recursive を付けずに clone したとき)
+[ -f moip-engine/ndi/Cargo.toml ] || git submodule update --init moip-engine
 OUT="dist/linux"
 mkdir -p "$OUT"
 rm -f "$OUT/dmxctl-kmsdrm"

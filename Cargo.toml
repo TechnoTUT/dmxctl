@@ -8,6 +8,8 @@ anyhow = "1.0.104"
 cpal = "0.18.2"
 eframe = { version = "0.36.2", default-features = false, features = ["glow", "default_fonts", "wayland", "x11"] }
 libloading = "0.9.0"
+# NDI受信(moip-engine の ndi クレート。サブモジュール moip-engine/。libndi は実行時に読み込む)
+moip-ndi = { package = "ndi", path = "moip-engine/ndi" }
 midir = "0.11.0"
 rfd = "0.17.2"
 serde = { version = "1.0.229", features = ["derive"] }

@@ -696,6 +696,8 @@ cargo run --release
 
 ビルドには Rust と、Visual Studio Build Tools の「C++ によるデスクトップ開発」が必要です(Ableton Link のC++をいっしょにビルドするため)。
 
+ソースは `git clone --recursive https://github.com/TechnoTUT/dmxctl` で取ってきます(NDIの部分 `moip-engine/` はサブモジュールなので `--recursive` が要ります。付け忘れたら `git submodule update --init`)。
+
 `target\release\dmxctl.exe` 単体で動きます(約8MB)。設定は `%APPDATA%\dmxctl\project.json` に自動保存されます。
 
 ## Mac で使う
@@ -706,7 +708,7 @@ cargo run --release
 
 1. Rust を入れる: https://rustup.rs の手順(ターミナルで1行)
 2. Xcode のコマンドラインツールを入れる: `xcode-select --install`
-3. このフォルダをMacにコピーして、ターミナルで `./scripts/build-mac.sh`
+3. このフォルダ(`moip-engine/` も含めて)をMacにコピーするか、`git clone --recursive https://github.com/TechnoTUT/dmxctl` で取ってきて、ターミナルで `./scripts/build-mac.sh`
 4. `dist/mac/DMX Controller.app` ができます(配布用の zip も同じ場所)
 
 **MacからWindows版を作る**: MinGW-w64 を入れて(`brew install mingw-w64`)、`bash ./scripts/build-windows-mingw.sh`。`dist/windows/dmxctl.exe`(単体で動く。追加のDLLは不要)と配布用のzipができます。
@@ -732,8 +734,9 @@ Linux(X11 / Wayland のどちらでも)で動きます。**デスクトップ環
    - Ubuntu / Debian: `sudo apt install build-essential pkg-config libasound2-dev libudev-dev libsdl2-dev`
    - Fedora: `sudo dnf install gcc-c++ pkgconf alsa-lib-devel systemd-devel libatomic SDL2-devel`
    - Arch: `sudo pacman -S base-devel alsa-lib sdl2`
-3. `./scripts/build-linux.sh`
-4. `dist/linux/dmxctl`(デスクトップ環境用)と `dist/linux/dmxctl-kmsdrm`(デスクトップ環境の無い画面用)ができます(配布用の `DMX-Controller-linux.tar.gz` も同じ場所)。デスクトップでは `./dmxctl` で起動
+3. ソースを取ってくる: `git clone --recursive https://github.com/TechnoTUT/dmxctl`(NDIの部分 `moip-engine/` も一緒に取ってきます)
+4. `./scripts/build-linux.sh`
+5. `dist/linux/dmxctl`(デスクトップ環境用)と `dist/linux/dmxctl-kmsdrm`(デスクトップ環境の無い画面用)ができます(配布用の `DMX-Controller-linux.tar.gz` も同じ場所)。デスクトップでは `./dmxctl` で起動
 
 GitHub の Release に付いている Linux 版(`DMX-Controller-linux.tar.gz`)は Debian 13 の中で作っているので、**Debian 13 以降**で動きます(今のところ Ubuntu 24.04 以降でも動きます)。それより古い Linux では起動できない(`GLIBC_2.xx not found` と出る)ので、上の手順でそのPCの上で作ってください。
 
