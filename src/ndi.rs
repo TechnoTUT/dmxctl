@@ -268,6 +268,8 @@ fn run(core: Shared, ctx: Option<eframe::egui::Context>, stop: Arc<AtomicBool>) 
     // 届かないまま、この時間たったら受信し直す(送り手が止めているだけのこともあるので、やり直すたびに延ばす)
     let mut retry_after = RETRY_FIRST;
     let mut found: Vec<moip_ndi::Source> = Vec::new();
+    // 届いたのに読めなかったもの(知らない映像・音の形式)。色にできないので、届いていない扱いにして理由を出す
+    let mut unreadable: Option<&'static str> = None;
     set_state(&core, |s| s.status = "ソースを探しています".into());
 
     while !stop.load(Ordering::SeqCst) {
@@ -327,8 +329,14 @@ fn run(core: Shared, ctx: Option<eframe::egui::Context>, stop: Arc<AtomicBool>) 
                 let c = average_color(f.width(), f.height(), f.stride(), f.fourcc(), f.data()).map(vivid);
                 let (w, h) = (f.width(), f.height());
                 drop(f);
-                last_frame = Instant::now();
-                retry_after = RETRY_FIRST;
+                // 色にできたときだけ「届いている」(読めない形式だけが届き続けても、古い色で光り続けないように)
+                if c.is_some() {
+                    last_frame = Instant::now();
+                    retry_after = RETRY_FIRST;
+                    unreadable = None;
+                } else {
+                    unreadable = Some("映像の形式を読めません");
+                }
                 if let Some(c) = c {
                     set_state(&core, |st| {
                         // 急に変わりすぎないよう少しなめらかに
@@ -342,8 +350,13 @@ fn run(core: Shared, ctx: Option<eframe::egui::Context>, stop: Arc<AtomicBool>) 
                 let ch: Vec<&[f32]> = (0..a.channels()).map(|k| a.channel(k)).filter(|c| !c.is_empty()).collect();
                 let rgb = (!ch.is_empty()).then(|| audio.push(a.sample_rate(), &ch));
                 drop(a);
-                last_frame = Instant::now();
-                retry_after = RETRY_FIRST;
+                if rgb.is_some() {
+                    last_frame = Instant::now();
+                    retry_after = RETRY_FIRST;
+                    unreadable = None;
+                } else {
+                    unreadable = Some("音の形式を読めません");
+                }
                 if let Some(rgb) = rgb {
                     set_state(&core, |st| st.audio = Some(rgb));
                 }
@@ -351,21 +364,30 @@ fn run(core: Shared, ctx: Option<eframe::egui::Context>, stop: Arc<AtomicBool>) 
             _ => {}
         }
         let silent = last_frame.elapsed();
+        // 送り手とのつながりが生きているか(一時停止しているだけの送り手なら、つなぎ直さない)
+        let alive = r.is_connected();
         // 2秒届かなければ、色の元を消す(古い色で光り続けないように)
         if silent > Duration::from_secs(2) {
+            let why = unreadable.unwrap_or(if alive { "受信が止まっています(送り手は接続中)" } else { "受信が止まっています" });
             set_state(&core, |st| {
                 st.audio = None;
                 st.video = None;
-                st.status = format!("{connected}: 受信が止まっています");
+                st.status = format!("{connected}: {why}");
             });
         }
-        // もっと長く届かなければ、受信をつくり直す(次の周でつなぎ直す)
+        // もっと長く届かず、つながりも切れていれば、受信をつくり直す(次の周でつなぎ直す)。
+        // つながっているのに届かないだけ(送り手が止めている)なら、つくり直しても変わらないので待つ
         if silent > retry_after {
-            if let Some(r) = recv.take() {
-                r.destroy_in_background();
+            if alive {
+                retry_after = (retry_after * 2).min(Duration::from_secs(30));
+            } else {
+                if let Some(r) = recv.take() {
+                    r.destroy_in_background();
+                }
+                connected.clear();
+                unreadable = None;
+                retry_after = (retry_after * 2).min(Duration::from_secs(30));
             }
-            connected.clear();
-            retry_after = (retry_after * 2).min(Duration::from_secs(30));
         }
         if need_any
             && let Some(c) = &ctx {
