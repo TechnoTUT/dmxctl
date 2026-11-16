@@ -9,7 +9,7 @@ cpal = "0.18.2"
 eframe = { version = "0.36.2", default-features = false, features = ["glow", "default_fonts", "wayland", "x11"] }
 libloading = "0.9.0"
 # NDI受信(moip-engine の ndi クレート。libndi は実行時に読み込む)
-moip-ndi = { package = "ndi", git = "https://github.com/TechnoTUT/moip-engine", rev = "8cb6110105162db182e7fc7561ad9de584d58918" }
+moip-ndi = { package = "ndi", git = "https://github.com/TechnoTUT/moip-engine", rev = "6de21d3fe8c72383ab533ffe6402e6e43ee71246" }
 midir = "0.11.0"
 rfd = "0.17.2"
 serde = { version = "1.0.229", features = ["derive"] }

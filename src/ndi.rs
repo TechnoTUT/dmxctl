@@ -248,13 +248,7 @@ fn run(core: Shared, ctx: Option<eframe::egui::Context>, stop: Arc<AtomicBool>) 
     if let Err(e) = moip_ndi::init_with_paths(&extra_lib_paths()) {
         eprintln!("NDI: {e}");
         let msg = e.to_string();
-        set_state(&core, |s| {
-            s.status = if msg.contains("not found") {
-                "NDIのライブラリが見つかりません(NDI Tools をインストールしてください)".into()
-            } else {
-                format!("NDIを使えません: {}", msg.lines().next().unwrap_or_default())
-            }
-        });
+        set_state(&core, |s| s.status = load_error_status(&msg));
         return;
     }
     // 同じPCのソース(TouchDesignerなど)は、マルチキャストの探索が使えないときでも見つかるよう、自分宛ても直接たずねる
@@ -389,6 +383,15 @@ fn run(core: Shared, ctx: Option<eframe::egui::Context>, stop: Arc<AtomicBool>) 
     });
 }
 
+/// 読み込めなかったときに画面に出す文。ndiクレートのエラーは、試した場所ごとに1行ずつ理由が並ぶ。
+/// ライブラリはあったのに使えなかった(関数が足りない・初期化できない)ときはその行を、そうでなければ「見つからない」を出す
+fn load_error_status(msg: &str) -> String {
+    match msg.lines().map(str::trim).find(|l| l.contains("missing NDI symbol") || l.contains("NDIlib_initialize failed")) {
+        Some(line) => format!("NDIのライブラリを使えません: {line}"),
+        None => "NDIのライブラリが見つかりません(NDI Tools をインストールしてください)".into(),
+    }
+}
+
 /// 届かないとき、最初に受信をつくり直すまでの時間
 const RETRY_FIRST: Duration = Duration::from_secs(5);
 
@@ -452,6 +455,14 @@ mod tests {
         assert!(average_color(w, h, w * 4, FOURCC_BGRA, &px[..px.len() - 1]).is_none());
         assert!(average_color(w, h, w * 2, FOURCC_BGRA, &px).is_none());
         assert!(average_color(w, h, w * 4, 0, &px).is_none());
+    }
+
+    #[test]
+    fn load_error_says_not_found_unless_the_library_was_broken() {
+        let not_found = "NDI runtime (libndi.so.6) could not be loaded. Install the NDI runtime or set NDI_RUNTIME_DIR_V6.\n  /usr/local/lib/libndi.so.6: not found\n  libndi.so.6: libndi.so.6: cannot open shared object file";
+        assert!(load_error_status(not_found).contains("見つかりません"));
+        let broken = "NDI runtime (libndi.so.6) could not be loaded. Install the NDI runtime or set NDI_RUNTIME_DIR_V6.\n  /usr/local/lib/libndi.so.6: not found\n  /opt/x/libndi.so.6: missing NDI symbol: NDIlib_recv_capture_v3";
+        assert_eq!(load_error_status(broken), "NDIのライブラリを使えません: /opt/x/libndi.so.6: missing NDI symbol: NDIlib_recv_capture_v3");
     }
 }
 
