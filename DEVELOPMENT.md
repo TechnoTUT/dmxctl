@@ -9,6 +9,8 @@
 
 新しいPCでは、設定フォルダの中身を上の場所にそのまま置く(Mac・Windows・Linuxで中身は同じ形式)。
 
+ソースを GitHub から取ってくるときは `git clone --recursive https://github.com/TechnoTUT/dmxctl`。moip-engine(NDIの `ndi` クレート)はサブモジュール `moip-engine/` なので、`--recursive` を付けると一緒に取ってくる。一度取ってくれば、ビルドのときに moip-engine の GitHub は要らない(ネットの無い照明用PCにフォルダごとコピーしてもよい。crates.io のクレートは `~/.cargo` に取ってあるものを使う)。`--recursive` を付けずに clone したときは `git submodule update --init`(`scripts/build-*.sh` は無ければ自動でする)
+
 ## 新しいPCで入れるもの
 
 ### Windows
@@ -72,7 +74,7 @@ cargo test --release --features kmsdrm   # Linux: KMSDRMの部分(キーの変�
 | `src/project.rs` | 保存する設定(`project.json`)と割り当ての種類(`Action`) |
 | `src/layout.rs` | おすすめのMIDI配置(APC mini mk2) |
 | `src/pixel.rs` | LEDバーの模様(面向けプリセット4セット) |
-| `src/ndi.rs` | NDI受信(映像の平均色・音の色)。NDIの読み込み・呼び出しは moip-engine の `ndi` クレート(Cargo.toml の `moip-ndi`、git の rev で固定) |
+| `src/ndi.rs` | NDI受信(映像の平均色・音の色)。NDIの読み込み・呼び出しは moip-engine の `ndi` クレート(Cargo.toml の `moip-ndi`。サブモジュール `moip-engine/` のコミットで固定。上げるときは `git -C moip-engine checkout <コミット>` してから `git add moip-engine`) |
 | `src/web.rs` / `src/web/panel.html` | ブラウザの操作パネル(std の TCP で最小限の HTTP。`GET /` でページ、`GET /api/state` で様子、`POST /api/cmd` で操作。合言葉は `X-Pin` ヘッダー) |
 | `src/ui_map.rs` | MIDI画面(メイン画面)。`src/ui_map/` に図の描画(`pad.rs`)と右のパネル(`stage.rs` / `settings.rs`) |
 | `src/ui_laser.rs` | レーザータブ(位置・大きさ・動いてよい範囲をマウスで合わせる) |

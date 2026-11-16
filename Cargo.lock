@@ -1502,7 +1502,6 @@ dependencies = [
 [[package]]
 name = "ndi"
 version = "0.1.0"
-source = "git+https://github.com/TechnoTUT/moip-engine?rev=6de21d3fe8c72383ab533ffe6402e6e43ee71246#6de21d3fe8c72383ab533ffe6402e6e43ee71246"
 dependencies = [
  "libloading 0.9.0",
 ]

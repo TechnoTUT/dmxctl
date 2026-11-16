@@ -6,6 +6,8 @@
 # (Apple Silicon と Intel の両方で動く、ユニバーサル版)
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# NDIのクレート(サブモジュール moip-engine/)が無ければ取ってくる(--recursive を付けずに clone したとき)
+[ -f moip-engine/ndi/Cargo.toml ] || git submodule update --init moip-engine
 
 APP_NAME="DMX Controller"
 OUT="dist/mac"

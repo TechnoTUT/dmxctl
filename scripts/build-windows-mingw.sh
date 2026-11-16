@@ -4,6 +4,8 @@
 # できるもの: dist/windows/dmxctl.exe と dist/windows/DMX-Controller-windows.zip
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# NDIのクレート(サブモジュール moip-engine/)が無ければ取ってくる(--recursive を付けずに clone したとき)
+[ -f moip-engine/ndi/Cargo.toml ] || git submodule update --init moip-engine
 OUT="dist/windows"
 rustup target add x86_64-pc-windows-gnu
 CC_x86_64_pc_windows_gnu=x86_64-w64-mingw32-gcc CXX_x86_64_pc_windows_gnu=x86_64-w64-mingw32-g++ AR_x86_64_pc_windows_gnu=x86_64-w64-mingw32-ar \

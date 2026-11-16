@@ -28,6 +28,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          submodules: true
       - uses: Swatinem/rust-cache@v2
       # テストだけのジョブなので、最適化しない設定で作る(リリース設定よりビルドが3割ほど速い)
       - name: テスト
@@ -38,6 +40,8 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          submodules: true
       - uses: Swatinem/rust-cache@v2
       - name: Macアプリをビルド
         run: chmod +x scripts/build-mac.sh && ./scripts/build-mac.sh
@@ -51,6 +55,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          submodules: true
       - uses: Swatinem/rust-cache@v2
       - name: Windows版をビルド
         run: cargo build --release
@@ -69,6 +75,8 @@ jobs:
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
+        with:
+          submodules: true
       - uses: Swatinem/rust-cache@v2
       - name: 開発用ライブラリを入れる
         run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libasound2-dev libudev-dev libsdl2-dev
@@ -86,6 +94,8 @@ jobs:
       - name: 開発用ライブラリを入れる
         run: apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git build-essential pkg-config libasound2-dev libudev-dev libsdl2-dev
       - uses: actions/checkout@v7
+        with:
+          submodules: true
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Linux版をビルド
