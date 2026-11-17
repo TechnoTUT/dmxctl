@@ -1,8 +1,10 @@
-# Container image (Containerfile). Built with Docker Buildx, which reads Containerfile as-is.
+# Container image (Containerfile).
 # - pull request: build the image and run `dmxctl help` inside it. Nothing is pushed.
 # - push of a tag starting with "v" (e.g. v0.2.0): build and push to GHCR as
 #   ghcr.io/technotut/dmxctl:0.2.0 (the "v" is dropped, as the Infra manifests expect).
 #   git tag v0.2.0 && git push origin v0.2.0
+# If the GitHub-hosted build fails, the same build runs again on the self-hosted
+# runner "k8s". The build steps live in container-build.yml.
 name: container
 
 on:
@@ -19,44 +21,22 @@ permissions:
 
 jobs:
   image:
-    runs-on: ubuntu-26.04
+    uses: ./.github/workflows/container-build.yml
+    with:
+      runner: '["ubuntu-26.04"]'
+      push: ${{ startsWith(github.ref, 'refs/tags/v') }}
     permissions:
       contents: read
-      packages: write   # needed to push to GHCR (tags only)
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          submodules: true
+      packages: write
 
-      - uses: docker/setup-buildx-action@v3
-
-      - name: Image tags
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository_owner }}/dmxctl
-          tags: |
-            type=semver,pattern={{version}}
-
-      - name: Log in to GHCR
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build (and push on tags)
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: Containerfile
-          tags: ${{ steps.meta.outputs.tags || 'dmxctl:ci' }}
-          load: ${{ !startsWith(github.ref, 'refs/tags/v') }}
-          push: ${{ startsWith(github.ref, 'refs/tags/v') }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Smoke test
-        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
-        run: docker run --rm dmxctl:ci help
+  # Runs only when the GitHub-hosted build failed
+  image-k8s:
+    needs: image
+    if: ${{ always() && needs.image.result == 'failure' }}
+    uses: ./.github/workflows/container-build.yml
+    with:
+      runner: '["self-hosted","k8s"]'
+      push: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    permissions:
+      contents: read
+      packages: write
