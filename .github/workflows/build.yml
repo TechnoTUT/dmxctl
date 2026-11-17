@@ -1,10 +1,14 @@
-# CI(Mac 版以外は、すべて Linux のランナーで動かす。private リポジトリでは Windows は2倍・Mac は10倍の時間で数えられるため)
-# - push(ブランチ)・PR・毎週(main): テスト(cargo test。Linux)
-#   毎週の実行は、ビルドのキャッシュ(7日使わないと消える)を温めておくため
-# - PR: Windows 用(Linux から MinGW でクロスビルド)・Linux 用(x86_64 / arm64)のビルドが通るかを確かめる
-# - タグ(v で始まる名前。例: v0.2.0)の push: 上に加えて Mac 用もビルドし、成果物を GitHub の Release に添付する
+# CI. Everything except the macOS build runs on Linux runners, because private
+# repositories bill Windows minutes at 2x and macOS minutes at 10x.
+# - push (branch): tests only (cargo test on Linux)
+# - pull request: tests, plus Windows (cross-built from Linux with MinGW) and
+#   Linux (x86_64 / arm64) builds. Tests also run here because a PR from a fork
+#   does not show the fork's push results.
+# - push of a tag starting with "v" (e.g. v0.2.0): the builds above plus macOS,
+#   attached to a GitHub Release.
 #   git tag v0.2.0 && git push origin v0.2.0
-# 成果物は実行ファイルをそのまま置く(Mac は .app がフォルダなので zip)
+# Artifacts are the executables themselves, not archives (macOS ships a zip
+# because the .app bundle is a directory).
 name: build
 
 on:
@@ -12,10 +16,8 @@ on:
     branches: ['**']
     tags: ['v*']
   pull_request:
-  schedule:
-    - cron: '0 18 * * 0'
 
-# 同じブランチ・PRに続けてpushしたら、古い実行は止める(タグのReleaseは止めない)
+# Cancel older runs for the same branch or PR (never cancel a tag release)
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
@@ -24,27 +26,28 @@ permissions:
   contents: read
 
 env:
-  # Linux 版のビルドに要るもの(SDL2 は cmake でソースからビルドして内蔵する)
+  # Build dependencies for Linux (SDL2 is built from source with cmake and linked statically)
   LINUX_DEPS: build-essential pkg-config cmake libasound2-dev libudev-dev libdrm-dev libgbm-dev libegl-dev libgles-dev
 
 jobs:
   test:
-    # テストだけなので、最適化しない設定で作る(リリース設定よりビルドが速い)
-    if: github.event_name != 'push' || !startsWith(github.ref, 'refs/tags/')
+    # Debug profile: builds faster than release, and tests don't need optimization
+    if: "!startsWith(github.ref, 'refs/tags/')"
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
         with:
           submodules: true
       - uses: Swatinem/rust-cache@v2
-      - name: 開発用ライブラリを入れる
+      - name: Install build dependencies
         run: sudo apt-get update && sudo apt-get install -y $LINUX_DEPS
-      - name: テスト
+      - name: Test
         run: cargo test
 
   linux:
-    # 配布用の Linux 版。glibc は古い版で作ったものが新しい版でも動く(逆は動かない)ので、
-    # Debian 12(glibc 2.36)のコンテナの中で作る(Debian 12 / Raspberry Pi OS Bookworm / Ubuntu 24.04 以降で動く)
+    # Release builds for Linux. Binaries built against an older glibc run on newer
+    # ones (not the other way around), so build inside Debian 12 (glibc 2.36).
+    # Runs on Debian 12 / Raspberry Pi OS Bookworm / Ubuntu 24.04 and later.
     if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/v')
     strategy:
       matrix:
@@ -56,27 +59,29 @@ jobs:
     runs-on: ${{ matrix.runner }}
     container: debian:12
     steps:
-      - name: 開発用ライブラリを入れる
+      - name: Install build dependencies
         run: apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git $LINUX_DEPS
       - uses: actions/checkout@v7
         with:
           submodules: true
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: ビルド
+      - name: Build
         run: ./scripts/build-linux.sh
-      - name: libSDL2 を要らない(内蔵している)ことを確かめる
+      - name: Check that libSDL2 is not a runtime dependency
         run: |
           ldd dist/linux/dmxctl
-          if ldd dist/linux/dmxctl | grep -q libSDL2; then echo "dmxctl が libSDL2 を必要としています"; exit 1; fi
-      - run: mv dist/linux/dmxctl dist/dmxctl-linux-${{ matrix.arch }}
+          if ldd dist/linux/dmxctl | grep -q libSDL2; then echo "dmxctl depends on libSDL2; it should be linked statically"; exit 1; fi
+      - name: Rename
+        run: mv dist/linux/dmxctl dist/dmxctl-linux-${{ matrix.arch }}
       - uses: actions/upload-artifact@v7
         with:
           path: dist/dmxctl-linux-${{ matrix.arch }}
           archive: false
 
   windows:
-    # Linux から MinGW でクロスビルドする(.cargo/config.toml の設定で、追加のDLL無しで動く exe になる)
+    # Cross-built from Linux with MinGW. .cargo/config.toml links the runtime
+    # statically, so the exe needs no extra DLLs.
     if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-26.04
     steps:
@@ -87,19 +92,20 @@ jobs:
         with:
           targets: x86_64-pc-windows-gnu
       - uses: Swatinem/rust-cache@v2
-      - name: MinGW-w64 を入れる
+      - name: Install MinGW-w64
         run: sudo apt-get update && sudo apt-get install -y mingw-w64
-      - name: ビルド
+      - name: Build
         run: ./scripts/build-windows-mingw.sh
-      - run: mv dist/windows/dmxctl.exe dist/dmxctl-windows-x86_64.exe
+      - name: Rename
+        run: mv dist/windows/dmxctl.exe dist/dmxctl-windows-x86_64.exe
       - uses: actions/upload-artifact@v7
         with:
           path: dist/dmxctl-windows-x86_64.exe
           archive: false
 
   mac:
-    # macOS のランナーは時間を10倍で数えられるので、タグのときだけ。
-    # (Linux からのクロスビルドには macOS SDK が要り、Apple の規約上 Apple 製のハードウェア以外では使えない)
+    # Tags only, since macOS minutes are billed at 10x. (Cross-building from Linux
+    # would need the macOS SDK, which Apple licenses for Apple hardware only.)
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: macos-latest
     steps:
@@ -107,7 +113,7 @@ jobs:
         with:
           submodules: true
       - uses: Swatinem/rust-cache@v2
-      - name: Mac アプリをビルド
+      - name: Build the app
         run: ./scripts/build-mac.sh
       - uses: actions/upload-artifact@v7
         with:
@@ -115,7 +121,7 @@ jobs:
           archive: false
 
   release:
-    # タグを打ったときだけ、全部のビルドが通ったあとに Release を作る
+    # Tags only: create the Release once every build has passed
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [linux, windows, mac]
     runs-on: ubuntu-latest
@@ -126,8 +132,8 @@ jobs:
         with:
           path: dist
           merge-multiple: true
-      # このジョブはリポジトリを取ってこない(checkoutしない)ので、--repo でリポジトリを明示する
-      - name: Release を作って成果物を添付
+      # This job doesn't check out the repository, so pass --repo explicitly
+      - name: Create the release and attach artifacts
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
