@@ -10,8 +10,10 @@
 | **Ableton Link** | 同じPCや同じネットワークにある Link 対応アプリと、**テンポと小節の頭**が揃います。TouchDesigner の **Ableton Link CHOP**、Resolume、Ableton Live、DJソフトなどが対応しています。相手のテンポ変更についていき、ここでの TAP・BPM変更・頭出しも相手に伝わります |
 | MIDIクロック | 外から来る、1拍24回の MIDIクロックでテンポと拍を決めます。Start の 0xFA で小節の頭に揃います。クロックが途切れても、最後のテンポのまま内部で走り続けるので、照明は止まりません。入力は、メインのMIDI入力か、loopMIDI のような仮想ポートなど別のポートを選べます。クロック中はBPMの手入力とTAPは効きません |
 
-- **Carabiner が要ります**: Link はライセンスの都合でこのアプリに入れておらず、別のプログラムの [Carabiner](https://github.com/Deep-Symmetry/carabiner/releases) が Link に参加します。このアプリは、同じPCで動く Carabiner に、ポート 17000 でつなぎます。Windows・Mac・Linux 用が配られています。ダウンロードして、端末で `Carabiner` を起動しておいてください。ポートを変えたときは、環境変数 `DMXCTL_CARABINER_PORT` に同じ番号を入れます
-- Carabiner につながっていないときは、「BPM/チェイス」タブに「Carabinerにつながっていません」と出ます。その間は、内部の時計で拍が進みます。起動すると、自動でつながります
+- **Carabiner が要ります**: Link はライセンスの都合でこのアプリに入れておらず、別のプログラムの [Carabiner](https://github.com/Deep-Symmetry/carabiner/releases) が Link に参加します。このアプリは、同じPCで動く Carabiner に、ポート 17000 でつなぎます。ポートを変えたときは、環境変数 `DMXCTL_CARABINER_PORT` に同じ番号を入れます
+- **入れ方**: テンポの元を Link にして、「Carabinerをダウンロードして入れる」を押します。画面を使わないPCでは `dmxctl carabiner install` で入れます。配布元の GitHub から取り、確かめた値と合ったときだけ、設定フォルダの `carabiner/` に置きます。自動では取りません。Windows・Mac・Linux 用があります。Linux は x86_64 と arm64 です
+- **起動**: 入れた後は、Link を使うとき、このアプリが自動で Carabiner を起動し、終わるときに止めます。すでに誰かが Carabiner を動かしていれば、それにつなぐだけです。自分で入れた Carabiner を使うなら、先に起動しておいてください
+- Carabiner につながっていないときは、「BPM/チェイス」タブに「Carabinerにつながっていません」と出ます。その間は、内部の時計で拍が進みます。つながるようになれば、自動で切り替わります
 - **Beat Link Trigger を使っているとき**: BLT も Carabiner を使います。BLT が Carabiner を動かしていれば、このアプリはそれにそのままつながるので、別に起動する必要はありません
 - Windows では、Carabiner や OSC を初めて有効にしたときにファイアウォールの確認が出ます。別のPCとつなぐ場合は「許可」が必要です。Linux でファイアウォールを有効にしている場合は [Linux で使う](platforms.md#linux-で使う) を見てください
 - TouchDesigner では、Ableton Link CHOP の `Enable` をONにするだけで、このアプリとテンポ・拍が揃います。Beat CHOP などで作った映像の動きと、照明のBPM同期エフェクト・チェイスが同じ拍で動きます

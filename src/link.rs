@@ -36,6 +36,11 @@ pub(crate) fn set_test_port(p: u16) -> MutexGuard<'static, ()> {
     g
 }
 
+/// テストでは、このPCに入れてある Carabiner を勝手に起動しない
+fn autostart_allowed() -> bool {
+    PORT_OVERRIDE.load(Ordering::Relaxed) == 0
+}
+
 /// 接続するポート。環境変数 `DMXCTL_CARABINER_PORT` で変えられる
 pub fn port() -> u16 {
     let p = PORT_OVERRIDE.load(Ordering::Relaxed);
@@ -167,6 +172,9 @@ impl Drop for Link {
 /// つなぎ直しながら、止められるまで動く裏のスレッド
 fn run(port: u16, initial_bpm: f64, shared: Arc<Mutex<Shared>>, rx: mpsc::Receiver<String>, stop: Arc<AtomicBool>) {
     let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
+    // 入れてある Carabiner を、このアプリが起動したとき、その子プロセス
+    let mut child: Option<std::process::Child> = None;
+    let mut spawn_tries = 0;
     while !stop.load(Ordering::Relaxed) {
         match TcpStream::connect_timeout(&addr, Duration::from_millis(500)) {
             Ok(stream) => {
@@ -177,15 +185,33 @@ fn run(port: u16, initial_bpm: f64, shared: Arc<Mutex<Shared>>, rx: mpsc::Receiv
             }
             Err(_) => {
                 while rx.try_recv().is_ok() {}
+                // 誰もつながる先を用意していなければ、入れてある Carabiner を起動する。既に誰かが動かしていれば、その Carabiner につなぐので、ここには来ない
+                if child.as_mut().is_some_and(|c| c.try_wait().ok().flatten().is_some()) {
+                    child = None;
+                }
+                if child.is_none() && spawn_tries < 3 && autostart_allowed() {
+                    child = crate::carabiner::spawn(port);
+                    if child.is_some() {
+                        spawn_tries += 1;
+                    }
+                }
             }
         }
         // 次の接続まで1秒待つ。終了の合図には素早く応じる
         for _ in 0..50 {
             if stop.load(Ordering::Relaxed) {
+                if let Some(mut c) = child.take() {
+                    let _ = c.kill();
+                    let _ = c.wait();
+                }
                 return;
             }
             std::thread::sleep(Duration::from_millis(20));
         }
+    }
+    if let Some(mut c) = child.take() {
+        let _ = c.kill();
+        let _ = c.wait();
     }
 }
 

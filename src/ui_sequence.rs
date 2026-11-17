@@ -172,6 +172,24 @@ impl App {
                     (format!("接続中のアプリ: {peers}"), Color32::from_rgb(80, 195, 115))
                 };
                 ui.colored_label(color, text);
+                // サーバーにつないだクライアントの画面では、サーバーのPCに入れる必要があるので出さない
+                if !connected && core.rt.link.is_some() && crate::carabiner::supported() && !crate::carabiner::installed() {
+                    use crate::carabiner::InstallState;
+                    match crate::carabiner::install_state() {
+                        InstallState::Running => {
+                            ui.label("Carabinerをダウンロードしています");
+                            ui.ctx().request_repaint_after(std::time::Duration::from_millis(500));
+                        }
+                        state => {
+                            if ui.button("Carabinerをダウンロードして入れる").on_hover_text(format!("{} から取ります。入れた後は、Linkを使うとき自動で起動します。CarabinerはGPLのプログラムです", crate::carabiner::url().unwrap_or_default())).clicked() {
+                                crate::carabiner::install_in_background();
+                            }
+                            if let InstallState::Failed(e) = state {
+                                ui.colored_label(WARN, format!("入れられませんでした: {e}"));
+                            }
+                        }
+                    }
+                }
                 crate::theme::help(
                     ui,
                     "同じPC・同じネットワークのLink対応アプリ(TouchDesignerの Ableton Link CHOP、Resolume、Ableton Live など)と、テンポと拍の位置が揃います。\

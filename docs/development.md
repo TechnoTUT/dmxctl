@@ -135,6 +135,7 @@ cargo test --release perf -- --ignored --nocapture                              
 | `src/ui_laser.rs` / `src/ui_auto.rs` | レーザータブ / オートタブ。オートタブは、フレーズごとの見た目のプリセット `AutoPreset` / `PhraseLook` の表 |
 | `src/theme.rs` | 色・フォントなどの見た目 |
 | `src/kmsdrm.rs` / `src/kmsdrm/` | Linuxだけ。デスクトップ環境の無い画面に、SDL2 の KMSDRM と OpenGL ES の egui_glow で描くループ / キーの変換・タッチ |
+| `src/carabiner.rs` | Carabiner の取得と起動。配布元 GitHub Releases の版とチェックサムをコードに固定している。上げるときは `VERSION` と各OSの `sha256` を一緒に直す。ダウンロードは `curl`、展開は Linux が gzip、Windows が zip、Mac が `hdiutil` |
 | `src/link.rs` | Ableton Link。別のプログラムの Carabiner に、同じPC内の TCP でつなぎ、テンポと拍の位置を聞く。Link のコードは入れていない。テスト用に Carabiner のふりをするサーバー `link::fake` がある |
 
 ### 設計のポイント
@@ -179,6 +180,6 @@ cargo test --release perf -- --ignored --nocapture                              
 
 ## ライセンスについて
 
-Ableton Link は GPLv2 以降なので、このアプリには入れていません。Link を使う部分は、別のプログラムの [Carabiner](https://github.com/Deep-Symmetry/carabiner) に TCP でつなぐ作りです。Carabiner は同梱せず、使う人が自分で入れます。そのため、このアプリを配るときに、Link のソースを公開する必要はありません。
+Ableton Link は GPLv2 以降なので、このアプリには入れていません。Link を使う部分は、別のプログラムの [Carabiner](https://github.com/Deep-Symmetry/carabiner) に TCP でつなぐ作りです。Carabiner は同梱せず、使う人がボタンか `dmxctl carabiner install` を押したときだけ、配布元から取ります。そのため、このアプリを配るときに、Link のソースを公開する必要はありません。
 
 Carabiner を一緒に配りたいときは、Carabiner と Link のソースを公開し、GPL に従ってください。

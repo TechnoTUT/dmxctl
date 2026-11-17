@@ -30,6 +30,7 @@ GUIを操作対象にする場合は、代わりに次で起動します。既�
 ./target/debug/dmxctl ctl stop
 ```
 
+- `dmxctl carabiner install` は、Ableton Link に参加する Carabiner を配布元から取って、設定フォルダに入れます。成功すると、場所と版を JSON で返します。
 - `serve` は既定で実機送信なし、自動保存なし、MIDI・OSC・Ableton Link・操作パネルの入力なしです。本番のGUIと同じPCで動かしても、コントローラーやポートを取り合いません。入力は `--inputs configured`、実機送信は `--output live`、自動保存は `--autosave` で有効にできます。
 - GUIの通常起動は従来どおりの出力・保存動作です。デバッグ時は上の例のように起動時オプションを指定します。
 - `--output none` は保存済みの出力先を変更せず、送信だけを無効にします。GUIで出力先を追加・有効化しても、そのプロセスからは送信しません。40Hzの合成は続くため、最終DMX値を確認できます。
