@@ -1,0 +1,18 @@
+{
+  "id": "glint/glp-185l",
+  "name": "GLP-185L",
+  "manufacturer": "Glint",
+  "needs_arm": false,
+  "modes": [
+    {
+      "name": "5ch",
+      "channels": [
+        { "name": "赤", "attr": "red", "safe": 0, "category": "色" },
+        { "name": "緑", "attr": "green", "safe": 0, "category": "色" },
+        { "name": "青", "attr": "blue", "safe": 0, "category": "色" },
+        { "name": "白", "attr": "white", "safe": 0, "category": "色" },
+        { "name": "アンバー", "attr": "amber", "safe": 0, "category": "色" }
+      ]
+    }
+  ]
+}

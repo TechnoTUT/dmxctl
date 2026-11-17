@@ -1,0 +1,39 @@
+{
+  "id": "stage-evolution/twinkle-ball-dmx",
+  "name": "TWINKLE BALL DMX",
+  "manufacturer": "STAGE EVOLUTION",
+  "needs_arm": false,
+  "modes": [
+    {
+      "name": "8ch",
+      "channels": [
+        { "name": "調光", "attr": "dimmer", "safe": 0, "category": "光量" },
+        { "name": "ストロボ", "attr": "strobe", "category": "光量" },
+        { "name": "赤", "attr": "red", "category": "色" },
+        { "name": "緑", "attr": "green", "category": "色" },
+        { "name": "青", "attr": "blue", "category": "色" },
+        {
+          "name": "モーター(回転/角度)",
+          "attr": "rotation",
+          "category": "動き",
+          "ranges": [
+            { "from": 0, "to": 129, "label": "角度指定" },
+            { "from": 130, "to": 139, "label": "リセット(注意)", "warn": true },
+            { "from": 140, "to": 255, "label": "回転(遅→速)", "sweep": true }
+          ]
+        },
+        {
+          "name": "プログラム",
+          "attr": "program",
+          "category": "制御",
+          "ranges": [
+            { "from": 0, "to": 9, "label": "なし" },
+            { "from": 10, "to": 159, "label": "オートプログラム(1〜5)" },
+            { "from": 160, "to": 255, "label": "サウンドプログラム(1〜2)" }
+          ]
+        },
+        { "name": "プログラム速度", "attr": "program_speed", "category": "制御" }
+      ]
+    }
+  ]
+}

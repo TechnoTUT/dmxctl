@@ -483,6 +483,8 @@ impl Default for Library {
 const BUILTIN: &[&str] = &[
     include_str!("../fixtures/stage-evolution_minispot30.json"),
     include_str!("../fixtures/stage-evolution_laserscan300.json"),
+    include_str!("../fixtures/stage-evolution_twinkle-ball-dmx.json"),
+    include_str!("../fixtures/glint_glp-185l.json"),
 ];
 
 /// ピクセルの色の並び(DMXでの順番)
@@ -707,7 +709,7 @@ mod tests {
     fn builtin_profiles_parse() {
         let (lib, errs) = Library::load(Path::new("does-not-exist"));
         assert!(errs.is_empty(), "{errs:?}");
-        assert_eq!(lib.profiles.len(), 3);
+        assert_eq!(lib.profiles.len(), 5);
     }
 
     #[test]
