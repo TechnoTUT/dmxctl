@@ -784,7 +784,7 @@ impl App {
         }
     }
 
-    /// 画面を出さずに動かす(`dmxctl --headless`)。モニターの無いPCで、Beat Link Triggerと一緒に置いてオートで動かす用。
+    /// 画面を出さずに動かす(`dmxctl headless`)。モニターの無いPCで、Beat Link Triggerと一緒に置いてオートで動かす用。
     /// OSC受信・テンポの元(Ableton Link)・オートを必ずONにする。終了は SIGTERM / Ctrl+C(安全な値を送ってから終わる)
     pub fn run_headless() -> ! {
         Self::run_headless_with_options(crate::control::Launch::default())

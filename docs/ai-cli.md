@@ -1,14 +1,14 @@
 # AIから操作・検証するCLI
 
-`dmxctl-cli` は、起動中のGUI・画面なしの常駐本体を操作し、最終DMX値を検証するためのCLIです。`ctl` で常駐本体に接続し、`simulate` / `run` で独立した検証を行います。
+`dmxctl` の `serve` / `ctl` / `inspect` / `simulate` などのサブコマンドは、起動中のGUI・画面なしの常駐本体を操作し、最終DMX値を検証するためのCLIです(GUIと同じ実行ファイル。Macでは `DMX Controller.app/Contents/MacOS/dmxctl`)。`ctl` で常駐本体に接続し、`simulate` / `run` で独立した検証を行います。
 
 ## 常駐本体へ接続する
 
 画面なしで起動する場合は、1つ目の端末で次を実行します。停止を指示するまで動き続けます。
 
 ```powershell
-cargo build --bins
-./target/debug/dmxctl-cli serve --project examples/cli/project.json
+cargo build
+./target/debug/dmxctl serve --project examples/cli/project.json
 ```
 
 GUIを操作対象にする場合は、代わりに次で起動します。既にこのGUIを起動している場合、別の `serve` を追加で起動する必要はありません。
@@ -20,14 +20,14 @@ GUIを操作対象にする場合は、代わりに次で起動します。既�
 2つ目の端末から、同じ本体へ接続します。
 
 ```powershell
-./target/debug/dmxctl-cli ctl status
-./target/debug/dmxctl-cli ctl fixture list
-./target/debug/dmxctl-cli ctl fixture set 1 --attr pan --value 80
-./target/debug/dmxctl-cli ctl command --json '{"cmd":"motion","params":{"shape":"Circle","beats":4,"size":0.3}}'
-./target/debug/dmxctl-cli ctl output snapshot --fixture 1 --attrs pan,tilt
-./target/debug/dmxctl-cli ctl watch --fixture 1 --attrs pan,tilt --duration 5
-./target/debug/dmxctl-cli ctl project save
-./target/debug/dmxctl-cli ctl stop
+./target/debug/dmxctl ctl status
+./target/debug/dmxctl ctl fixture list
+./target/debug/dmxctl ctl fixture set 1 --attr pan --value 80
+./target/debug/dmxctl ctl command --json '{"cmd":"motion","params":{"shape":"Circle","beats":4,"size":0.3}}'
+./target/debug/dmxctl ctl output snapshot --fixture 1 --attrs pan,tilt
+./target/debug/dmxctl ctl watch --fixture 1 --attrs pan,tilt --duration 5
+./target/debug/dmxctl ctl project save
+./target/debug/dmxctl ctl stop
 ```
 
 - `serve` は既定で実機送信なし、自動保存なし、入力(MIDI・OSC・Ableton Link・操作パネル)なしです。本番のGUIと同じPCで動かしても、コントローラーやポートを取り合いません。入力は `--inputs configured`、実機送信は `--output live`、自動保存は `--autosave` で有効にできます。
@@ -40,7 +40,7 @@ GUIを操作対象にする場合は、代わりに次で起動します。既�
 `ctl command --json` では、下記の「操作できる値」にある既存の操作を利用できます。ARMや安全設定の変更は引き続き受け付けません。フラッシュは押下の有効期限を設け、接続が切れたりGUIの更新が止まった場合も、出力スレッドが解除します。
 
 ```powershell
-./target/debug/dmxctl-cli ctl command --json '{"cmd":"flash","on":true,"hold_ms":500}'
+./target/debug/dmxctl ctl command --json '{"cmd":"flash","on":true,"hold_ms":500}'
 ```
 
 `hold_ms` の既定は500ms、範囲は1〜5000msです。応答の `accepted_at_frame` は受付時点、`takes_effect_from_frame` は変更を反映できる最初のエンジンフレームです。`--wait` を付けると、そのフレーム以降の合成まで待ちます。実機の受信・動作を待つ機能ではありません。
@@ -48,13 +48,13 @@ GUIを操作対象にする場合は、代わりに次で起動します。既�
 ### スキーマ・反映待ち・出力の検証
 
 ```powershell
-./target/debug/dmxctl-cli ctl schema motion
-./target/debug/dmxctl-cli ctl fixture set 1 --attr pan --value 80 --wait
-./target/debug/dmxctl-cli ctl assert --fixture 1 --attr pan --equals 80 --tolerance 0.1
-./target/debug/dmxctl-cli ctl wait --frames 2
-./target/debug/dmxctl-cli ctl wait --beats 4 --timeout-ms 10000
-./target/debug/dmxctl-cli ctl wait --fixture 1 --attr dimmer --min 100 --timeout-ms 5000
-./target/debug/dmxctl-cli ctl explain --fixture 1 --attr pan
+./target/debug/dmxctl ctl schema motion
+./target/debug/dmxctl ctl fixture set 1 --attr pan --value 80 --wait
+./target/debug/dmxctl ctl assert --fixture 1 --attr pan --equals 80 --tolerance 0.1
+./target/debug/dmxctl ctl wait --frames 2
+./target/debug/dmxctl ctl wait --beats 4 --timeout-ms 10000
+./target/debug/dmxctl ctl wait --fixture 1 --attr dimmer --min 100 --timeout-ms 5000
+./target/debug/dmxctl ctl explain --fixture 1 --attr pan
 ```
 
 `schema` はJSON Schema、現在値、読み取り専用項目、検証規則を返します。対象を省略するとプロジェクト全体を取得します。参照先やパッチの整合性は `edit --dry-run` で検証します。
@@ -71,10 +71,10 @@ GUIを操作対象にする場合は、代わりに次で起動します。既�
 
 ```powershell
 New-Item -ItemType Directory -Force runs
-./target/debug/dmxctl-cli ctl record start --file runs/live.jsonl
+./target/debug/dmxctl ctl record start --file runs/live.jsonl
 # GUIまたはCLIで操作する
-./target/debug/dmxctl-cli ctl record stop
-./target/debug/dmxctl-cli log summarize runs/live.jsonl
+./target/debug/dmxctl ctl record stop
+./target/debug/dmxctl log summarize runs/live.jsonl
 ```
 
 記録先の相対パスはクライアントを実行したフォルダを基準に解決します。記録中に `ctl stop` で本体を終了した場合も、安全停止中のフレームを記録してからログを閉じます。記録しない間はログ出力用スレッドを作りません。
@@ -84,15 +84,15 @@ New-Item -ItemType Directory -Force runs
 ### ボタン・スライダーと入力の再現
 
 ```powershell
-./target/debug/dmxctl-cli ctl button list
-./target/debug/dmxctl-cli ctl button click binding:42
-./target/debug/dmxctl-cli ctl button hold binding:42 --hold-ms 500
-./target/debug/dmxctl-cli ctl button press binding:42 --hold-ms 1000
-./target/debug/dmxctl-cli ctl button release binding:42
-./target/debug/dmxctl-cli ctl button set binding:1 --value 0.5
-./target/debug/dmxctl-cli ctl input midi --kind Note --channel 9 --number 40 --value 127
-./target/debug/dmxctl-cli ctl input key --json '{"number":16,"pressed":true}'
-./target/debug/dmxctl-cli ctl input osc --json '{"address":"/dmx/bpm","args":[128]}'
+./target/debug/dmxctl ctl button list
+./target/debug/dmxctl ctl button click binding:42
+./target/debug/dmxctl ctl button hold binding:42 --hold-ms 500
+./target/debug/dmxctl ctl button press binding:42 --hold-ms 1000
+./target/debug/dmxctl ctl button release binding:42
+./target/debug/dmxctl ctl button set binding:1 --value 0.5
+./target/debug/dmxctl ctl input midi --kind Note --channel 9 --number 40 --value 127
+./target/debug/dmxctl ctl input key --json '{"number":16,"pressed":true}'
+./target/debug/dmxctl ctl input osc --json '{"address":"/dmx/bpm","args":[128]}'
 ```
 
 IDは実行中の設定に合わせて `button list` から取得してください。割り当てに保存するIDなので、並べ替えや他の割り当ての削除で変わりません。古い設定は読み込み時にIDを付与し、保存すると次回も引き継ぎます。IDのない割り当てを新規作成すると新しいIDが付きます。
@@ -108,15 +108,15 @@ IDは実行中の設定に合わせて `button list` から取得してくださ
 常駐中の設定を編集できます。`fixture`, `group`, `binding`, `scene`, `position`, `effect`, `pixel`, `chase`, `pair`, `output`, `auto_preset` が対象です。
 
 ```powershell
-./target/debug/dmxctl-cli ctl group create --json '{"name":"Spots","fixtures":[1]}'
-./target/debug/dmxctl-cli ctl effect create --json '{"name":"Pulse","sel":{"Group":"Spots"},"attr":"dimmer","beats":2}'
-./target/debug/dmxctl-cli ctl effect update Pulse --json '{"enabled":true,"beats":4}'
-./target/debug/dmxctl-cli ctl scene capture Intro --json '{"fade":1,"fixtures":[1]}'
-./target/debug/dmxctl-cli ctl scene update Intro --json '{"fade":2}'
-./target/debug/dmxctl-cli ctl settings update --json '{"bpm":128,"auto":{"enabled":false}}'
-./target/debug/dmxctl-cli ctl scene list
-./target/debug/dmxctl-cli ctl binding list
-./target/debug/dmxctl-cli ctl scene delete Intro
+./target/debug/dmxctl ctl group create --json '{"name":"Spots","fixtures":[1]}'
+./target/debug/dmxctl ctl effect create --json '{"name":"Pulse","sel":{"Group":"Spots"},"attr":"dimmer","beats":2}'
+./target/debug/dmxctl ctl effect update Pulse --json '{"enabled":true,"beats":4}'
+./target/debug/dmxctl ctl scene capture Intro --json '{"fade":1,"fixtures":[1]}'
+./target/debug/dmxctl ctl scene update Intro --json '{"fade":2}'
+./target/debug/dmxctl ctl settings update --json '{"bpm":128,"auto":{"enabled":false}}'
+./target/debug/dmxctl ctl scene list
+./target/debug/dmxctl ctl binding list
+./target/debug/dmxctl ctl scene delete Intro
 ```
 
 対象の指定は、機材は数値ID、割り当ては `binding:ID`、その他は名前です。出力先や、同じ名前でまとめたエフェクトなどは `--index N` で一覧の0始まりの位置を指定します。並びを変更した場合は、一覧を取り直してください。名前が複数一致する場合は変更を拒否します。`fixture list` は従来の機材一覧、`fixture get` は編集用の全フィールドを返します。
@@ -126,8 +126,8 @@ IDは実行中の設定に合わせて `button list` から取得してくださ
 複数の変更をまとめる場合は、編集ファイルを使います。
 
 ```powershell
-./target/debug/dmxctl-cli ctl edit --file examples/cli/edits.json --dry-run
-./target/debug/dmxctl-cli ctl edit --file examples/cli/edits.json
+./target/debug/dmxctl ctl edit --file examples/cli/edits.json --dry-run
+./target/debug/dmxctl ctl edit --file examples/cli/edits.json
 ```
 
 ファイルは次の形式の配列です。`create` の `data` には省略可能な既定値を補い、`update` は指定したフィールドだけを変更します。
@@ -148,11 +148,11 @@ GUIとCLIは、機材・グループ追加、シーン保存・削除、割り�
 ### 差分・再読込・復元
 
 ```powershell
-./target/debug/dmxctl-cli ctl project diff
-./target/debug/dmxctl-cli ctl project save
-./target/debug/dmxctl-cli ctl project reload --dry-run
-./target/debug/dmxctl-cli ctl project reload
-./target/debug/dmxctl-cli ctl project restore --file runs/backups/before-load-....json
+./target/debug/dmxctl ctl project diff
+./target/debug/dmxctl ctl project save
+./target/debug/dmxctl ctl project reload --dry-run
+./target/debug/dmxctl ctl project reload
+./target/debug/dmxctl ctl project restore --file runs/backups/before-load-....json
 ```
 
 `diff` は保存済みファイルと現在の設定との差分を返します。WebパネルのPINは表示・記録せず、変更の有無だけを `redacted_changes.web_pin` に返します。
@@ -162,10 +162,10 @@ GUIとCLIは、機材・グループ追加、シーン保存・削除、割り�
 ### 機材定義
 
 ```powershell
-./target/debug/dmxctl-cli ctl profile list
-./target/debug/dmxctl-cli ctl profile save --file fixture.json --dry-run
-./target/debug/dmxctl-cli ctl profile save --file fixture.json
-./target/debug/dmxctl-cli ctl profile delete user/example
+./target/debug/dmxctl ctl profile list
+./target/debug/dmxctl ctl profile save --file fixture.json --dry-run
+./target/debug/dmxctl ctl profile save --file fixture.json
+./target/debug/dmxctl ctl profile delete user/example
 ```
 
 機材定義は個別のJSONファイルに明示的に保存します。プロジェクトの編集バッチには含められません。使用中、または保存済みプロジェクトが参照している定義は、そのまま削除できません。使用中のチャンネル構造を変更するときは、先に機材をパッチから外してプロジェクトを保存してください。パッチを外す際に、参照するシーン・割り当てなども修正する必要があります。名前や範囲のラベルなど、チャンネル構造を変えない編集は使用中でも行えます。
@@ -179,12 +179,12 @@ GUIとCLIは、機材・グループ追加、シーン保存・削除、割り�
 ### 最初に試す
 
 ```powershell
-cargo build --bin dmxctl-cli
+cargo build
 New-Item -ItemType Directory -Force runs
-./target/debug/dmxctl-cli inspect --project examples/cli/project.json
-./target/debug/dmxctl-cli simulate --project examples/cli/project.json --scenario examples/cli/scenario.json --duration 3 --log runs/example.jsonl
-./target/debug/dmxctl-cli log summarize runs/example.jsonl
-./target/debug/dmxctl-cli log query runs/example.jsonl --fixture 2 --attrs pan,tilt --from-ms 900 --to-ms 1100
+./target/debug/dmxctl inspect --project examples/cli/project.json
+./target/debug/dmxctl simulate --project examples/cli/project.json --scenario examples/cli/scenario.json --duration 3 --log runs/example.jsonl
+./target/debug/dmxctl log summarize runs/example.jsonl
+./target/debug/dmxctl log query runs/example.jsonl --fixture 2 --attrs pan,tilt --from-ms 900 --to-ms 1100
 ```
 
 Linux/macOSでは `mkdir -p runs` で保存先を作ります。ログは既存ファイルを上書きしないため、再実行時は別のファイル名を指定します。
@@ -209,7 +209,7 @@ Linux/macOSでは `mkdir -p runs` で保存先を作ります。ログは既存�
 実時間で操作する場合は `--stdin` を付け、1行ごとにJSONオブジェクトを渡します。
 
 ```powershell
-'{"id":"pan-1","cmd":"set","fixture":1,"attr":"pan","value":80}' | ./target/debug/dmxctl-cli watch --project examples/cli/project.json --stdin --duration 3 --log runs/live.jsonl
+'{"id":"pan-1","cmd":"set","fixture":1,"attr":"pan","value":80}' | ./target/debug/dmxctl watch --project examples/cli/project.json --stdin --duration 3 --log runs/live.jsonl
 ```
 
 AIはプロセスの標準入力を開いたまま操作を送り、標準出力のJSONLで結果を読み取れます。標準入力が閉じても、指定した実行時間までは継続します。標準入力の不正な操作は `command_error` として記録し、実行を継続します。シナリオの不正な操作は起動前に拒否します。
@@ -264,8 +264,8 @@ Ctrl+Cなどでプロセスが終了した場合、`complete` / `end` が残ら�
 ### 操作履歴とシナリオ出力
 
 ```powershell
-./target/debug/dmxctl-cli log scenario runs/example.jsonl --out runs/repro
-./target/debug/dmxctl-cli simulate --project runs/repro/project.json --scenario runs/repro/scenario.json --duration 3 --log runs/replay.jsonl
+./target/debug/dmxctl log scenario runs/example.jsonl --out runs/repro
+./target/debug/dmxctl simulate --project runs/repro/project.json --scenario runs/repro/scenario.json --duration 3 --log runs/replay.jsonl
 ```
 
 記録中はMIDI・キー・OSCの入力も `command` に残します。GUIフレームの前後で観測した変化は `state_change` に残します。GUIフレーム中にはバックグラウンド処理も進むため、これは個々のボタン操作を特定する履歴ではありません。記録開始前の操作は含みません。

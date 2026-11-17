@@ -1,6 +1,6 @@
 //! オート: Beat Link Trigger(BLT)などから曲の情報(色・明るさ・フレーズ)が届いている間は、それに合わせて自動で照明を動かす。
 //! 届かなくなったら(DJ機器が止まった・つながっていない)、全体を薄い水色で静かに光らせて待つ(待機)。
-//! 画面の無いPC(`dmxctl --headless`)で、BLTと一緒に置いておけば、人が操作しなくても照明が動く
+//! 画面の無いPC(`dmxctl headless`)で、BLTと一緒に置いておけば、人が操作しなくても照明が動く
 
 use super::*;
 use crate::motion::{MotionOp, Shape};

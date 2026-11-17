@@ -95,12 +95,12 @@ cargo test --release --features kmsdrm   # Linux: KMSDRMの部分(キーの変�
 | `DMXCTL_NO_MIDI=1` | MIDI機器に自動接続しない(本番と2つ起動するとき) |
 | `DMXCTL_SHOT=保存先.png` + `DMXCTL_TAB=タブ名` / `DMXCTL_PAGE=2` / `DMXCTL_SIZE=1280x800` / `DMXCTL_UNIVERSE=2` | 画面を撮って保存して終了(見た目の確認用) |
 | `DMXCTL_PERF=1` | 描画の時間を表示 |
-| `DMXCTL_KMSDRM=1` / `=0` / `--kmsdrm` | Linux(`kmsdrm`機能入り): KMSDRMで必ず起動する / 使わない。指定が無ければ `DISPLAY` と `WAYLAND_DISPLAY` が無いときに使う |
-| `--headless` / `DMXCTL_HEADLESS=1` | 画面を出さずに動かす(`App::run_headless`)。OSC受信・Link・オートを必ずONにする。`scripts/linux/install-headless.sh` で BLT と一緒に常駐 |
+| `DMXCTL_KMSDRM=1` / `=0` / `dmxctl kmsdrm` | Linux(`kmsdrm`機能入り): KMSDRMで必ず起動する / 使わない。指定が無ければ `DISPLAY` と `WAYLAND_DISPLAY` が無いときに使う |
+| `dmxctl headless` / `DMXCTL_HEADLESS=1` | 画面を出さずに動かす(`App::run_headless`)。OSC受信・Link・オートを必ずONにする。`scripts/linux/install-headless.sh` で BLT と一緒に常駐 |
 | `DMXCTL_SCALE=1.5` | KMSDRMの画面の拡大率(指定が無ければ画面の大きさから自動) |
 | `DMXCTL_D2XX_LIB` / `DMXCTL_NDI_LIB` | ライブラリの場所を直接指定 |
 | `DMXCTL_CHECK_ONLY=1 cargo check --target …` | C++をビルドせずに、他のOS向けに型チェックだけ |
-| `dmxctl --apply-layout` | 保存してある設定を、おすすめのMIDI配置にする(先にバックアップを残す) |
+| `dmxctl apply-layout` | 保存してある設定を、おすすめのMIDI配置にする(先にバックアップを残す) |
 
 ## 実機の確認用テスト(`--ignored` で実行)
 

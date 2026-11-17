@@ -8,7 +8,7 @@
 |---|---|---|
 | Windows 10 / 11 | `DMX-Controller-windows.zip` | 展開して `dmxctl.exe` をダブルクリック。exe 1つで動きます(Visual C++ ランタイムなどのインストールは不要) |
 | Mac(Apple Silicon / Intel) | `DMX-Controller-mac.zip` | 展開して `DMX Controller.app` を「アプリケーション」へ。初めて開くときは、右クリック →「開く」(macOS 15 以降で開けないときは、「システム設定」→「プライバシーとセキュリティ」の「このまま開く」) |
-| Linux(Debian 13 / Ubuntu 24.04 以降) | `DMX-Controller-linux.tar.gz` | 展開して `./dmxctl`(デスクトップ用)。デスクトップ環境の無いPCは `./dmxctl-kmsdrm`、モニターの無いPCは `./dmxctl --headless`([Linux で使う](#linux-で使う)) |
+| Linux(Debian 13 / Ubuntu 24.04 以降) | `DMX-Controller-linux.tar.gz` | 展開して `./dmxctl`(デスクトップ用)。デスクトップ環境の無いPCは `./dmxctl-kmsdrm`、モニターの無いPCは `./dmxctl headless`([Linux で使う](#linux-で使う)) |
 | モニターの無いLinuxで常駐(オート) | `DMX-Controller-linux-headless-x86_64.tar.gz`(普通のPC)/ `DMX-Controller-linux-headless-arm64.tar.gz`(Raspberry Pi 4/5 など) | 展開して `./install.sh`。電源を入れると自動で動きます(Beat Link Trigger も一緒に常駐。`--no-blt` なら dmxctl だけ)。[モニターの無いLinuxでオート](#モニターの無いlinuxでオートblt-と一緒に常駐) |
 
 - **Windows で「WindowsによってPCが保護されました」と出たとき**: 署名の無いアプリなので出ます。「詳細情報」→「実行」で起動できます。初めて Ableton Link・OSC・操作パネルを使うときは、ファイアウォールの確認で「許可」を押します
@@ -628,10 +628,10 @@ CDJ / XDJ ──(Pro DJ Link・LAN)── Linux PC ──(USB-DMX または Art-
                                   ├ Beat Link Trigger(仮想の画面の中)
                                   │   ├ テンポ・拍 → Ableton Link
                                   │   └ 波形の色・大きさ・フレーズ → OSC(127.0.0.1:9000)
-                                  └ dmxctl --headless(オート)
+                                  └ dmxctl headless(オート)
 ```
 
-- `dmxctl --headless`: 画面を出さずに動きます(モニター・X11・SDL2 は不要)。起動すると、OSC受信・テンポの元(Ableton Link)・オートを必ずONにします。様子は標準出力に出ます(待機/受信中・フレーズ・BPM・Linkの台数)
+- `dmxctl headless`: 画面を出さずに動きます(モニター・X11・SDL2 は不要)。起動すると、OSC受信・テンポの元(Ableton Link)・オートを必ずONにします。様子は標準出力に出ます(待機/受信中・フレーズ・BPM・Linkの台数)
 - Beat Link Trigger は画面のあるアプリなので、仮想の画面(Xvfb)の中で動かします。画面を出さずに動く [Open Beat Control](https://github.com/Deep-Symmetry/open-beat-control) もありますが、波形・フレーズは扱えないので、ここでは BLT を使います
 
 **準備**
@@ -680,7 +680,7 @@ dmxctl が動いているPCに、同じネットワークのスマホ・PCのブ
 http://このPCのIPアドレス:8080/
 ```
 
-- **`--headless`(画面なし)では必ずON**。起動したときのログに、開くアドレスが出ます(`操作パネル: http://192.168.x.x:8080/`)
+- **`dmxctl headless`(画面なし)では必ずON**。起動したときのログに、開くアドレスが出ます(`操作パネル: http://192.168.x.x:8080/`)
 - 画面のあるPCでは、「MIDI設定」タブの **スマホから操作(操作パネル)** をONにします。ポート・合言葉もここで決めます。ONにすると、開くアドレスが横に出ます
 
 | パネルでできること | |
@@ -819,7 +819,7 @@ sudo ldconfig
 - トラックパッド: 1本指でカーソルを動かす、軽く叩くと左クリック、2本指で叩くと右クリック、2本指で動かすとスクロール(指の動きに中身がついてくる向き)。押し込むクリックも使えます
 - 日本語入力(IME)は使えません。名前の欄などには英数字を入力してください
 - 他のアプリ(デスクトップ環境など)が画面を使っている間は起動できません
-- KMSDRMを使うかどうかは、ふつうは自動で決まります(環境変数 `DISPLAY` と `WAYLAND_DISPLAY` が無ければ使う)。`--kmsdrm` か `DMXCTL_KMSDRM=1` で必ず使い、`DMXCTL_KMSDRM=0` で使いません
+- KMSDRMを使うかどうかは、ふつうは自動で決まります(環境変数 `DISPLAY` と `WAYLAND_DISPLAY` が無ければ使う)。`dmxctl-kmsdrm kmsdrm` か `DMXCTL_KMSDRM=1` で必ず使い、`DMXCTL_KMSDRM=0` で使いません
 
 **電源を入れたら自動で起動する(例)**
 
