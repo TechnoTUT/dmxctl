@@ -136,6 +136,7 @@ kubectl -n dmxctl exec deploy/dmxctl -- dmxctl ctl status
 
 ## まだ作っていないこと
 
-- イメージを GitHub Actions で作って GHCR に置く仕組み。今は手元で作って、Infra のレジストリに置きます。
+- 今の Kubernetes のマニフェストは、Infra のレジストリのイメージを指しています。GHCR に置いたイメージを使うには、`deployment.yaml` の `image:` を `ghcr.io/technotut/dmxctl` に書き換えます。
+- プルリクエストでは、イメージを作って `dmxctl help` が動くかだけを確かめます。送信はしません。タグ `v*` を push すると、GHCR に送ります。
 - 照明の VLAN lbar へ直接出す設定。必要なときは、Infra で VLAN 30 のブリッジと NAD を作ってから、`deployment.yaml` の注釈を外します。
 - 実機の照明への出力は、まだ確かめていません。Infra の qlcplus も通常の Pod のネットワークで Art-Net を送っているので、同じ方法で届く見込みです。
