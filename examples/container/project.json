@@ -1,0 +1,3240 @@
+{
+  "next_binding_id": 525,
+  "fixtures": [
+    {
+      "id": 1,
+      "name": "MINI SPOT 30 1",
+      "profile": "stage-evolution/minispot30",
+      "mode": 0,
+      "universe": 0,
+      "address": 1,
+      "values": [
+        127,
+        127,
+        44,
+        0,
+        0,
+        255,
+        0,
+        0,
+        0
+      ],
+      "color_role": "Main",
+      "enabled": true
+    },
+    {
+      "id": 9,
+      "name": "MINI SPOT 30 2",
+      "profile": "stage-evolution/minispot30",
+      "mode": 0,
+      "universe": 0,
+      "address": 10,
+      "values": [
+        127,
+        127,
+        44,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "color_role": "Main",
+      "enabled": true
+    },
+    {
+      "id": 10,
+      "name": "MINI SPOT 30 3",
+      "profile": "stage-evolution/minispot30",
+      "mode": 0,
+      "universe": 0,
+      "address": 19,
+      "values": [
+        127,
+        127,
+        44,
+        0,
+        0,
+        255,
+        0,
+        0,
+        0
+      ],
+      "color_role": "Main",
+      "enabled": true
+    },
+    {
+      "id": 11,
+      "name": "MINI SPOT 30 4",
+      "profile": "stage-evolution/minispot30",
+      "mode": 0,
+      "universe": 0,
+      "address": 28,
+      "values": [
+        127,
+        127,
+        44,
+        0,
+        0,
+        255,
+        0,
+        0,
+        0
+      ],
+      "color_role": "Main",
+      "enabled": true
+    },
+    {
+      "id": 12,
+      "name": "LASER SCAN 300 1",
+      "profile": "stage-evolution/laserscan300",
+      "mode": 0,
+      "universe": 0,
+      "address": 55,
+      "values": [
+        255,
+        95,
+        0,
+        27,
+        0,
+        67,
+        6,
+        63,
+        0,
+        63,
+        0,
+        0,
+        0,
+        63,
+        0,
+        63,
+        0
+      ],
+      "color_role": "Main",
+      "enabled": true
+    },
+    {
+      "id": 13,
+      "name": "LASER SCAN 300 2",
+      "profile": "stage-evolution/laserscan300",
+      "mode": 0,
+      "universe": 0,
+      "address": 72,
+      "values": [
+        255,
+        95,
+        0,
+        27,
+        0,
+        67,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        63,
+        0,
+        63,
+        0
+      ],
+      "color_role": "Main",
+      "enabled": true
+    },
+    {
+      "id": 15,
+      "name": "TWINKLE BALL DMX 1",
+      "profile": "stage-evolution/twinkle-ball-dmx",
+      "mode": 0,
+      "universe": 0,
+      "address": 37,
+      "values": [
+        38,
+        0,
+        133,
+        224,
+        121,
+        146,
+        0,
+        0
+      ],
+      "color_role": "Main",
+      "enabled": true
+    },
+    {
+      "id": 16,
+      "name": "GLP-185L 1",
+      "profile": "glint/glp-185l",
+      "mode": 0,
+      "universe": 0,
+      "address": 45,
+      "values": [
+        11,
+        102,
+        0,
+        121,
+        0
+      ],
+      "color_role": "Main",
+      "enabled": true
+    },
+    {
+      "id": 17,
+      "name": "GLP-185L 2",
+      "profile": "glint/glp-185l",
+      "mode": 0,
+      "universe": 0,
+      "address": 50,
+      "values": [
+        11,
+        102,
+        0,
+        121,
+        0
+      ],
+      "color_role": "Main",
+      "enabled": true
+    },
+    {
+      "id": 18,
+      "name": "GLP-185L 3",
+      "profile": "glint/glp-185l",
+      "mode": 0,
+      "universe": 0,
+      "address": 94,
+      "values": [
+        11,
+        102,
+        0,
+        121,
+        0
+      ],
+      "color_role": "Main",
+      "enabled": true
+    },
+    {
+      "id": 19,
+      "name": "GLP-185L 4",
+      "profile": "glint/glp-185l",
+      "mode": 0,
+      "universe": 0,
+      "address": 89,
+      "values": [
+        11,
+        102,
+        0,
+        121,
+        0
+      ],
+      "color_role": "Main",
+      "enabled": true
+    }
+  ],
+  "groups": [],
+  "effects": [
+    {
+      "name": "点灯チェイス",
+      "enabled": false,
+      "sel": {
+        "Profile": "stage-evolution/minispot30"
+      },
+      "attr": "dimmer",
+      "wave": "Square",
+      "rate_hz": 0.25,
+      "min": 0.0,
+      "max": 255.0,
+      "phase": 0.0,
+      "spread": 90.0,
+      "beats": 4.0
+    },
+    {
+      "name": "ランダム点灯",
+      "enabled": false,
+      "sel": {
+        "Profile": "stage-evolution/minispot30"
+      },
+      "attr": "dimmer",
+      "wave": "Random",
+      "rate_hz": 0.25,
+      "min": 0.0,
+      "max": 255.0,
+      "phase": 0.0,
+      "spread": 0.0,
+      "beats": 1.0
+    },
+    {
+      "name": "ブレス",
+      "enabled": false,
+      "sel": {
+        "Profile": "stage-evolution/minispot30"
+      },
+      "attr": "dimmer",
+      "wave": "Sine",
+      "rate_hz": 0.25,
+      "min": 30.0,
+      "max": 255.0,
+      "phase": 0.0,
+      "spread": 90.0,
+      "beats": 8.0
+    },
+    {
+      "name": "ゴボ切替",
+      "enabled": false,
+      "sel": {
+        "Profile": "stage-evolution/minispot30"
+      },
+      "attr": "gobo",
+      "wave": "Saw",
+      "rate_hz": 0.25,
+      "min": 8.0,
+      "max": 63.0,
+      "phase": 0.0,
+      "spread": 0.0,
+      "beats": 8.0
+    }
+  ],
+  "scenes": [],
+  "bindings": [
+    {
+      "id": 394,
+      "name": "止める",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 24
+      },
+      "action": {
+        "Motion": {
+          "op": {
+            "Shape": "Still"
+          }
+        }
+      },
+      "page": 0
+    },
+    {
+      "id": 395,
+      "name": "円",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 25
+      },
+      "action": {
+        "Motion": {
+          "op": {
+            "Shape": "Circle"
+          }
+        }
+      },
+      "page": 0
+    },
+    {
+      "id": 396,
+      "name": "8の字",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 26
+      },
+      "action": {
+        "Motion": {
+          "op": {
+            "Shape": "Eight"
+          }
+        }
+      },
+      "page": 0
+    },
+    {
+      "id": 397,
+      "name": "左右",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 27
+      },
+      "action": {
+        "Motion": {
+          "op": {
+            "Shape": "PanSweep"
+          }
+        }
+      },
+      "page": 0
+    },
+    {
+      "id": 398,
+      "name": "前後",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 28
+      },
+      "action": {
+        "Motion": {
+          "op": {
+            "Shape": "TiltSweep"
+          }
+        }
+      },
+      "page": 0
+    },
+    {
+      "id": 399,
+      "name": "クロス",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 29
+      },
+      "action": {
+        "Motion": {
+          "op": {
+            "Shape": "Cross"
+          }
+        }
+      },
+      "page": 0
+    },
+    {
+      "id": 400,
+      "name": "ランダム",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 30
+      },
+      "action": {
+        "Motion": {
+          "op": {
+            "Shape": "Random"
+          }
+        }
+      },
+      "page": 0
+    },
+    {
+      "id": 401,
+      "name": "ウェーブ",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 31
+      },
+      "action": {
+        "Motion": {
+          "op": {
+            "Shape": "Wave"
+          }
+        }
+      },
+      "page": 0
+    },
+    {
+      "id": 402,
+      "name": "点灯チェイス",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 16
+      },
+      "action": {
+        "Effect": {
+          "name": "点灯チェイス",
+          "mode": "Toggle"
+        }
+      },
+      "page": 0
+    },
+    {
+      "id": 403,
+      "name": "ランダム点灯",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 17
+      },
+      "action": {
+        "Effect": {
+          "name": "ランダム点灯",
+          "mode": "Toggle"
+        }
+      },
+      "page": 0
+    },
+    {
+      "id": 404,
+      "name": "ブレス",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 18
+      },
+      "action": {
+        "Effect": {
+          "name": "ブレス",
+          "mode": "Toggle"
+        }
+      },
+      "page": 0
+    },
+    {
+      "id": 405,
+      "name": "ゴボ切替",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 19
+      },
+      "action": {
+        "Effect": {
+          "name": "ゴボ切替",
+          "mode": "Toggle"
+        }
+      },
+      "page": 0
+    },
+    {
+      "id": 406,
+      "name": "ゴボ回転",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 20
+      },
+      "action": {
+        "SetValue": {
+          "sel": {
+            "Profile": "stage-evolution/minispot30"
+          },
+          "attr": "gobo",
+          "mode": "Toggle",
+          "on": 191.0,
+          "off": 0.0
+        }
+      },
+      "page": 0
+    },
+    {
+      "id": 407,
+      "name": "ゴボシェイク",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 21
+      },
+      "action": {
+        "SetValue": {
+          "sel": {
+            "Profile": "stage-evolution/minispot30"
+          },
+          "attr": "gobo",
+          "mode": "Toggle",
+          "on": 75.0,
+          "off": 0.0
+        }
+      },
+      "page": 0
+    },
+    {
+      "id": 408,
+      "name": "カラー回転",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 22
+      },
+      "action": {
+        "SetValue": {
+          "sel": {
+            "Profile": "stage-evolution/minispot30"
+          },
+          "attr": "color",
+          "mode": "Toggle",
+          "on": 197.0,
+          "off": 0.0
+        }
+      },
+      "page": 0
+    },
+    {
+      "id": 409,
+      "name": "点灯",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 23
+      },
+      "action": {
+        "SetValue": {
+          "sel": {
+            "Profile": "stage-evolution/minispot30"
+          },
+          "attr": "dimmer",
+          "mode": "Toggle",
+          "on": 255.0,
+          "off": 0.0
+        }
+      },
+      "page": 0
+    },
+    {
+      "id": 410,
+      "name": "回転",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 8
+      },
+      "action": {
+        "SetValue": {
+          "sel": {
+            "Profile": "stage-evolution/laserscan300"
+          },
+          "attr": "z_roll",
+          "mode": "Toggle",
+          "on": 95.0,
+          "off": 0.0
+        }
+      },
+      "page": 0
+    },
+    {
+      "id": 411,
+      "name": "ズーム",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 9
+      },
+      "action": {
+        "SetValue": {
+          "sel": {
+            "Profile": "stage-evolution/laserscan300"
+          },
+          "attr": "size",
+          "mode": "Toggle",
+          "on": 232.0,
+          "off": 0.0
+        }
+      },
+      "page": 0
+    },
+    {
+      "id": 412,
+      "name": "描画",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 10
+      },
+      "action": {
+        "SetValue": {
+          "sel": {
+            "Profile": "stage-evolution/laserscan300"
+          },
+          "attr": "draw",
+          "mode": "Toggle",
+          "on": 191.0,
+          "off": 0.0
+        }
+      },
+      "page": 0
+    },
+    {
+      "id": 413,
+      "name": "7色",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 11
+      },
+      "action": {
+        "SetValue": {
+          "sel": {
+            "Profile": "stage-evolution/laserscan300"
+          },
+          "attr": "color",
+          "mode": "Toggle",
+          "on": 183.0,
+          "off": 0.0
+        }
+      },
+      "page": 0
+    },
+    {
+      "id": 414,
+      "name": "フラッシュ 白",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 0
+      },
+      "action": {
+        "Flash": {
+          "white": true,
+          "mode": "Momentary"
+        }
+      }
+    },
+    {
+      "id": 415,
+      "name": "フラッシュ 色",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 1
+      },
+      "action": {
+        "Flash": {
+          "white": false,
+          "mode": "Momentary"
+        }
+      }
+    },
+    {
+      "id": 416,
+      "name": "ストロボ",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 2
+      },
+      "action": {
+        "SetValue": {
+          "sel": "All",
+          "attr": "strobe",
+          "mode": "Momentary",
+          "on": 230.0,
+          "off": 0.0
+        }
+      }
+    },
+    {
+      "id": 417,
+      "name": "入れ替え(押中)",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 3
+      },
+      "action": {
+        "Palette": {
+          "op": "HoldSwap"
+        }
+      }
+    },
+    {
+      "id": 418,
+      "name": "消灯(押中)",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 4
+      },
+      "action": {
+        "Blackout": {
+          "mode": "Momentary"
+        }
+      }
+    },
+    {
+      "id": 419,
+      "name": "TAP",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 112
+      },
+      "action": {
+        "Tempo": {
+          "op": "Tap"
+        }
+      }
+    },
+    {
+      "id": 420,
+      "name": "頭出し",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 113
+      },
+      "action": {
+        "Tempo": {
+          "op": "Resync"
+        }
+      }
+    },
+    {
+      "id": 421,
+      "name": "メイン⇄サブ",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 114
+      },
+      "action": {
+        "Palette": {
+          "op": "Swap"
+        }
+      }
+    },
+    {
+      "id": 422,
+      "name": "自動入れ替え",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 115
+      },
+      "action": {
+        "Palette": {
+          "op": "Auto"
+        }
+      }
+    },
+    {
+      "id": 423,
+      "name": "グラデーション",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 117
+      },
+      "action": {
+        "Palette": {
+          "op": "Fade"
+        }
+      }
+    },
+    {
+      "id": 424,
+      "name": "暗転フェード",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 118
+      },
+      "action": {
+        "Fade": {
+          "secs": 3.0,
+          "mode": "Toggle"
+        }
+      }
+    },
+    {
+      "id": 425,
+      "name": "BLACKOUT",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 119
+      },
+      "action": {
+        "Blackout": {
+          "mode": "Toggle"
+        }
+      }
+    },
+    {
+      "id": 426,
+      "name": "ミュート:MINI SPOT 30",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 100
+      },
+      "action": {
+        "Mute": {
+          "sel": {
+            "Profile": "stage-evolution/minispot30"
+          },
+          "mode": "Toggle"
+        }
+      }
+    },
+    {
+      "id": 427,
+      "name": "ミュート:LASER SCAN 300",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 101
+      },
+      "action": {
+        "Mute": {
+          "sel": {
+            "Profile": "stage-evolution/laserscan300"
+          },
+          "mode": "Toggle"
+        }
+      }
+    },
+    {
+      "id": 428,
+      "name": "MINI SPOT 30 明るさ",
+      "trigger": {
+        "kind": "Cc",
+        "channel": null,
+        "number": 48
+      },
+      "action": {
+        "SetValue": {
+          "sel": {
+            "Profile": "stage-evolution/minispot30"
+          },
+          "attr": "dimmer",
+          "mode": "Continuous",
+          "on": 255.0,
+          "off": 0.0
+        }
+      },
+      "page": 0
+    },
+    {
+      "id": 429,
+      "name": "メイン 色相",
+      "trigger": {
+        "kind": "Cc",
+        "channel": null,
+        "number": 54
+      },
+      "action": {
+        "Color": {
+          "color": null,
+          "target": "Main"
+        }
+      }
+    },
+    {
+      "id": 430,
+      "name": "サブ 色相",
+      "trigger": {
+        "kind": "Cc",
+        "channel": null,
+        "number": 55
+      },
+      "action": {
+        "Color": {
+          "color": null,
+          "target": "Sub"
+        }
+      }
+    },
+    {
+      "id": 431,
+      "name": "全体光量",
+      "trigger": {
+        "kind": "Cc",
+        "channel": null,
+        "number": 56
+      },
+      "action": {
+        "Master": {
+          "mode": "Continuous",
+          "on": 100.0,
+          "off": 0.0
+        }
+      }
+    },
+    {
+      "id": 432,
+      "name": "止める",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 16
+      },
+      "action": {
+        "Motion": {
+          "op": {
+            "Shape": "Still"
+          }
+        }
+      }
+    },
+    {
+      "id": 433,
+      "name": "円",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 17
+      },
+      "action": {
+        "Motion": {
+          "op": {
+            "Shape": "Circle"
+          }
+        }
+      }
+    },
+    {
+      "id": 434,
+      "name": "8の字",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 18
+      },
+      "action": {
+        "Motion": {
+          "op": {
+            "Shape": "Eight"
+          }
+        }
+      }
+    },
+    {
+      "id": 435,
+      "name": "左右",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 19
+      },
+      "action": {
+        "Motion": {
+          "op": {
+            "Shape": "PanSweep"
+          }
+        }
+      }
+    },
+    {
+      "id": 436,
+      "name": "前後",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 20
+      },
+      "action": {
+        "Motion": {
+          "op": {
+            "Shape": "TiltSweep"
+          }
+        }
+      }
+    },
+    {
+      "id": 437,
+      "name": "クロス",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 21
+      },
+      "action": {
+        "Motion": {
+          "op": {
+            "Shape": "Cross"
+          }
+        }
+      }
+    },
+    {
+      "id": 438,
+      "name": "ランダム",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 22
+      },
+      "action": {
+        "Motion": {
+          "op": {
+            "Shape": "Random"
+          }
+        }
+      }
+    },
+    {
+      "id": 439,
+      "name": "ウェーブ",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 23
+      },
+      "action": {
+        "Motion": {
+          "op": {
+            "Shape": "Wave"
+          }
+        }
+      }
+    },
+    {
+      "id": 440,
+      "name": "動き 小さく",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 24
+      },
+      "action": {
+        "Motion": {
+          "op": {
+            "SizeStep": -0.1
+          }
+        }
+      }
+    },
+    {
+      "id": 441,
+      "name": "動き 大きく",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 25
+      },
+      "action": {
+        "Motion": {
+          "op": {
+            "SizeStep": 0.1
+          }
+        }
+      }
+    },
+    {
+      "id": 442,
+      "name": "4小節",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 32
+      },
+      "action": {
+        "Motion": {
+          "op": {
+            "Beats": 16.0
+          }
+        }
+      }
+    },
+    {
+      "id": 443,
+      "name": "2小節",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 33
+      },
+      "action": {
+        "Motion": {
+          "op": {
+            "Beats": 8.0
+          }
+        }
+      }
+    },
+    {
+      "id": 444,
+      "name": "1小節",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 34
+      },
+      "action": {
+        "Motion": {
+          "op": {
+            "Beats": 4.0
+          }
+        }
+      }
+    },
+    {
+      "id": 445,
+      "name": "2拍",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 35
+      },
+      "action": {
+        "Motion": {
+          "op": {
+            "Beats": 2.0
+          }
+        }
+      }
+    },
+    {
+      "id": 446,
+      "name": "1拍",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 36
+      },
+      "action": {
+        "Motion": {
+          "op": {
+            "Beats": 1.0
+          }
+        }
+      }
+    },
+    {
+      "id": 447,
+      "name": "揃える",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 37
+      },
+      "action": {
+        "Motion": {
+          "op": {
+            "Spread": "Sync"
+          }
+        }
+      }
+    },
+    {
+      "id": 448,
+      "name": "ずらす",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 38
+      },
+      "action": {
+        "Motion": {
+          "op": {
+            "Spread": "Fan"
+          }
+        }
+      }
+    },
+    {
+      "id": 449,
+      "name": "左右対称",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 39
+      },
+      "action": {
+        "Motion": {
+          "op": {
+            "Spread": "Mirror"
+          }
+        }
+      }
+    },
+    {
+      "id": 450,
+      "name": "ゴボ回転",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 40
+      },
+      "action": {
+        "SetValue": {
+          "sel": {
+            "Profile": "stage-evolution/minispot30"
+          },
+          "attr": "gobo",
+          "mode": "Toggle",
+          "on": 191.0,
+          "off": 0.0
+        }
+      }
+    },
+    {
+      "id": 451,
+      "name": "カラー回転",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 41
+      },
+      "action": {
+        "SetValue": {
+          "sel": {
+            "Profile": "stage-evolution/minispot30"
+          },
+          "attr": "color",
+          "mode": "Toggle",
+          "on": 197.0,
+          "off": 0.0
+        }
+      }
+    },
+    {
+      "id": 452,
+      "name": "真上",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 54
+      },
+      "action": {
+        "Motion": {
+          "op": {
+            "Position": 0
+          }
+        }
+      }
+    },
+    {
+      "id": 453,
+      "name": "扇形",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 55
+      },
+      "action": {
+        "Motion": {
+          "op": {
+            "Position": 1
+          }
+        }
+      }
+    },
+    {
+      "id": 454,
+      "name": "交差",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 56
+      },
+      "action": {
+        "Motion": {
+          "op": {
+            "Position": 2
+          }
+        }
+      }
+    },
+    {
+      "id": 455,
+      "name": "客席",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 57
+      },
+      "action": {
+        "Motion": {
+          "op": {
+            "Position": 3
+          }
+        }
+      }
+    },
+    {
+      "id": 456,
+      "name": "フラッシュ 白",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 48
+      },
+      "action": {
+        "Flash": {
+          "white": true,
+          "mode": "Momentary"
+        }
+      }
+    },
+    {
+      "id": 457,
+      "name": "フラッシュ 色",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 49
+      },
+      "action": {
+        "Flash": {
+          "white": false,
+          "mode": "Momentary"
+        }
+      }
+    },
+    {
+      "id": 458,
+      "name": "ストロボ",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 50
+      },
+      "action": {
+        "SetValue": {
+          "sel": "All",
+          "attr": "strobe",
+          "mode": "Momentary",
+          "on": 230.0,
+          "off": 0.0
+        }
+      }
+    },
+    {
+      "id": 459,
+      "name": "メイン⇄サブ",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 51
+      },
+      "action": {
+        "Palette": {
+          "op": "Swap"
+        }
+      }
+    },
+    {
+      "id": 460,
+      "name": "自動入れ替え",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 52
+      },
+      "action": {
+        "Palette": {
+          "op": "Auto"
+        }
+      }
+    },
+    {
+      "id": 461,
+      "name": "暗転フェード",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 53
+      },
+      "action": {
+        "Fade": {
+          "secs": 3.0,
+          "mode": "Toggle"
+        }
+      }
+    },
+    {
+      "id": 462,
+      "name": "赤",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 64
+      },
+      "action": {
+        "Color": {
+          "color": "Red",
+          "target": "Main"
+        }
+      }
+    },
+    {
+      "id": 463,
+      "name": "赤",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 80
+      },
+      "action": {
+        "Color": {
+          "color": "Red",
+          "target": "Sub"
+        }
+      }
+    },
+    {
+      "id": 464,
+      "name": "オレンジ",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 65
+      },
+      "action": {
+        "Color": {
+          "color": "Orange",
+          "target": "Main"
+        }
+      }
+    },
+    {
+      "id": 465,
+      "name": "オレンジ",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 81
+      },
+      "action": {
+        "Color": {
+          "color": "Orange",
+          "target": "Sub"
+        }
+      }
+    },
+    {
+      "id": 466,
+      "name": "黄",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 66
+      },
+      "action": {
+        "Color": {
+          "color": "Yellow",
+          "target": "Main"
+        }
+      }
+    },
+    {
+      "id": 467,
+      "name": "黄",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 82
+      },
+      "action": {
+        "Color": {
+          "color": "Yellow",
+          "target": "Sub"
+        }
+      }
+    },
+    {
+      "id": 468,
+      "name": "緑",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 67
+      },
+      "action": {
+        "Color": {
+          "color": "Green",
+          "target": "Main"
+        }
+      }
+    },
+    {
+      "id": 469,
+      "name": "緑",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 83
+      },
+      "action": {
+        "Color": {
+          "color": "Green",
+          "target": "Sub"
+        }
+      }
+    },
+    {
+      "id": 470,
+      "name": "水色",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 68
+      },
+      "action": {
+        "Color": {
+          "color": "Cyan",
+          "target": "Main"
+        }
+      }
+    },
+    {
+      "id": 471,
+      "name": "水色",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 84
+      },
+      "action": {
+        "Color": {
+          "color": "Cyan",
+          "target": "Sub"
+        }
+      }
+    },
+    {
+      "id": 472,
+      "name": "青",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 69
+      },
+      "action": {
+        "Color": {
+          "color": "Blue",
+          "target": "Main"
+        }
+      }
+    },
+    {
+      "id": 473,
+      "name": "青",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 85
+      },
+      "action": {
+        "Color": {
+          "color": "Blue",
+          "target": "Sub"
+        }
+      }
+    },
+    {
+      "id": 474,
+      "name": "紫",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 70
+      },
+      "action": {
+        "Color": {
+          "color": "Violet",
+          "target": "Main"
+        }
+      }
+    },
+    {
+      "id": 475,
+      "name": "紫",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 86
+      },
+      "action": {
+        "Color": {
+          "color": "Violet",
+          "target": "Sub"
+        }
+      }
+    },
+    {
+      "id": 476,
+      "name": "マゼンタ",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 71
+      },
+      "action": {
+        "Color": {
+          "color": "Magenta",
+          "target": "Main"
+        }
+      }
+    },
+    {
+      "id": 477,
+      "name": "マゼンタ",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 87
+      },
+      "action": {
+        "Color": {
+          "color": "Magenta",
+          "target": "Sub"
+        }
+      }
+    },
+    {
+      "id": 478,
+      "name": "ピンク",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 72
+      },
+      "action": {
+        "Color": {
+          "color": "Pink",
+          "target": "Main"
+        }
+      }
+    },
+    {
+      "id": 479,
+      "name": "ピンク",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 88
+      },
+      "action": {
+        "Color": {
+          "color": "Pink",
+          "target": "Sub"
+        }
+      }
+    },
+    {
+      "id": 480,
+      "name": "白",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 73
+      },
+      "action": {
+        "Color": {
+          "color": "White",
+          "target": "Main"
+        }
+      }
+    },
+    {
+      "id": 481,
+      "name": "白",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 89
+      },
+      "action": {
+        "Color": {
+          "color": "White",
+          "target": "Sub"
+        }
+      }
+    },
+    {
+      "id": 482,
+      "name": "メイン⇄サブ",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 96
+      },
+      "action": {
+        "Palette": {
+          "op": "Swap"
+        }
+      }
+    },
+    {
+      "id": 483,
+      "name": "自動入れ替え",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 97
+      },
+      "action": {
+        "Palette": {
+          "op": "Auto"
+        }
+      }
+    },
+    {
+      "id": 484,
+      "name": "グラデーション",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 98
+      },
+      "action": {
+        "Palette": {
+          "op": "Fade"
+        }
+      }
+    },
+    {
+      "id": 485,
+      "name": "入れ替え 1拍",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 99
+      },
+      "action": {
+        "SwapBeats": {
+          "beats": 1.0
+        }
+      }
+    },
+    {
+      "id": 486,
+      "name": "入れ替え 2拍",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 100
+      },
+      "action": {
+        "SwapBeats": {
+          "beats": 2.0
+        }
+      }
+    },
+    {
+      "id": 487,
+      "name": "入れ替え 4拍",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 101
+      },
+      "action": {
+        "SwapBeats": {
+          "beats": 4.0
+        }
+      }
+    },
+    {
+      "id": 488,
+      "name": "入れ替え 8拍",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 102
+      },
+      "action": {
+        "SwapBeats": {
+          "beats": 8.0
+        }
+      }
+    },
+    {
+      "id": 489,
+      "name": "入れ替え 16拍",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 103
+      },
+      "action": {
+        "SwapBeats": {
+          "beats": 16.0
+        }
+      }
+    },
+    {
+      "id": 490,
+      "name": "全部メイン",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 112
+      },
+      "action": {
+        "Role": {
+          "sel": "All",
+          "op": "Main"
+        }
+      }
+    },
+    {
+      "id": 491,
+      "name": "全部サブ",
+      "trigger": {
+        "kind": "Key",
+        "channel": null,
+        "number": 113
+      },
+      "action": {
+        "Role": {
+          "sel": "All",
+          "op": "Sub"
+        }
+      }
+    },
+    {
+      "id": 492,
+      "name": "設定ページへ",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 116
+      },
+      "action": {
+        "Page": {
+          "op": {
+            "Go": 1
+          }
+        }
+      },
+      "page": 0
+    },
+    {
+      "id": 493,
+      "name": "演出ページへ",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 116
+      },
+      "action": {
+        "Page": {
+          "op": {
+            "Go": 0
+          }
+        }
+      },
+      "page": 1
+    },
+    {
+      "id": 494,
+      "name": "系統:MINI SPOT 30",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 56
+      },
+      "action": {
+        "Role": {
+          "sel": {
+            "Profile": "stage-evolution/minispot30"
+          },
+          "op": "Toggle"
+        }
+      },
+      "page": 1
+    },
+    {
+      "id": 495,
+      "name": "系統:LASER SCAN 300",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 57
+      },
+      "action": {
+        "Role": {
+          "sel": {
+            "Profile": "stage-evolution/laserscan300"
+          },
+          "op": "Toggle"
+        }
+      },
+      "page": 1
+    },
+    {
+      "id": 496,
+      "name": "系統:全部メイン",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 58
+      },
+      "action": {
+        "Role": {
+          "sel": "All",
+          "op": "Main"
+        }
+      },
+      "page": 1
+    },
+    {
+      "id": 497,
+      "name": "系統:全部サブ",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 59
+      },
+      "action": {
+        "Role": {
+          "sel": "All",
+          "op": "Sub"
+        }
+      },
+      "page": 1
+    },
+    {
+      "id": 498,
+      "name": "系統:MINI SPOT 30 1",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 48
+      },
+      "action": {
+        "Role": {
+          "sel": {
+            "Fixture": 1
+          },
+          "op": "Toggle"
+        }
+      },
+      "page": 1
+    },
+    {
+      "id": 499,
+      "name": "系統:LASER SCAN 300 1",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 49
+      },
+      "action": {
+        "Role": {
+          "sel": {
+            "Fixture": 2
+          },
+          "op": "Toggle"
+        }
+      },
+      "page": 1
+    },
+    {
+      "id": 500,
+      "name": "4小節",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 40
+      },
+      "action": {
+        "Motion": {
+          "op": {
+            "Beats": 16.0
+          }
+        }
+      },
+      "page": 1
+    },
+    {
+      "id": 501,
+      "name": "2小節",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 41
+      },
+      "action": {
+        "Motion": {
+          "op": {
+            "Beats": 8.0
+          }
+        }
+      },
+      "page": 1
+    },
+    {
+      "id": 502,
+      "name": "1小節",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 42
+      },
+      "action": {
+        "Motion": {
+          "op": {
+            "Beats": 4.0
+          }
+        }
+      },
+      "page": 1
+    },
+    {
+      "id": 503,
+      "name": "2拍",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 43
+      },
+      "action": {
+        "Motion": {
+          "op": {
+            "Beats": 2.0
+          }
+        }
+      },
+      "page": 1
+    },
+    {
+      "id": 504,
+      "name": "1拍",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 44
+      },
+      "action": {
+        "Motion": {
+          "op": {
+            "Beats": 1.0
+          }
+        }
+      },
+      "page": 1
+    },
+    {
+      "id": 505,
+      "name": "揃える",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 45
+      },
+      "action": {
+        "Motion": {
+          "op": {
+            "Spread": "Sync"
+          }
+        }
+      },
+      "page": 1
+    },
+    {
+      "id": 506,
+      "name": "ずらす",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 46
+      },
+      "action": {
+        "Motion": {
+          "op": {
+            "Spread": "Fan"
+          }
+        }
+      },
+      "page": 1
+    },
+    {
+      "id": 507,
+      "name": "左右対称",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 47
+      },
+      "action": {
+        "Motion": {
+          "op": {
+            "Spread": "Mirror"
+          }
+        }
+      },
+      "page": 1
+    },
+    {
+      "id": 508,
+      "name": "ARM:LASER SCAN 300 1",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 32
+      },
+      "action": {
+        "Arm": {
+          "sel": {
+            "Fixture": 2
+          },
+          "mode": "Toggle"
+        }
+      },
+      "page": 1
+    },
+    {
+      "id": 509,
+      "name": "ARM:LASER SCAN 300 全部",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 33
+      },
+      "action": {
+        "Arm": {
+          "sel": {
+            "Profile": "stage-evolution/laserscan300"
+          },
+          "mode": "Toggle"
+        }
+      },
+      "page": 1
+    },
+    {
+      "id": 510,
+      "name": "NDI:メイン=映像",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 24
+      },
+      "action": {
+        "LiveColor": {
+          "role": "Main",
+          "source": "Video"
+        }
+      },
+      "page": 1
+    },
+    {
+      "id": 511,
+      "name": "NDI:メイン=音",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 25
+      },
+      "action": {
+        "LiveColor": {
+          "role": "Main",
+          "source": "Audio"
+        }
+      },
+      "page": 1
+    },
+    {
+      "id": 512,
+      "name": "NDI:サブ=映像",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 26
+      },
+      "action": {
+        "LiveColor": {
+          "role": "Sub",
+          "source": "Video"
+        }
+      },
+      "page": 1
+    },
+    {
+      "id": 513,
+      "name": "NDI:サブ=音",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 27
+      },
+      "action": {
+        "LiveColor": {
+          "role": "Sub",
+          "source": "Audio"
+        }
+      },
+      "page": 1
+    },
+    {
+      "id": 514,
+      "name": "Ableton Link",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 28
+      },
+      "action": {
+        "Tempo": {
+          "op": "Link"
+        }
+      },
+      "page": 1
+    },
+    {
+      "id": 515,
+      "name": "音声BPM",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 29
+      },
+      "action": {
+        "Tempo": {
+          "op": "Audio"
+        }
+      },
+      "page": 1
+    },
+    {
+      "id": 516,
+      "name": "BPM -1",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 30
+      },
+      "action": {
+        "Tempo": {
+          "op": {
+            "Nudge": {
+              "delta": -1.0
+            }
+          }
+        }
+      },
+      "page": 1
+    },
+    {
+      "id": 517,
+      "name": "BPM +1",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 31
+      },
+      "action": {
+        "Tempo": {
+          "op": {
+            "Nudge": {
+              "delta": 1.0
+            }
+          }
+        }
+      },
+      "page": 1
+    },
+    {
+      "id": 518,
+      "name": "入れ替え 1拍",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 16
+      },
+      "action": {
+        "SwapBeats": {
+          "beats": 1.0
+        }
+      },
+      "page": 1
+    },
+    {
+      "id": 519,
+      "name": "入れ替え 2拍",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 17
+      },
+      "action": {
+        "SwapBeats": {
+          "beats": 2.0
+        }
+      },
+      "page": 1
+    },
+    {
+      "id": 520,
+      "name": "入れ替え 4拍",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 18
+      },
+      "action": {
+        "SwapBeats": {
+          "beats": 4.0
+        }
+      },
+      "page": 1
+    },
+    {
+      "id": 521,
+      "name": "入れ替え 8拍",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 19
+      },
+      "action": {
+        "SwapBeats": {
+          "beats": 8.0
+        }
+      },
+      "page": 1
+    },
+    {
+      "id": 522,
+      "name": "入れ替え 16拍",
+      "trigger": {
+        "kind": "Note",
+        "channel": null,
+        "number": 20
+      },
+      "action": {
+        "SwapBeats": {
+          "beats": 16.0
+        }
+      },
+      "page": 1
+    },
+    {
+      "id": 523,
+      "name": "MINI SPOT 30 動きの速さ",
+      "trigger": {
+        "kind": "Cc",
+        "channel": null,
+        "number": 48
+      },
+      "action": {
+        "SetValue": {
+          "sel": {
+            "Profile": "stage-evolution/minispot30"
+          },
+          "attr": "pt_speed",
+          "mode": "Continuous",
+          "on": 0.0,
+          "off": 255.0
+        }
+      },
+      "page": 1
+    },
+    {
+      "id": 524,
+      "name": "動きの大きさ",
+      "trigger": {
+        "kind": "Cc",
+        "channel": null,
+        "number": 49
+      },
+      "action": {
+        "Motion": {
+          "op": "Size"
+        }
+      },
+      "page": 1
+    }
+  ],
+  "outputs": [
+    {
+      "enabled": true,
+      "universe": 0,
+      "kind": {
+        "ArtNet": {
+          "ip": "192.0.2.10",
+          "art_universe": 0
+        }
+      }
+    }
+  ],
+  "midi_input": "",
+  "next_id": 20,
+  "master_seeded": true,
+  "bpm": 147.4977,
+  "chases": [],
+  "pairs": [
+    {
+      "name": "pair1",
+      "enabled": true,
+      "leader": 1,
+      "follower": 9,
+      "mirror": true,
+      "invert": [
+        "pan"
+      ],
+      "skip_cats": [
+        "制御"
+      ]
+    },
+    {
+      "name": "pair2",
+      "enabled": true,
+      "leader": 10,
+      "follower": 11,
+      "mirror": true,
+      "invert": [
+        "pan"
+      ],
+      "skip_cats": [
+        "制御"
+      ]
+    },
+    {
+      "name": "ペア3",
+      "enabled": true,
+      "leader": 12,
+      "follower": 12,
+      "mirror": true,
+      "invert": [
+        "x_roll",
+        "x_roll_speed",
+        "y_roll",
+        "y_roll_speed",
+        "z_roll",
+        "z_roll_speed"
+      ],
+      "skip_cats": []
+    }
+  ],
+  "led_enabled": true,
+  "led_idle": 1,
+  "positions": [],
+  "tempo_source": "Link",
+  "clock_input": "",
+  "audio_input": "",
+  "osc_enabled": true,
+  "osc_port": 9000,
+  "web_enabled": true,
+  "web_port": 8080,
+  "web_pin": "",
+  "osc_rgb_secs": 0.5,
+  "osc_level_depth": 0.7,
+  "auto": {
+    "enabled": true,
+    "idle_rgb": [
+      0.45,
+      0.8000002,
+      1.0
+    ],
+    "idle_level": 0.35,
+    "timeout_secs": 5.0,
+    "builtin": true,
+    "manual_secs": 120.0,
+    "energy": true,
+    "accent": true,
+    "presets": [
+      {
+        "name": "標準",
+        "looks": {
+          "bridge": {
+            "shape": "PanSweep",
+            "beats": 4.0,
+            "spread": "Mirror",
+            "position": null,
+            "color": "Fade",
+            "color_beats": 4.0,
+            "brightness": 0.8,
+            "wave_color": true,
+            "flash": false,
+            "scene": "",
+            "effects": []
+          },
+          "chorus": {
+            "shape": "Cross",
+            "beats": 2.0,
+            "spread": "Mirror",
+            "position": null,
+            "color": "Swap",
+            "color_beats": 1.0,
+            "brightness": 1.0,
+            "wave_color": true,
+            "flash": true,
+            "scene": "",
+            "effects": []
+          },
+          "down": {
+            "shape": "Wave",
+            "beats": 8.0,
+            "spread": "Fan",
+            "position": null,
+            "color": "Fade",
+            "color_beats": 8.0,
+            "brightness": 0.6,
+            "wave_color": true,
+            "flash": false,
+            "scene": "",
+            "effects": []
+          },
+          "intro": {
+            "shape": "Circle",
+            "beats": 16.0,
+            "spread": "Fan",
+            "position": null,
+            "color": "Fade",
+            "color_beats": 8.0,
+            "brightness": 0.6,
+            "wave_color": true,
+            "flash": false,
+            "scene": "",
+            "effects": []
+          },
+          "outro": {
+            "shape": "Circle",
+            "beats": 16.0,
+            "spread": "Fan",
+            "position": null,
+            "color": "Fade",
+            "color_beats": 8.0,
+            "brightness": 0.6,
+            "wave_color": true,
+            "flash": false,
+            "scene": "",
+            "effects": []
+          },
+          "up": {
+            "shape": "TiltSweep",
+            "beats": 2.0,
+            "spread": "Sync",
+            "position": null,
+            "color": "Swap",
+            "color_beats": 2.0,
+            "brightness": 0.9,
+            "wave_color": true,
+            "flash": false,
+            "scene": "",
+            "effects": []
+          },
+          "verse": {
+            "shape": "Eight",
+            "beats": 8.0,
+            "spread": "Fan",
+            "position": null,
+            "color": "Swap",
+            "color_beats": 4.0,
+            "brightness": 0.8,
+            "wave_color": true,
+            "flash": false,
+            "scene": "",
+            "effects": []
+          }
+        }
+      },
+      {
+        "name": "激しめ",
+        "looks": {
+          "bridge": {
+            "shape": "PanSweep",
+            "beats": 4.0,
+            "spread": "Mirror",
+            "position": null,
+            "color": "Fade",
+            "color_beats": 4.0,
+            "brightness": 0.8,
+            "wave_color": true,
+            "flash": false,
+            "scene": "",
+            "effects": []
+          },
+          "chorus": {
+            "shape": "Random",
+            "beats": 1.0,
+            "spread": "Fan",
+            "position": null,
+            "color": "Swap",
+            "color_beats": 1.0,
+            "brightness": 1.0,
+            "wave_color": true,
+            "flash": true,
+            "scene": "",
+            "effects": []
+          },
+          "down": {
+            "shape": "Wave",
+            "beats": 8.0,
+            "spread": "Fan",
+            "position": null,
+            "color": "Fade",
+            "color_beats": 8.0,
+            "brightness": 0.6,
+            "wave_color": true,
+            "flash": false,
+            "scene": "",
+            "effects": []
+          },
+          "intro": {
+            "shape": "Circle",
+            "beats": 8.0,
+            "spread": "Fan",
+            "position": null,
+            "color": "Swap",
+            "color_beats": 4.0,
+            "brightness": 0.7,
+            "wave_color": true,
+            "flash": false,
+            "scene": "",
+            "effects": []
+          },
+          "outro": {
+            "shape": "Circle",
+            "beats": 16.0,
+            "spread": "Fan",
+            "position": null,
+            "color": "Fade",
+            "color_beats": 8.0,
+            "brightness": 0.6,
+            "wave_color": true,
+            "flash": false,
+            "scene": "",
+            "effects": []
+          },
+          "up": {
+            "shape": "TiltSweep",
+            "beats": 1.0,
+            "spread": "Sync",
+            "position": null,
+            "color": "Swap",
+            "color_beats": 1.0,
+            "brightness": 1.0,
+            "wave_color": true,
+            "flash": false,
+            "scene": "",
+            "effects": []
+          },
+          "verse": {
+            "shape": "Eight",
+            "beats": 4.0,
+            "spread": "Mirror",
+            "position": null,
+            "color": "Swap",
+            "color_beats": 2.0,
+            "brightness": 0.9,
+            "wave_color": true,
+            "flash": false,
+            "scene": "",
+            "effects": []
+          }
+        }
+      }
+    ],
+    "preset": 0,
+    "alert_secs": 60.0
+  },
+  "palette": {
+    "main": [
+      1.0,
+      1.0,
+      0.0
+    ],
+    "sub": [
+      0.0,
+      0.75,
+      1.0
+    ],
+    "auto": false,
+    "auto_beats": 4.0,
+    "fade": true
+  },
+  "pixel_fx": [
+    {
+      "name": "ブリーズ",
+      "enabled": false,
+      "sel": "All",
+      "kind": "Wave",
+      "a": "Main",
+      "b": "Sub",
+      "beats": 16.0,
+      "width": 1.0,
+      "reverse": false,
+      "span": false,
+      "mirror": true,
+      "axis": "Along",
+      "skew": 0.0
+    },
+    {
+      "name": "斜めグラデ",
+      "enabled": false,
+      "sel": "All",
+      "kind": "Gradient",
+      "a": "Main",
+      "b": "Sub",
+      "beats": 16.0,
+      "width": 1.0,
+      "reverse": false,
+      "span": false,
+      "mirror": false,
+      "axis": "Along",
+      "skew": 0.5
+    },
+    {
+      "name": "縦ウェーブ",
+      "enabled": false,
+      "sel": "All",
+      "kind": "Wave",
+      "a": "Main",
+      "b": "Sub",
+      "beats": 8.0,
+      "width": 1.0,
+      "reverse": false,
+      "span": false,
+      "mirror": false,
+      "axis": "Across",
+      "skew": 0.0
+    },
+    {
+      "name": "オーロラ",
+      "enabled": false,
+      "sel": "All",
+      "kind": "Wave",
+      "a": "Main",
+      "b": "Sub",
+      "beats": 32.0,
+      "width": 2.0,
+      "reverse": false,
+      "span": false,
+      "mirror": false,
+      "axis": "Along",
+      "skew": 1.0
+    },
+    {
+      "name": "星空",
+      "enabled": false,
+      "sel": "All",
+      "kind": "Sparkle",
+      "a": "White",
+      "b": "Sub",
+      "beats": 16.0,
+      "width": 5.0,
+      "reverse": false,
+      "span": false,
+      "mirror": false,
+      "axis": "Along",
+      "skew": 0.0
+    },
+    {
+      "name": "交互フェード",
+      "enabled": false,
+      "sel": "All",
+      "kind": "AltFade",
+      "a": "Main",
+      "b": "Sub",
+      "beats": 8.0,
+      "width": 1.0,
+      "reverse": false,
+      "span": false,
+      "mirror": false,
+      "axis": "Across",
+      "skew": 0.0
+    },
+    {
+      "name": "さざなみ",
+      "enabled": false,
+      "sel": "All",
+      "kind": "Wave",
+      "a": "Main",
+      "b": "Sub",
+      "beats": 16.0,
+      "width": 3.0,
+      "reverse": false,
+      "span": false,
+      "mirror": false,
+      "axis": "Along",
+      "skew": 0.0
+    },
+    {
+      "name": "レインボー",
+      "enabled": false,
+      "sel": "All",
+      "kind": "Rainbow",
+      "a": "Main",
+      "b": "Sub",
+      "beats": 32.0,
+      "width": 1.0,
+      "reverse": false,
+      "span": false,
+      "mirror": false,
+      "axis": "Along",
+      "skew": 0.5
+    },
+    {
+      "name": "縞スクロール",
+      "enabled": false,
+      "sel": "All",
+      "kind": "Stripes",
+      "a": "Main",
+      "b": "Sub",
+      "beats": 4.0,
+      "width": 6.0,
+      "reverse": false,
+      "span": false,
+      "mirror": false,
+      "axis": "Along",
+      "skew": 0.0
+    },
+    {
+      "name": "斜め縞",
+      "enabled": false,
+      "sel": "All",
+      "kind": "Stripes",
+      "a": "Main",
+      "b": "Sub",
+      "beats": 4.0,
+      "width": 8.0,
+      "reverse": false,
+      "span": false,
+      "mirror": false,
+      "axis": "Along",
+      "skew": 0.5
+    },
+    {
+      "name": "縦スキャン",
+      "enabled": false,
+      "sel": "All",
+      "kind": "Chase",
+      "a": "Main",
+      "b": "Sub",
+      "beats": 4.0,
+      "width": 1.0,
+      "reverse": false,
+      "span": false,
+      "mirror": false,
+      "axis": "Across",
+      "skew": 0.0
+    },
+    {
+      "name": "V字ウェーブ",
+      "enabled": false,
+      "sel": "All",
+      "kind": "Wave",
+      "a": "Main",
+      "b": "Sub",
+      "beats": 4.0,
+      "width": 1.0,
+      "reverse": false,
+      "span": false,
+      "mirror": true,
+      "axis": "Along",
+      "skew": 0.5
+    },
+    {
+      "name": "バー交互",
+      "enabled": false,
+      "sel": "All",
+      "kind": "Alternate",
+      "a": "Main",
+      "b": "Sub",
+      "beats": 1.0,
+      "width": 1.0,
+      "reverse": false,
+      "span": false,
+      "mirror": false,
+      "axis": "Across",
+      "skew": 0.0
+    },
+    {
+      "name": "縦ワイプ",
+      "enabled": false,
+      "sel": "All",
+      "kind": "Wipe",
+      "a": "Main",
+      "b": "Sub",
+      "beats": 8.0,
+      "width": 0.0,
+      "reverse": false,
+      "span": false,
+      "mirror": false,
+      "axis": "Across",
+      "skew": 0.0
+    },
+    {
+      "name": "中央スキャン",
+      "enabled": false,
+      "sel": "All",
+      "kind": "Chase",
+      "a": "Main",
+      "b": "Sub",
+      "beats": 2.0,
+      "width": 1.0,
+      "reverse": false,
+      "span": false,
+      "mirror": true,
+      "axis": "Across",
+      "skew": 0.0
+    },
+    {
+      "name": "斜めウェーブ",
+      "enabled": false,
+      "sel": "All",
+      "kind": "Wave",
+      "a": "Main",
+      "b": "Sub",
+      "beats": 2.0,
+      "width": 2.0,
+      "reverse": false,
+      "span": false,
+      "mirror": false,
+      "axis": "Along",
+      "skew": 1.0
+    },
+    {
+      "name": "高速縞",
+      "enabled": false,
+      "sel": "All",
+      "kind": "Stripes",
+      "a": "Main",
+      "b": "Sub",
+      "beats": 1.0,
+      "width": 4.0,
+      "reverse": false,
+      "span": false,
+      "mirror": false,
+      "axis": "Along",
+      "skew": 0.25
+    },
+    {
+      "name": "上下チェンジ",
+      "enabled": false,
+      "sel": "All",
+      "kind": "Alternate",
+      "a": "Main",
+      "b": "Sub",
+      "beats": 0.5,
+      "width": 4.0,
+      "reverse": false,
+      "span": false,
+      "mirror": false,
+      "axis": "Across",
+      "skew": 0.0
+    },
+    {
+      "name": "きらめき",
+      "enabled": false,
+      "sel": "All",
+      "kind": "Sparkle",
+      "a": "White",
+      "b": "Main",
+      "beats": 1.0,
+      "width": 15.0,
+      "reverse": false,
+      "span": false,
+      "mirror": false,
+      "axis": "Along",
+      "skew": 0.0
+    },
+    {
+      "name": "高速スキャン",
+      "enabled": false,
+      "sel": "All",
+      "kind": "Chase",
+      "a": "Main",
+      "b": "Off",
+      "beats": 1.0,
+      "width": 1.0,
+      "reverse": false,
+      "span": false,
+      "mirror": false,
+      "axis": "Across",
+      "skew": 0.0
+    },
+    {
+      "name": "中央バースト",
+      "enabled": false,
+      "sel": "All",
+      "kind": "Chase",
+      "a": "Main",
+      "b": "Sub",
+      "beats": 1.0,
+      "width": 12.0,
+      "reverse": false,
+      "span": false,
+      "mirror": true,
+      "axis": "Along",
+      "skew": 0.0
+    },
+    {
+      "name": "ジグザグ",
+      "enabled": false,
+      "sel": "All",
+      "kind": "Chase",
+      "a": "Main",
+      "b": "Sub",
+      "beats": 2.0,
+      "width": 10.0,
+      "reverse": false,
+      "span": false,
+      "mirror": false,
+      "axis": "Along",
+      "skew": 1.0
+    },
+    {
+      "name": "ランダムバー",
+      "enabled": false,
+      "sel": "All",
+      "kind": "Sparkle",
+      "a": "Main",
+      "b": "Off",
+      "beats": 2.0,
+      "width": 3.0,
+      "reverse": false,
+      "span": false,
+      "mirror": false,
+      "axis": "Across",
+      "skew": 0.0
+    },
+    {
+      "name": "高速ワイプ",
+      "enabled": false,
+      "sel": "All",
+      "kind": "Wipe",
+      "a": "Main",
+      "b": "Sub",
+      "beats": 1.0,
+      "width": 0.0,
+      "reverse": false,
+      "span": false,
+      "mirror": true,
+      "axis": "Along",
+      "skew": 0.0
+    },
+    {
+      "name": "白ブレス",
+      "enabled": false,
+      "sel": "All",
+      "kind": "Wave",
+      "a": "White",
+      "b": "Off",
+      "beats": 8.0,
+      "width": 1.0,
+      "reverse": false,
+      "span": false,
+      "mirror": true,
+      "axis": "Along",
+      "skew": 0.0
+    },
+    {
+      "name": "白スキャン縦",
+      "enabled": false,
+      "sel": "All",
+      "kind": "Chase",
+      "a": "White",
+      "b": "Off",
+      "beats": 2.0,
+      "width": 1.0,
+      "reverse": false,
+      "span": false,
+      "mirror": false,
+      "axis": "Across",
+      "skew": 0.0
+    },
+    {
+      "name": "白スキャン横",
+      "enabled": false,
+      "sel": "All",
+      "kind": "Chase",
+      "a": "White",
+      "b": "Off",
+      "beats": 2.0,
+      "width": 6.0,
+      "reverse": false,
+      "span": false,
+      "mirror": false,
+      "axis": "Along",
+      "skew": 0.0
+    },
+    {
+      "name": "白斜め縞",
+      "enabled": false,
+      "sel": "All",
+      "kind": "Stripes",
+      "a": "White",
+      "b": "Off",
+      "beats": 2.0,
+      "width": 6.0,
+      "reverse": false,
+      "span": false,
+      "mirror": false,
+      "axis": "Along",
+      "skew": 0.5
+    },
+    {
+      "name": "白きらめき",
+      "enabled": false,
+      "sel": "All",
+      "kind": "Sparkle",
+      "a": "White",
+      "b": "Off",
+      "beats": 2.0,
+      "width": 8.0,
+      "reverse": false,
+      "span": false,
+      "mirror": false,
+      "axis": "Along",
+      "skew": 0.0
+    },
+    {
+      "name": "白ランダムバー",
+      "enabled": false,
+      "sel": "All",
+      "kind": "Sparkle",
+      "a": "White",
+      "b": "Off",
+      "beats": 1.0,
+      "width": 2.0,
+      "reverse": false,
+      "span": false,
+      "mirror": false,
+      "axis": "Across",
+      "skew": 0.0
+    },
+    {
+      "name": "白1本おき",
+      "enabled": false,
+      "sel": "All",
+      "kind": "Alternate",
+      "a": "White",
+      "b": "Off",
+      "beats": 0.5,
+      "width": 1.0,
+      "reverse": false,
+      "span": false,
+      "mirror": false,
+      "axis": "Across",
+      "skew": 0.0
+    },
+    {
+      "name": "白×メイン縞",
+      "enabled": false,
+      "sel": "All",
+      "kind": "Stripes",
+      "a": "White",
+      "b": "Main",
+      "beats": 4.0,
+      "width": 4.0,
+      "reverse": false,
+      "span": false,
+      "mirror": false,
+      "axis": "Along",
+      "skew": 0.25
+    }
+  ],
+  "fade_secs": 3.0,
+  "led_true_color": true,
+  "ndi": {
+    "enabled": false,
+    "source": "",
+    "main": "Off",
+    "sub": "Off"
+  },
+  "motion": {
+    "shape": "Circle",
+    "beats": 16.0,
+    "spread": "Sync",
+    "position": null,
+    "size": 0.3,
+    "pan_front": 0.5,
+    "tilt_up": 0.5,
+    "points": [
+      [
+        -30.0,
+        15.0
+      ],
+      [
+        30.0,
+        15.0
+      ],
+      [
+        30.0,
+        50.0
+      ],
+      [
+        -30.0,
+        50.0
+      ]
+    ],
+    "glide": 0.3
+  }
+}

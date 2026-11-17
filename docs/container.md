@@ -79,7 +79,7 @@ Argo CD で管理するときは、`deploy/kubernetes/` を Infra の `k8s/manif
 
 設定の `project.json` は、Secret の `dmxctl-seed` に入れます。Pod の起動時に、PVC の `/data` に設定が無いときだけ、initContainer が Secret からコピーします。PVC にすでに設定があれば何もしないので、GUI で変えた内容は消えません。
 
-Secret は、手元の設定から作ります。設定には合言葉などが入るため、Git には入れません。
+Secret は、手元の設定から作ります。設定には合言葉などが入るため、Git には入れません。形の見本は `examples/container/project.json` にあります。機材の送り先の IP だけを、文書用のアドレスに変えてあります。
 
 ```
 kubectl -n dmxctl create secret generic dmxctl-seed --from-file=project.json=$HOME/.config/dmxctl/project.json
