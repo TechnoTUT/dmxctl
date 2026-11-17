@@ -1,0 +1,10 @@
+# コンテナのビルドに送らないもの。target と dist は数 GB になるので入れない
+target/
+target-dev/
+dist/
+runs/
+.tools/
+.git/
+.github/
+docs/
+examples/
