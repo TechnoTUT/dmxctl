@@ -93,6 +93,9 @@ impl Host {
                         let (tx, ctx, active) = (tx.clone(), ctx.clone(), active.clone());
                         std::thread::spawn(move || {
                             let result = (|| -> anyhow::Result<Value> {
+                                // macOS/BSD では accept した接続がリスナーのノンブロッキングを引き継ぐ。
+                                // そのままだと要求が届く前に読み込みが WouldBlock で失敗し、接続がリセットされる
+                                stream.set_nonblocking(false)?;
                                 stream.set_read_timeout(Some(Duration::from_secs(2)))?;
                                 stream.set_write_timeout(Some(Duration::from_secs(2)))?;
                                 let mut line = Vec::new();
