@@ -45,6 +45,8 @@ const BROADCAST: Duration = Duration::from_millis(33);
 const PROJECT_EVERY: u32 = 3;
 /// 同時につなげるクライアントの数
 const MAX_CLIENTS: usize = 16;
+/// 機材定義の保存・削除に失敗したときの説明(安全の設定を変えようとしたときなど)
+const SAFETY_READ_ONLY: &str = "機材定義を保存できませんでした(レーザーなどの安全の設定は、サーバーのPCの画面でだけ変えられます)";
 
 fn guard<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
@@ -557,10 +559,11 @@ fn serve_conn(stream: TcpStream, core: &Shared, ctx: &eframe::egui::Context, eve
                         // 当てる場所が無いのも、ほかのクライアントが一覧に追加・削除をした行き違い
                         r.map(|a| a.services).map_err(|e| if e.is::<project_patch::Conflict>() { e } else { anyhow::anyhow!("{}({e})", project_patch::Conflict) })
                     }
-                    // 機材定義はサーバーのフォルダに保存する(変わった定義は、次の状態で全クライアントに配られる)
+                    // 機材定義はサーバーのフォルダに保存する(変わった定義は、次の状態で全クライアントに配られる)。
+                    // 自動操作の窓口と同じく、レーザーなどの安全の設定(安全な値・ARMが要るか)は変えさせない
                     "profile_save" => serde_json::from_value::<Profile>(v["profile"].clone()).map_err(anyhow::Error::from)
-                        .and_then(|p| c.save_profile(&p, false, false)).map(|_| false),
-                    "profile_delete" => c.delete_profile(v["id"].as_str().unwrap_or(""), false, false).map(|_| false),
+                        .and_then(|p| c.save_profile(&p, true, false).context(SAFETY_READ_ONLY)).map(|_| false),
+                    "profile_delete" => c.delete_profile(v["id"].as_str().unwrap_or(""), true, false).context(SAFETY_READ_ONLY).map(|_| false),
                     "resync" => {
                         guard(&conn.state).sent = Value::Null;
                         Ok(false)
@@ -1435,7 +1438,13 @@ mod tests {
         client.request_devices();
         assert!(wait(|| client.devices().is_some_and(|(n, _)| n > count)));
         // クライアントで保存した機材定義は、サーバーのフォルダに入り、クライアントにも配られる
+        // 安全の設定が無い定義なら、クライアントから作って消せる
         let mut profile = (*lock(&core).lib.profiles[0]).clone();
+        profile.needs_arm = false;
+        for ch in profile.modes.iter_mut().flat_map(|m| &mut m.channels) {
+            ch.safe = None;
+            ch.forbid.clear();
+        }
         profile.id = "test/from-client".into();
         profile.name = "From client".into();
         client.save_profile(&profile);
@@ -1445,6 +1454,15 @@ mod tests {
         client.delete_profile("test/from-client");
         assert!(wait(|| lock(&server_core).lib.get("test/from-client").is_none()));
         assert!(wait(|| lock(&core).lib.get("test/from-client").is_none()));
+        // レーザーなどの安全の設定は、クライアントからは変えられない
+        let guarded = lock(&core).lib.profiles.iter().find(|p| p.needs_arm).map(|p| (**p).clone());
+        if let Some(mut laser) = guarded {
+            client.take_errors();
+            laser.needs_arm = false;
+            client.save_profile(&laser);
+            assert!(wait(|| client.take_errors().iter().any(|e| e.contains("安全の設定"))));
+            assert!(lock(&server_core).lib.get(&laser.id).is_some_and(|p| p.needs_arm));
+        }
         drop(client);
         drop(server);
         std::fs::remove_dir_all(dir).unwrap();
