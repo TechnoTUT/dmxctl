@@ -60,7 +60,7 @@ impl crate::app::App {
                 if let Some(rest) = manual {
                     ui.label(RichText::new(format!("✋ 手動優先(あと{rest:.0}秒)")).color(crate::theme::WARN));
                     if ui.small_button("オートに戻す").clicked() {
-                        lock(&self.host.core).rt.manual_last = None;
+                        lock(&self.host.core).live(crate::live::LiveOp::ClearManual);
                     }
                 } else {
                     ui.label(RichText::new(if online { "● 曲の情報を受信中" } else { "○ 待機中" }).color(if online { crate::theme::ACCENT } else { crate::theme::TEXT_DIM }));
@@ -240,7 +240,7 @@ impl crate::app::App {
             });
         });
         if let Some((key, look)) = try_look {
-            core.apply_look(&key, &look);
+            core.live(crate::live::LiveOp::Look { key, look });
         }
         if changed {
             core.dirty = true;

@@ -18,6 +18,7 @@ pub mod layout;
 pub mod layout_tests;
 pub mod led;
 pub mod link;
+pub mod live;
 pub mod look;
 #[cfg(test)]
 pub mod bpm_tests;

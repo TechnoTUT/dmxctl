@@ -148,9 +148,9 @@ fn laser_card(ui: &mut egui::Ui, core: &mut Core, i: usize, editing: &mut Option
             }
         } else {
             let sel = Selector::Fixture(fx.id);
-            core.set_attr(&sel, x.attr, x.value_at(tx) as f32);
+            core.live(crate::live::LiveOp::SetAttr { sel: sel.clone(), attr: x.attr.to_string(), value: x.value_at(tx) as f32 });
             if let Some(y) = &y {
-                core.set_attr(&sel, y.attr, y.value_at(tyv) as f32);
+                core.live(crate::live::LiveOp::SetAttr { sel: sel.clone(), attr: y.attr.to_string(), value: y.value_at(tyv) as f32 });
             }
             changed = true;
         }
@@ -160,9 +160,9 @@ fn laser_card(ui: &mut egui::Ui, core: &mut Core, i: usize, editing: &mut Option
     ui.horizontal(|ui| {
         if ui.add_enabled(!edit, egui::Button::new("中央")).clicked() {
             let sel = Selector::Fixture(fx.id);
-            core.set_attr(&sel, x.attr, ((x.lo as u16 + x.hi as u16) / 2) as f32);
+            core.live(crate::live::LiveOp::SetAttr { sel: sel.clone(), attr: x.attr.to_string(), value: ((x.lo as u16 + x.hi as u16) / 2) as f32 });
             if let Some(y) = &y {
-                core.set_attr(&sel, y.attr, ((y.lo as u16 + y.hi as u16) / 2) as f32);
+                core.live(crate::live::LiveOp::SetAttr { sel: sel.clone(), attr: y.attr.to_string(), value: ((y.lo as u16 + y.hi as u16) / 2) as f32 });
             }
             changed = true;
         }
@@ -189,7 +189,7 @@ fn laser_card(ui: &mut egui::Ui, core: &mut Core, i: usize, editing: &mut Option
             ui.label(RichText::new("大きさ").small().color(theme::TEXT_DIM));
             ui.spacing_mut().slider_width = (side - 90.0).max(80.0);
             if ui.add(egui::Slider::new(&mut pct, 5.0..=100.0).suffix("%").fixed_decimals(0)).changed() {
-                core.set_attr(&Selector::Fixture(fx.id), "size", ((100.0 - pct) * 127.0 / 95.0).round());
+                core.live(crate::live::LiveOp::SetAttr { sel: Selector::Fixture(fx.id), attr: "size".into(), value: ((100.0 - pct) * 127.0 / 95.0).round() });
                 changed = true;
             }
         });

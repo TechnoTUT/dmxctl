@@ -427,7 +427,7 @@ impl App {
                     if let Some(code) = crate::keys::from_key(key) {
                         for k in [code, code + crate::keys::SHIFT] {
                             if c.rt.keys_down.contains(&k) {
-                                c.handle_key(k, false);
+                                c.live(crate::live::LiveOp::Key { number: k, pressed: false });
                             }
                         }
                     }
@@ -437,18 +437,18 @@ impl App {
                     continue;
                 }
                 match key {
-                    egui::Key::Escape => c.rt.blackout = !c.rt.blackout,
+                    egui::Key::Escape => c.live(crate::live::LiveOp::ToggleBlackout),
                     egui::Key::S if modifiers.command => save = true,
                     // デスクトップ環境の無い画面には閉じるボタンが無いので、Ctrl+Qで終了
                     egui::Key::Q if modifiers.command && no_desktop(ui.ctx()) => ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close),
                     _ if typing || modifiers.command || modifiers.alt || modifiers.ctrl => {}
-                    egui::Key::Space => c.tap(),
-                    egui::Key::Enter => c.resync(),
-                    egui::Key::ArrowLeft => c.rt.page = (c.rt.page + PAGES - 1) % PAGES,
-                    egui::Key::ArrowRight => c.rt.page = (c.rt.page + 1) % PAGES,
+                    egui::Key::Space => c.live(crate::live::LiveOp::Tap),
+                    egui::Key::Enter => c.live(crate::live::LiveOp::Resync),
+                    egui::Key::ArrowLeft => c.live(crate::live::LiveOp::StepPage { delta: -1 }),
+                    egui::Key::ArrowRight => c.live(crate::live::LiveOp::StepPage { delta: 1 }),
                     k => {
                         if let Some(code) = crate::keys::from_key(k) {
-                            c.handle_key(if modifiers.shift { code + crate::keys::SHIFT } else { code }, true);
+                            c.live(crate::live::LiveOp::Key { number: if modifiers.shift { code + crate::keys::SHIFT } else { code }, pressed: true });
                         }
                     }
                 }
@@ -456,7 +456,7 @@ impl App {
             // キーを押したまま他のウィンドウへ移ると離したことが届かないので、押しているキーを全部離す
             if !focused {
                 for code in c.rt.keys_down.clone() {
-                    c.handle_key(code, false);
+                    c.live(crate::live::LiveOp::Key { number: code, pressed: false });
                 }
             }
         }

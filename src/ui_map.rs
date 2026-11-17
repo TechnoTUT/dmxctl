@@ -218,7 +218,7 @@ impl App {
         }
         changed |= editor.changed;
         if let Some(p) = new_page {
-            core.rt.page = p;
+            core.live(crate::live::LiveOp::SetPage { page: p });
         }
         changed |= self.apply_menu(core, &menu, page, use_pages);
         if let Some(i) = editor.remove {

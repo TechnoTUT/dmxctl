@@ -26,7 +26,7 @@ impl App {
             caption(ui, "MASTER");
             let mut pct = lock(&self.host.core).rt.master * 100.0;
             if ui.add(egui::Slider::new(&mut pct, 0.0..=100.0).fixed_decimals(0).suffix("%")).on_hover_text("全体光量(すべての機材の明るさに掛かります)").changed() {
-                lock(&self.host.core).rt.master = pct / 100.0;
+                lock(&self.host.core).live(crate::live::LiveOp::SetMaster { level: pct / 100.0 });
             }
             ui.add_space(6.0);
             ui.separator();
@@ -49,7 +49,7 @@ impl App {
                 btn = btn.fill(theme::mix(theme::WIDGET, theme::WARN, 0.55));
             }
             if ui.add(btn).on_hover_text("全体の明るさを、右の秒数をかけて0にします(暗転しきるとレーザーも止まります)。もう一度押すと、同じ秒数で戻ります(D)").clicked() {
-                lock(&self.host.core).toggle_fade(secs);
+                lock(&self.host.core).live(crate::live::LiveOp::ToggleFade { secs });
             }
             let mut s = secs;
             if ui.add(egui::DragValue::new(&mut s).range(0.0..=60.0).speed(0.05).suffix(" 秒")).on_hover_text("暗転・復帰にかける時間").changed() {
@@ -68,13 +68,13 @@ impl App {
             };
             let (label, color) = if global { ("色: 全体", theme::TEXT) } else { ("色: 個別", theme::WARN) };
             if ui.add(egui::Button::new(RichText::new(label).color(color))).on_hover_text("色の操作を、全機材(全体)にかけるか、選んだ機材だけ(個別)にかけるかを切り替えます").clicked() {
-                lock(&self.host.core).rt.color_global = !global;
+                lock(&self.host.core).live(crate::live::LiveOp::SetColorGlobal { on: !global });
             }
             if !global {
                 ui.menu_button(format!("選択中 {}台 ▾", selected.len()), |ui| {
                     for (id, name) in fixtures {
                         if ui.selectable_label(selected.contains(&id), name).clicked() {
-                            lock(&self.host.core).toggle_selected(id);
+                            lock(&self.host.core).live(crate::live::LiveOp::ToggleSelected { fixture: id });
                         }
                     }
                 });
@@ -89,7 +89,7 @@ impl App {
                 };
                 let btn = egui::Button::new(RichText::new(text).font(theme::bold(13.0)).color(Color32::WHITE)).fill(fill).stroke(egui::Stroke::new(1.0, stroke)).min_size(vec2(118.0, 28.0));
                 if ui.add(btn).on_hover_text("すべての機材を消します(Esc)").clicked() {
-                    lock(&self.host.core).rt.blackout = !bo;
+                    lock(&self.host.core).live(crate::live::LiveOp::SetBlackout { on: !bo });
                 }
                 let help: String = crate::app::SHORTCUTS.iter().map(|(k, d)| format!("{k}: {d}")).collect::<Vec<_>>().join("\n");
                 theme::help(ui, &format!("キーボードショートカット(文字の入力中は Esc と保存だけ)\n\n{help}"));
@@ -114,7 +114,7 @@ impl App {
             ui.label("テンポの元");
             for s in TempoSource::ALL {
                 if ui.radio(core.project.tempo_source == s, s.label()).clicked() && core.project.tempo_source != s {
-                    core.set_tempo_source(s);
+                    core.live(crate::live::LiveOp::SetTempoSource { source: s });
                     services = true;
                 }
             }
@@ -212,19 +212,19 @@ impl App {
             let mut bpm = core.project.bpm;
             ui.label("BPM");
             if ui.add(egui::DragValue::new(&mut bpm).range(BPM_MIN..=BPM_MAX).speed(0.2).fixed_decimals(1)).changed() {
-                core.set_bpm(bpm);
+                core.live(crate::live::LiveOp::SetBpm { bpm });
             }
             if ui.button("TAP").clicked() {
-                core.tap();
+                core.live(crate::live::LiveOp::Tap);
             }
             if ui.button("頭出し").clicked() {
-                core.resync();
+                core.live(crate::live::LiveOp::Resync);
             }
             if ui.button("÷2").clicked() {
-                core.set_bpm(core.project.bpm / 2.0);
+                { let bpm = core.project.bpm / 2.0; core.live(crate::live::LiveOp::SetBpm { bpm }); }
             }
             if ui.button("×2").clicked() {
-                core.set_bpm(core.project.bpm * 2.0);
+                { let bpm = core.project.bpm * 2.0; core.live(crate::live::LiveOp::SetBpm { bpm }); }
             }
             let beat = core.beat_now();
             ui.label(RichText::new(format!("{}小節 {}拍目", beat.floor() as i64 / BEATS_PER_BAR + 1, (beat.floor() as i64).rem_euclid(BEATS_PER_BAR) + 1)).weak());

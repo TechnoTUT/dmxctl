@@ -99,9 +99,9 @@ impl App {
         });
 
         match op {
-            Some(SceneOp::Recall(name)) => core.recall_scene(&name),
+            Some(SceneOp::Recall(name)) => core.live(crate::live::LiveOp::RecallScene { name }),
             Some(SceneOp::Update(i)) => {
-                core.refresh_scene(i);
+                core.live(crate::live::LiveOp::RefreshScene { index: i });
                 changed = true;
             }
             Some(SceneOp::Delete(i)) => {
@@ -263,7 +263,7 @@ impl App {
                 });
         }
         if let Some(name) = turned_on {
-            core.set_effect(&name, true);
+            core.live(crate::live::LiveOp::SetEffect { name: name.clone(), on: true });
         }
         if let Some(i) = remove {
             core.project.effects.remove(i);
