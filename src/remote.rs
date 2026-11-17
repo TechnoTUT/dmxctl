@@ -783,6 +783,8 @@ struct ClientSync {
     /// サーバーのPCのプロジェクトのファイルの一覧
     files: Option<Files>,
     connected: bool,
+    /// 切れているあいだの編集を知らせたか(つながるたびに戻す)
+    offline_noticed: bool,
     status: String,
     errors: Vec<String>,
 }
@@ -871,6 +873,7 @@ impl Client {
             devices_count: 0,
             files: None,
             connected: true,
+            offline_noticed: false,
             status: format!("接続中: {target}"),
             errors: Vec::new(),
         };
@@ -931,6 +934,7 @@ impl Client {
                         {
                             let mut s = guard(&sync);
                             s.connected = true;
+                            s.offline_noticed = false;
                             s.status = format!("接続中: {target}");
                         }
                         let error = run_connection(writer, reader, rx, &core, &sync, &link, &stop, &ctx);
@@ -987,6 +991,11 @@ impl Client {
         let c = lock(core);
         let mut s = guard(&self.sync);
         if !s.connected {
+            // 切れているあいだの編集は送れない(つなぎ直すとサーバーの内容で上書きされる)。黙って捨てずに知らせる
+            if !s.offline_noticed && serde_json::to_value(&c.project).is_ok_and(|now| now != before) {
+                s.offline_noticed = true;
+                s.errors.push("サーバーにつながっていないので、この編集はサーバーに届きません(つなぎ直すとサーバーの内容に戻ります)".into());
+            }
             return;
         }
         if let Ok(now) = serde_json::to_value(&c.project) {
@@ -1355,6 +1364,19 @@ mod tests {
         assert_eq!(lock(&server_core).project.fixtures.len(), n);
         assert_eq!(lock(&server_core).project.fixtures[n - 1].name, "B edit");
         assert!(a.take_errors().iter().any(|e| e.contains("重なった")));
+    }
+
+    #[test]
+    fn edits_while_disconnected_are_reported() {
+        let (_server_core, server) = server();
+        let (core, mut client) = client(&server);
+        drop(server);
+        assert!(wait(|| !client.connected()));
+        client.take_errors();
+        frame(&mut client, &core, |c| c.project.fixtures[0].values[0] = 9);
+        frame(&mut client, &core, |c| c.project.fixtures[0].values[0] = 10);
+        let errors = client.take_errors();
+        assert_eq!(errors.iter().filter(|e| e.contains("つながっていない")).count(), 1, "{errors:?}");
     }
 
     #[test]
