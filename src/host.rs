@@ -435,7 +435,8 @@ impl Host {
     }
 
     pub(crate) fn autosave(&mut self) {
-        if !self.launch.autosave { return; }
+        // クライアントは自動保存しない(保存するかはサーバーの起動オプションで決まる。connect で autosave を切っている)
+        if !self.launch.autosave || self.client.is_some() { return; }
         if self.last_save.elapsed() > Duration::from_secs(5) {
             let dirty = lock(&self.core).dirty;
             if dirty {
