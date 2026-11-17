@@ -120,9 +120,8 @@ pub(super) fn settings_panel(ui: &mut egui::Ui, core: &mut Core) -> bool {
             ui.label(RichText::new("レーザー").font(theme::bold(13.0)));
             for (id, name, armed) in lasers {
                 ui.horizontal(|ui| {
-                    if arm_button(ui, armed).clicked()
-                        && let Some(i) = core.project.fixture_index(id) {
-                        core.project.fixtures[i].armed = !armed;
+                    if arm_button(ui, armed).clicked() {
+                        core.live(crate::live::LiveOp::SetArm { fixture: id, on: !armed });
                     }
                     ui.add(egui::Label::new(RichText::new(&name).small()).truncate());
                 });

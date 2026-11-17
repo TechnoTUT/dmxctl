@@ -31,6 +31,7 @@ impl App {
         let core = &mut *guard;
         let lib = core.lib.clone();
         let mut touched: Vec<(u32, usize)> = Vec::new();
+        let mut arm: Option<(u32, bool)> = None;
 
         if core.project.fixtures.is_empty() {
             ui.label("機材がありません。「パッチ」タブで追加してください。");
@@ -198,10 +199,13 @@ impl App {
                     let a = (fx.address as usize - 1).min(512);
                     f[a..(a + mode.channels.len()).min(512)].to_vec()
                 });
-                fixture_panel(ui, fx, profile, mode, hidden, views.get(&fx.id), out.as_deref(), &mut touched);
+                fixture_panel(ui, fx, profile, mode, hidden, views.get(&fx.id), out.as_deref(), &mut touched, &mut arm);
             }
         });
 
+        if let Some((fixture, on)) = arm {
+            core.live(crate::live::LiveOp::SetArm { fixture, on });
+        }
         if !touched.is_empty() {
             // 手動で触ったチャンネルは実行中のフェードを止める
             core.rt.fades.retain(|f| !touched.contains(&(f.fixture, f.ch)));
@@ -290,7 +294,7 @@ impl App {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn fixture_panel(ui: &mut egui::Ui, fx: &mut FixtureInstance, profile: &Profile, mode: &Mode, hidden: &HashSet<String>, view: Option<&PairView>, out: Option<&[u8]>, touched: &mut Vec<(u32, usize)>) {
+fn fixture_panel(ui: &mut egui::Ui, fx: &mut FixtureInstance, profile: &Profile, mode: &Mode, hidden: &HashSet<String>, view: Option<&PairView>, out: Option<&[u8]>, touched: &mut Vec<(u32, usize)>, arm: &mut Option<(u32, bool)>) {
     let title = format!("{}   {} / {}   U{} @{}", fx.name, profile.name, mode.name, fx.universe + 1, fx.address);
     egui::CollapsingHeader::new(RichText::new(title).strong()).id_salt(fx.id).default_open(false).show(ui, |ui| {
         if profile.needs_arm {
@@ -301,7 +305,7 @@ fn fixture_panel(ui: &mut egui::Ui, fx: &mut FixtureInstance, profile: &Profile,
                     ("SAFE  出力停止中 (クリックでARM)", Color32::from_rgb(45, 110, 60))
                 };
                 if ui.add(egui::Button::new(RichText::new(text).strong().color(Color32::WHITE)).fill(fill)).clicked() {
-                    fx.armed = !fx.armed;
+                    *arm = Some((fx.id, !fx.armed));
                 }
                 ui.label(RichText::new("Class 3B: 人・動物・反射物に向けない / 床から3m以上").color(WARN).small());
             });

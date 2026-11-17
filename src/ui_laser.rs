@@ -97,7 +97,7 @@ fn laser_card(ui: &mut egui::Ui, core: &mut Core, i: usize, editing: &mut Option
 
     ui.horizontal(|ui| {
         if arm_button(ui, fx.armed).clicked() {
-            core.project.fixtures[i].armed = !fx.armed;
+            core.live(crate::live::LiveOp::SetArm { fixture: fx.id, on: !fx.armed });
         }
         ui.label(RichText::new(&fx.name).font(theme::bold(14.0)));
     });

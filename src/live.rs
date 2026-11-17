@@ -46,6 +46,8 @@ pub enum LiveOp {
     SetPage { page: u8 },
     /// 前(-1)/次(+1)のページ
     StepPage { delta: i8 },
+    /// レーザーなどの出力の許可(ARM)。保存しない値なので、プロジェクトの編集ではなくこの操作で変える
+    SetArm { fixture: u32, on: bool },
     /// 全体光量(0..1)
     SetMaster { level: f32 },
     /// 色を全体で変えるか、選んだ機材だけか
@@ -97,6 +99,11 @@ impl Core {
             LiveOp::SetBlackout { on } => self.rt.blackout = on,
             LiveOp::SetPage { page } => self.rt.page = page.min(PAGES - 1),
             LiveOp::StepPage { delta } => self.rt.page = (self.rt.page as i16 + delta as i16).rem_euclid(PAGES as i16) as u8,
+            LiveOp::SetArm { fixture, on } => {
+                if let Some(i) = self.project.fixture_index(fixture) {
+                    self.project.fixtures[i].armed = on;
+                }
+            }
             LiveOp::SetMaster { level } => self.rt.master = level.clamp(0.0, 1.0),
             LiveOp::SetColorGlobal { on } => self.rt.color_global = on,
             LiveOp::ClearOscColor => self.rt.osc_rgb = [None, None],
