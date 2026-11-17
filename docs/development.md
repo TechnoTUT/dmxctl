@@ -65,6 +65,15 @@ bash ./scripts/build-linux.sh          # Linuxの上で dist/linux/dmxctl を作
 
 Mac が手元に無くても、タグを push すれば Mac 用ができます。
 
+`.github/workflows/self-hosted.yml` では、Linux のテストと x86_64 のビルドを、k8s の self-hosted runner で動かします。リポジトリが private で、GitHub の runner を使える時間に限りがあるためです。`runs-on: k8s` で動き、手順は `build.yml` の `test` と `linux` の x86_64 と同じです。
+
+| きっかけ | すること |
+|---|---|
+| main への push | テスト |
+| PR | テストと、Linux の x86_64 用のビルドが通るかの確認 |
+
+k8s に arm64 の runner は無いので、arm64 用は `build.yml` が作ります。Release も `build.yml` が作ります。k8s の runner が止まっていると、`self-hosted.yml` のジョブは待ったままになります。
+
 ## テスト
 
 ```
