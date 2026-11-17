@@ -157,7 +157,7 @@ impl App {
             }
             TempoSource::Link => {
                 let peers = core.rt.link_peers;
-                let (text, color) = if core.rt.link.is_none() {
+                let (text, color) = if core.rt.link.is_none() && !core.rt.remote_link {
                     ("Linkを開始できませんでした".to_string(), WARN)
                 } else if peers == 0 {
                     ("接続中のアプリ: 0(相手のLinkをONにしてください)".to_string(), WARN)

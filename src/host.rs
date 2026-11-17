@@ -1,6 +1,10 @@
 //! ホスト: 画面によらずに動く部分(Core・DMXの出力ループ・MIDI/OSC/Link/NDI/音声/操作パネル・
 //! 自動操作の窓口・保存)。画面(`app::App`)はこれを1つ持ち、画面なし(`dmxctl headless` / `serve`)は
 //! これだけで動く。
+//!
+//! サーバーにつなぐクライアント(`dmxctl connect HOST`)のホストは、Core がサーバーの写しになり、
+//! 出力ループ・外部との連携・自動操作の窓口を動かさない(MIDIコントローラーだけは手元のものを使う)。
+//! 保存はサーバーに頼む。
 
 use crate::engine::{lock, Core, Engine, Shared};
 use crate::fixture::Library;
@@ -17,7 +21,12 @@ pub struct Host {
     pub(crate) shutdown_requested: bool,
     shutdown_done: bool,
     pub core: Shared,
-    engine: Engine,
+    /// 出力ループ(クライアントでは動かさない)
+    engine: Option<Engine>,
+    /// LANのクライアントの待ち受け(`--remote-listen`)
+    pub remote: Option<crate::remote::RemoteServer>,
+    /// サーバーへの接続(クライアントのとき)
+    client: Option<crate::remote::Client>,
     pub midi: Midi,
     pub project_path: PathBuf,
     last_save: Instant,
@@ -45,6 +54,9 @@ pub struct Host {
 
 impl Host {
     pub fn start(ctx: &egui::Context, options: crate::control::Launch) -> anyhow::Result<Self> {
+        if let Some(target) = options.connect.clone() {
+            return Self::connect(ctx, options, &target);
+        }
         let path = options.project.clone().unwrap_or_else(default_project_path);
         let path = if path.is_absolute() {path}else{std::env::current_dir()?.join(path)};
         let fixture_dir = if options.project.is_some() {
@@ -93,7 +105,8 @@ impl Host {
         let core: Shared = Arc::new(Mutex::new(initial_core));
         // 初回のoutput_gen(0)でエンジンが出力を組み立てる
         let control = options.listen.map(|address|crate::control::Server::start(address,ctx.clone())).transpose()?;
-        let engine = Engine::spawn_with_output(core.clone(), options.output);
+        let engine = Some(Engine::spawn_with_output(core.clone(), options.output));
+        let remote = options.remote_listen.map(|address| crate::remote::RemoteServer::start(core.clone(), ctx.clone(), address)).transpose()?;
 
         let mut host = Host {
             launch: options.clone(),
@@ -102,6 +115,8 @@ impl Host {
             shutdown_done: false,
             core,
             engine,
+            remote,
+            client: None,
             midi: Midi::default(),
             project_path: path,
             last_save: Instant::now(),
@@ -123,6 +138,70 @@ impl Host {
         host.auto_connect_midi();
         host.apply_services();
         Ok(host)
+    }
+
+    /// サーバーにつなぐクライアントのホスト。Core はサーバーの写しで、出力ループ・外部との連携・保存は動かさない
+    fn connect(ctx: &egui::Context, mut options: crate::control::Launch, target: &str) -> anyhow::Result<Self> {
+        let (mut client, initial) = crate::remote::Client::connect(target, ctx.clone())?;
+        let core: Shared = Arc::new(Mutex::new(Core::new(initial.project, Arc::new(initial.lib))));
+        client.attach(core.clone());
+        options.output = false;
+        options.autosave = false;
+        options.listen = None;
+        options.remote_listen = None;
+        let mut host = Host {
+            launch: options,
+            control: None,
+            shutdown_requested: false,
+            shutdown_done: false,
+            core,
+            engine: None,
+            remote: None,
+            client: Some(client),
+            midi: Midi::default(),
+            project_path: PathBuf::from(format!("{target} (サーバー)")),
+            last_save: Instant::now(),
+            notice: String::new(),
+            osc: None,
+            web: None,
+            web_status: String::new(),
+            ndi: None,
+            audio: None,
+            ctx: ctx.clone(),
+            reloads: 0,
+            services_applied: 0,
+            midi_synced: 0,
+            initial_midi: String::new(),
+        };
+        host.auto_connect_midi();
+        Ok(host)
+    }
+
+    /// サーバーにつないだクライアントか
+    pub fn is_client(&self) -> bool {
+        self.client.is_some()
+    }
+
+    /// クライアントの接続の状態(クライアントでなければNone)
+    pub fn client_status(&self) -> Option<(bool, String)> {
+        self.client.as_ref().map(|c| (c.connected(), c.status()))
+    }
+
+    /// 画面の1フレームの前後(クライアントでは、サーバーから届いた編集を入れ、手元の編集を送る)
+    pub(crate) fn before_frame(&mut self) {
+        if let Some(c) = self.client.as_mut() {
+            c.before_frame(&self.core);
+        }
+    }
+
+    pub(crate) fn after_frame(&mut self) {
+        if let Some(c) = self.client.as_mut() {
+            c.after_frame(&self.core);
+            let errors = c.take_errors();
+            if !errors.is_empty() {
+                self.notice = format!("サーバー: {}", errors.join(" / "));
+            }
+        }
     }
 
     /// 前回のMIDI機器、なければAPC mini が見つかれば自動接続。
@@ -148,6 +227,11 @@ impl Host {
 
     /// 設定に合わせて、Ableton Link・OSC受信・MIDIクロック用の入力を開始/停止する
     pub fn apply_services(&mut self) {
+        // クライアントでは、OSC・Link・NDI・音声・操作パネルはサーバーが動かす
+        if self.client.is_some() {
+            self.services_applied += 1;
+            return;
+        }
         if !self.launch.inputs {
             self.osc = None;
             self.web = None;
@@ -228,6 +312,9 @@ impl Host {
 
     /// NDIの受信は、設定(パッド・画面)でONにしている間だけ動かす
     pub(crate) fn sync_ndi(&mut self, repaint: bool) {
+        if self.client.is_some() {
+            return;
+        }
         let ndi_on = lock(&self.core).project.ndi.enabled;
         if self.launch.inputs && ndi_on != self.ndi.is_some() {
             self.ndi = ndi_on.then(|| crate::ndi::NdiService::start(self.core.clone(), repaint.then(|| self.ctx.clone())));
@@ -244,6 +331,10 @@ impl Host {
     /// GUIの編集で検証に通らない状態(機材を消したあとの参照など)になっても、作業内容を失わないように。
     /// リモートの "save" は、呼ぶ前に検証する
     pub(crate) fn save_checked(&mut self) -> anyhow::Result<()> {
+        if let Some(c) = &self.client {
+            c.save();
+            return Ok(());
+        }
         let project = {
             let mut c = lock(&self.core);
             c.project.ensure_binding_ids();
@@ -260,6 +351,10 @@ impl Host {
     }
 
     pub(crate) fn load_from(&mut self, path: PathBuf) {
+        if self.client.is_some() {
+            self.notice = "サーバーにつないでいる間は、ファイルを開けません(サーバーで開いてください)".into();
+            return;
+        }
         match self.reload_checked(Some(&path), false, false) {
             Ok(_) => self.notice = format!("読み込みました: {}", path.display()),
             Err(error) => self.notice = format!("読み込みに失敗しました: {error}"),
@@ -284,6 +379,17 @@ impl Host {
             self.shutdown_requested |= server.poll(self);
             self.control = Some(server);
         }
+        // LANのクライアントから頼まれた保存・設定の反映
+        let (save, services) = match &self.remote {
+            Some(r) => (r.events.save.swap(false, std::sync::atomic::Ordering::SeqCst), r.events.services.swap(false, std::sync::atomic::Ordering::SeqCst)),
+            None => (false, false),
+        };
+        if save {
+            self.save();
+        }
+        if services {
+            self.apply_services();
+        }
     }
 
     /// Runs the same Host and Engine as the GUI, without forcing BLT/auto settings.
@@ -291,7 +397,7 @@ impl Host {
         let ctx = egui::Context::default();
         let mut host = Self::start(&ctx, options)?;
         let address = host.control.as_ref().map(|server|server.address);
-        println!("{}",serde_json::json!({"ready":true,"listen":address,"project":host.project_path,
+        println!("{}",serde_json::json!({"ready":true,"listen":address,"remote_listen":host.remote.as_ref().map(|r|r.address),"project":host.project_path,
             "output_enabled":host.launch.output,"inputs_enabled":host.launch.inputs,"autosave":host.launch.autosave}));
         while !host.shutdown_requested {
             host.control_tick();
@@ -324,6 +430,9 @@ impl Host {
             eprintln!("{}", host.notice);
         }
         println!("dmxctl: 画面なしで起動しました(設定: {} / OSC受信ポート {port} / テンポ: Ableton Link / オート: ON)", host.project_path.display());
+        if let Some(r) = &host.remote {
+            println!("クライアントの待ち受け: {}  (別のPCで dmxctl connect このPCのアドレス)", r.address);
+        }
         if host.web.is_some() {
             println!("操作パネル: {}  (同じネットワークのスマホ・PCのブラウザで開く)", host.web_status);
         }
@@ -369,6 +478,13 @@ impl Host {
     pub fn shutdown(&mut self) {
         if self.shutdown_done { return; }
         self.shutdown_done = true;
+        // クライアント: 照明はサーバーが出しているので、つなぎを切るだけ(ブラックアウトも保存もしない)
+        if self.client.is_some() {
+            self.midi.disconnect();
+            self.client = None;
+            return;
+        }
+        self.remote = None;
         {
             let mut c = lock(&self.core);
             c.rt.blackout = true;
@@ -381,7 +497,9 @@ impl Host {
         lock(&self.core).rt.link = None;
         self.midi.disconnect_clock();
         self.midi.disconnect();
-        self.engine.stop();
+        if let Some(engine) = self.engine.as_mut() {
+            engine.stop();
+        }
         if let Some(mut server) = self.control.take() {
             // A recording may not be active; keep the normal shutdown path quiet.
             let _ = server.finish_recording(self);

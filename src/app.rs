@@ -290,12 +290,18 @@ impl App {
                 ui.label(RichText::new(format!("最後の入力: {last}")).small().color(theme::TEXT_FAINT));
             }
             ui.separator();
+            // サーバーにつないでいるとき: 接続の状態(出力の状態はサーバーのもの)
+            if let Some((connected, status)) = self.host.client_status() {
+                theme::dot(ui, if connected { theme::OK } else { theme::WARN });
+                ui.label(RichText::new(format!("サーバー: {status}")).small().color(if connected { theme::TEXT_DIM } else { theme::WARN }));
+                ui.separator();
+            }
             // 出力はまとめて1行に(詳しくはマウスを乗せると出る)
             let on: Vec<(usize, &String)> = outs.iter().enumerate().filter(|(_, s)| s.as_str() != "無効").collect();
             let bad = on.iter().filter(|(_, s)| output_has_error(s)).count();
             let color = if outs.is_empty() || bad > 0 { theme::WARN } else if on.is_empty() { theme::TEXT_FAINT } else { theme::OK };
             theme::dot(ui, color);
-            let text = if !self.host.launch.output {
+            let text = if !self.host.launch.output && !self.host.is_client() {
                 "出力: シミュレーション(実機送信なし)".to_string()
             } else if outs.is_empty() {
                 "出力: 未設定(「出力」タブで追加)".to_string()
@@ -505,7 +511,7 @@ impl App {
             let p = &c.project;
             // 色や値がひとりでに変わっているか(マップの「今の色」を追従させるため)
             let animated = p.effects.iter().any(|e| e.enabled) || p.pixel_fx.iter().any(|e| e.enabled) || p.chases.iter().any(|e| e.enabled) || p.palette.auto;
-            (self.tab == Tab::Monitor || !c.rt.fades.is_empty() || c.fading(), (1.0 - c.beat_now().rem_euclid(1.0)) * 60.0 / p.bpm.max(1.0) as f64, animated)
+            (self.tab == Tab::Monitor || !c.rt.fades.is_empty() || c.rt.remote_fades > 0 || c.fading(), (1.0 - c.beat_now().rem_euclid(1.0)) * 60.0 / p.bpm.max(1.0) as f64, animated)
         };
         let focused = in_front(ui);
         // 拍の表示は、前面でなくても次の拍の頭で更新する(拍を飛ばさない)
@@ -554,8 +560,10 @@ impl App {
         if let (Some(p), Some(cpu)) = (self.perf.as_mut(), cpu_usage) {
             p.frame_cpu += cpu;
         }
+        self.host.before_frame();
         let before=lock(&self.host.core).history_snapshot();
         self.ui_timed(ui);
+        self.host.after_frame();
         if before.is_some() {
             let after=lock(&self.host.core).history_snapshot();
             crate::recording::HistorySnapshot::observe(before,after,"gui_frame");

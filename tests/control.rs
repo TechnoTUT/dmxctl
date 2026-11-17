@@ -298,7 +298,7 @@ fn gui_frame_processes_commands_against_its_own_core() {
     drop(reservation);
     let ctx=eframe::egui::Context::default();
     let mut app=dmxctl::app::App::with_options(&ctx,false,control::Launch {
-        project:Some(dir.join("project.json")),listen:Some(address),output:false,inputs:false,autosave:false,
+        project:Some(dir.join("project.json")),listen:Some(address),output:false,inputs:false,autosave:false,..Default::default()
     }).unwrap();
     for command in [json!({"cmd":"set","fixture":1,"attr":"pan","value":83}),
         json!({"cmd":"edit","operations":[{"entity":"group","op":"create","data":{"name":"GUI shared edit","fixtures":[1]}}]}),

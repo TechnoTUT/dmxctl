@@ -18,10 +18,14 @@ pub struct Launch {
     pub output: bool,
     pub inputs: bool,
     pub autosave: bool,
+    /// LANのクライアント(`dmxctl connect`)を待ち受けるアドレス(`--remote-listen`)
+    pub remote_listen: Option<SocketAddr>,
+    /// サーバーにつなぐクライアントとして起動する(`dmxctl connect HOST`)
+    pub connect: Option<String>,
 }
 
 impl Default for Launch {
-    fn default() -> Self { Self { project: None, listen: None, output: true, inputs: true, autosave: true } }
+    fn default() -> Self { Self { project: None, listen: None, output: true, inputs: true, autosave: true, remote_listen: None, connect: None } }
 }
 
 impl Launch {
@@ -35,6 +39,12 @@ impl Launch {
             let arg = &args[i];
             match arg.as_str() {
                 "--control" => { if result.listen.is_none() { result.listen = Some(DEFAULT_ADDRESS.parse()?); } }
+                "--remote-listen" => {
+                    // 値を省くと 0.0.0.0:9300
+                    let value = args.get(i + 1).filter(|v| !v.starts_with("--"));
+                    if value.is_some() { i += 1; }
+                    result.remote_listen = Some(crate::remote::parse_listen(value.map(String::as_str).unwrap_or("9300"))?);
+                }
                 "--project"|"--listen"|"--output"|"--inputs" => {
                     i += 1;
                     let value = args.get(i).context("startup option needs a value")?;
