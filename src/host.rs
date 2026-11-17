@@ -374,7 +374,7 @@ impl Host {
     }
 
     /// 自動操作の窓口(control)に届いた要求を処理する
-    pub(crate) fn control_tick(&mut self) {
+    pub fn control_tick(&mut self) {
         if let Some(mut server) = self.control.take() {
             self.shutdown_requested |= server.poll(self);
             self.control = Some(server);
