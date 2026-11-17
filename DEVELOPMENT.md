@@ -118,14 +118,6 @@ DMXCTL_NDI_SOURCE=ソース名の一部 cargo test --release hw_ndi -- --ignored
 DMXCTL_SHEET_DIR=保存先 cargo test --release preset_sheet -- --ignored               # LEDバーの模様の一覧画像
 ```
 
-## CI の self-hosted runner
-
-リポジトリが private なので、GitHub の runner を使える時間には限りがある。そこで `build.yml` とは別に、Linux のテストとビルドを自分で用意した runner で動かす `self-hosted.yml` を置いている。
-
-`self-hosted.yml` のジョブは `runs-on: k8s` で、Kubernetes の上の runner で動く。どのジョブも `container:` で Debian のコンテナを指定している。arm64 の常駐版も x86_64 の上でクロスビルドするので、x86_64 の runner だけでよい。Release は作らない。
-
-`k8s` の runner が無いときや止まっているときは、`self-hosted.yml` のジョブは待ったままになる。
-
 ## はまりどころ
 
 - **USB-DMXが開けない(Resource busy)**: QLC+ など別の照明ソフトが使っていないか確認する
