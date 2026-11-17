@@ -12,4 +12,4 @@ CC_x86_64_pc_windows_gnu=x86_64-w64-mingw32-gcc CXX_x86_64_pc_windows_gnu=x86_64
   cargo build --release --target x86_64-pc-windows-gnu
 mkdir -p "$OUT"
 cp target/x86_64-pc-windows-gnu/release/dmxctl.exe "$OUT/dmxctl.exe"
-echo "できました: $OUT/dmxctl.exe"
+echo "Built: $OUT/dmxctl.exe"

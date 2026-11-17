@@ -39,5 +39,5 @@ fi
 codesign --force --deep --sign - "$APP"
 
 (cd "$OUT" && rm -f DMX-Controller-mac.zip && ditto -c -k --keepParent "$APP_NAME.app" DMX-Controller-mac.zip)
-echo "できました: $APP"
-echo "配布用: $OUT/DMX-Controller-mac.zip"
+echo "Built: $APP"
+echo "Package: $OUT/DMX-Controller-mac.zip"

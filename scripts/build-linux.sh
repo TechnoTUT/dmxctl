@@ -16,4 +16,4 @@ OUT="dist/linux"
 mkdir -p "$OUT"
 cargo build --release
 cp target/release/dmxctl "$OUT/dmxctl"
-echo "できました: $OUT/dmxctl"
+echo "Built: $OUT/dmxctl"
