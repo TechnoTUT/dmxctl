@@ -1,14 +1,13 @@
-# Linux tests and x86_64 build on the self-hosted runner (runs-on: k8s), so they
-# don't use the GitHub-hosted minutes that private repositories are limited to.
-# The jobs mirror the test and linux (x86_64) jobs of build.yml; build.yml stays
-# as it is and still makes the releases. arm64 is left to build.yml, since the
-# k8s cluster has no arm64 runner.
-# - push to main: tests only. Other branches are tested through their pull request,
-#   so a PR does not run the same tests twice.
-# - pull request: tests and the Linux x86_64 build.
-# Each job runs inside a Debian container, so the runner needs no extra packages.
-# Note: pull_request runs the PR's code on the k8s cluster. That is fine while the
-# repository is private, but take care before accepting PRs from outside.
+# Linux のテストと x86_64 のビルドを、k8s の self-hosted runner で動かす。
+# private リポジトリでは、GitHub の runner を使える時間に限りがあるため。
+# 手順は build.yml の test ジョブと linux ジョブの x86_64 と同じにしている。
+# build.yml はそのまま残し、Release も build.yml が作る。
+# k8s に arm64 の runner は無いので、arm64 は build.yml に任せる。
+# - main への push: テストだけ。ほかのブランチは PR でテストするので、PR でテストが2回動かない
+# - PR: テストと、Linux の x86_64 用のビルド
+# どのジョブも Debian のコンテナの中で動くので、runner に何かを入れる必要は無い。
+# 気をつけること: pull_request では、PR のコードが k8s の上で動く。
+# private のあいだは問題ないが、外の人の PR を受けるようになったら考え直す。
 name: self-hosted
 
 on:
@@ -16,7 +15,7 @@ on:
     branches: [main]
   pull_request:
 
-# Cancel older runs for the same branch or PR
+# 同じブランチや PR に続けて push したら、古い実行は止める
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -25,12 +24,12 @@ permissions:
   contents: read
 
 env:
-  # Same as build.yml (SDL2 is built from source with cmake and linked statically)
+  # build.yml と同じ。SDL2 はソースから cmake でビルドして、静的にリンクする
   LINUX_DEPS: build-essential pkg-config cmake libasound2-dev libudev-dev libdrm-dev libgbm-dev libegl-dev libgles-dev libxext-dev
 
 jobs:
   test:
-    # Debug profile: builds faster than release, and tests don't need optimization
+    # テストだけなので、最適化しない設定で作る。リリースの設定より速くビルドできる
     runs-on: k8s
     container: debian:12
     steps:
@@ -45,8 +44,8 @@ jobs:
         run: cargo test
 
   linux:
-    # Release build for Linux x86_64, inside Debian 12 (glibc 2.36) like build.yml.
-    # Runs on Debian 12 / Ubuntu 24.04 and later.
+    # Linux の x86_64 用のリリースビルド。build.yml と同じく Debian 12 の中で作る。
+    # glibc 2.36 で作るので、Debian 12 や Ubuntu 24.04 以降で動く
     if: github.event_name == 'pull_request'
     runs-on: k8s
     container: debian:12
