@@ -7,7 +7,7 @@
 #   Arch:          sudo pacman -S base-devel cmake alsa-lib libdrm mesa
 # dmxctl 1つで、デスクトップ(X11 / Wayland)・デスクトップ環境の無い画面(KMS/DRM)・画面なし(dmxctl headless)・CLI(dmxctl ctl など)
 # のすべてに使う。SDL2 は実行ファイルに内蔵するので、動かすPCに入れる必要は無い
-# できるもの: dist/linux/dmxctl と dist/linux/DMX-Controller-linux.tar.gz
+# できるもの: dist/linux/dmxctl
 set -euo pipefail
 cd "$(dirname "$0")/.."
 # NDIのクレート(サブモジュール moip-engine/)が無ければ取ってくる(--recursive を付けずに clone したとき)
@@ -16,8 +16,4 @@ OUT="dist/linux"
 mkdir -p "$OUT"
 cargo build --release
 cp target/release/dmxctl "$OUT/dmxctl"
-FILES="dmxctl dmxctl.desktop"
-cp scripts/linux/dmxctl.desktop "$OUT/dmxctl.desktop"
-(cd "$OUT" && rm -f DMX-Controller-linux.tar.gz && tar czf DMX-Controller-linux.tar.gz $FILES)
 echo "できました: $OUT/dmxctl"
-echo "配布用: $OUT/DMX-Controller-linux.tar.gz"

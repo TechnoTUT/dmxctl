@@ -6,10 +6,10 @@
 
 | PC | ファイル | 使い方 |
 |---|---|---|
-| Windows 10 / 11 | `DMX-Controller-windows.zip` | 展開して `dmxctl.exe` をダブルクリック。exe 1つで動きます(Visual C++ ランタイムなどのインストールは不要) |
+| Windows 10 / 11 | `dmxctl-windows-x86_64.exe` | ダブルクリックで起動。exe 1つで動きます(Visual C++ ランタイムなどのインストールは不要) |
 | Mac(Apple Silicon / Intel) | `DMX-Controller-mac.zip` | 展開して `DMX Controller.app` を「アプリケーション」へ。初めて開くときは、右クリック →「開く」(macOS 15 以降で開けないときは、「システム設定」→「プライバシーとセキュリティ」の「このまま開く」) |
-| Linux(Debian 13 / Ubuntu 24.04 以降) | `DMX-Controller-linux.tar.gz` | 展開して `./dmxctl`(デスクトップ用)。デスクトップ環境の無いPCでも同じ `./dmxctl`(自動で画面に直接出します)、モニターの無いPCは `./dmxctl headless`([Linux で使う](#linux-で使う)) |
-| モニターの無いLinuxで常駐(オート) | `DMX-Controller-linux-headless-x86_64.tar.gz`(普通のPC)/ `DMX-Controller-linux-headless-arm64.tar.gz`(Raspberry Pi 4/5 など) | 展開して `./install.sh`。電源を入れると自動で動きます(Beat Link Trigger も一緒に常駐。`--no-blt` なら dmxctl だけ)。[モニターの無いLinuxでオート](#モニターの無いlinuxでオートblt-と一緒に常駐) |
+| Linux(Debian 12 / Ubuntu 24.04 以降) | `dmxctl-linux-x86_64`(普通のPC)/ `dmxctl-linux-arm64`(Raspberry Pi 4/5 など) | `chmod +x dmxctl-linux-x86_64` して `./dmxctl-linux-x86_64` で起動。デスクトップ環境の無いPCでも同じファイルで、自動で画面に直接出します。モニターの無いPCは `headless` を付けて起動([Linux で使う](#linux-で使う)) |
+| モニターの無いLinuxで常駐(オート) | 上と同じ `dmxctl-linux-x86_64` / `dmxctl-linux-arm64` | このリポジトリの `./scripts/linux/install-headless.sh 落としたファイル` で入れると、電源を入れたら自動で動きます(Beat Link Trigger も一緒に常駐。`--no-blt` なら dmxctl だけ)。[モニターの無いLinuxでオート](#モニターの無いlinuxでオートblt-と一緒に常駐) |
 
 - **Windows で「WindowsによってPCが保護されました」と出たとき**: 署名の無いアプリなので出ます。「詳細情報」→「実行」で起動できます。初めて Ableton Link・OSC・操作パネルを使うときは、ファイアウォールの確認で「許可」を押します
 - 設定(機材・割り当て・シーン)は、アプリとは別の場所に自動で保存されます(Windows: `%APPDATA%\dmxctl\`)。新しい版に入れ替えても、そのまま引き継がれます
@@ -637,9 +637,9 @@ CDJ / XDJ ──(Pro DJ Link・LAN)── Linux PC ──(USB-DMX または Art-
 **準備**
 
 1. 照明の設定(機材・出力・シーン)は、画面のあるPC(または同じPCをモニターにつないで)で作り、`~/.config/dmxctl/` をこのPCにコピーします。フレーズごとの動きは **オート** タブのプリセットで決めておきます(シーン・エフェクトも選べます)
-2. [Releases](https://github.com/TechnoTUT/dmxctl/releases) から常駐版(`DMX-Controller-linux-headless-x86_64.tar.gz`、Raspberry Pi などは `-arm64`)を落として展開します。x86_64 版は Debian 13 / Ubuntu 24.04 以降、arm64 版は Raspberry Pi OS Bookworm(64bit)/ Debian 12 以降で動きます
+2. [Releases](https://github.com/TechnoTUT/dmxctl/releases) から `dmxctl-linux-x86_64`(Raspberry Pi などは `dmxctl-linux-arm64`)を落とし、このリポジトリも `git clone` しておきます。Debian 12 / Raspberry Pi OS Bookworm(64bit)/ Ubuntu 24.04 以降で動きます
 3. BLT の公式の `.deb` を入れます(`sudo apt install ./beat-link-trigger_*.deb`)。入った場所が `/opt/beat-link-trigger/bin/Beat Link Trigger` でなければ、`~/dmxctl/blt.env` に `BLT_CMD="起動コマンドの場所"` と書きます
-4. 展開したフォルダ(`dmxctl-headless/`)で `./install.sh` を実行すると、dmxctl と BLT が電源を入れたら動くようになります(ユーザーのサービス。`--no-blt` なら dmxctl だけ)。USB-DMX のグループに入ったときは、一度再起動してください。ソースから使うときは、`./scripts/build-linux.sh` のあと `./scripts/linux/install-headless.sh` でも同じです
+4. リポジトリのフォルダで `./scripts/linux/install-headless.sh ~/Downloads/dmxctl-linux-arm64`(落とした場所)を実行すると、dmxctl と BLT が電源を入れたら動くようになります(ユーザーのサービス。`--no-blt` を付けると dmxctl だけ)。USB-DMX のグループに入ったときは、一度再起動してください。ソースから使うときは、`./scripts/build-linux.sh` のあと場所を付けずに `./scripts/linux/install-headless.sh`
 
 **BLT の設定(最初に1回)**
 
@@ -731,9 +731,9 @@ cargo run --release
 3. このフォルダ(`moip-engine/` も含めて)をMacにコピーするか、`git clone --recursive https://github.com/TechnoTUT/dmxctl` で取ってきて、ターミナルで `./scripts/build-mac.sh`
 4. `dist/mac/DMX Controller.app` ができます(配布用の zip も同じ場所)
 
-**MacからWindows版を作る**: MinGW-w64 を入れて(`brew install mingw-w64`)、`bash ./scripts/build-windows-mingw.sh`。`dist/windows/dmxctl.exe`(単体で動く。追加のDLLは不要)と配布用のzipができます。
+**MacからWindows版を作る**: MinGW-w64 を入れて(`brew install mingw-w64`)、`bash ./scripts/build-windows-mingw.sh`。`dist/windows/dmxctl.exe`(単体で動く。追加のDLLは不要)ができます。Linux からも同じスクリプトで作れます(`sudo apt install mingw-w64`)。
 
-**Macが手元に無い場合**: GitHub で PR を作ると、`.github/workflows/build.yml` により Mac 用・Windows 用・Linux 用がビルドされます(ビルドが通るかの確認。ただの push ではテストだけ)。`v` で始まるタグ(例: `v0.2.0`)を push すると、そのビルドの成果物(zip / tar.gz)が GitHub の Release に添付されます。
+**Macが手元に無い場合**: `v` で始まるタグ(例: `v0.2.0`)を push すると、`.github/workflows/build.yml` により Mac 用・Windows 用・Linux 用がビルドされ、GitHub の Release に添付されます(Windows・Linux の実行ファイルはそのまま、Mac は .app の zip)。PR では Windows 用・Linux 用のビルドが通るかを確かめます(Mac 用はタグのときだけ)。ただの push ではテストだけです。
 
 **Macでの違い・注意**
 
@@ -756,9 +756,9 @@ Linux(X11 / Wayland のどちらでも)で動きます。**デスクトップ環
    - Arch: `sudo pacman -S base-devel cmake alsa-lib libdrm mesa`
 3. ソースを取ってくる: `git clone --recursive https://github.com/TechnoTUT/dmxctl`(NDIの部分 `moip-engine/` も一緒に取ってきます)
 4. `./scripts/build-linux.sh`
-5. `dist/linux/dmxctl` ができます(配布用の `DMX-Controller-linux.tar.gz` も同じ場所)。デスクトップでは `./dmxctl` で起動
+5. `dist/linux/dmxctl` ができます。`./dist/linux/dmxctl` で起動
 
-GitHub の Release に付いている Linux 版(`DMX-Controller-linux.tar.gz`)は Debian 13 の中で作っているので、**Debian 13 以降**で動きます(今のところ Ubuntu 24.04 以降でも動きます)。それより古い Linux では起動できない(`GLIBC_2.xx not found` と出る)ので、上の手順でそのPCの上で作ってください。
+GitHub の Release に付いている Linux 版(`dmxctl-linux-x86_64` / `dmxctl-linux-arm64`)は Debian 12 の中で作っているので、**Debian 12 以降**で動きます(Raspberry Pi OS Bookworm・Ubuntu 24.04 以降でも動きます)。それより古い Linux では起動できない(`GLIBC_2.xx not found` と出る)ので、上の手順でそのPCの上で作ってください。
 
 - SDL2(デスクトップ環境の無い画面で使う)は `dmxctl` に内蔵しているので、動かすPCに入れるものはありません
 
@@ -798,7 +798,7 @@ sudo ldconfig
 
 **準備**
 
-1. Release の `DMX-Controller-linux.tar.gz` の `dmxctl`(または `./scripts/build-linux.sh` で作ったもの)を使います。動かすPCに OpenGL ES の動くGPUドライバ(Mesa。ふつうは入っています)、日本語フォント(`fonts-noto-cjk`)を入れます
+1. Release の `dmxctl-linux-x86_64` / `dmxctl-linux-arm64`(または `./scripts/build-linux.sh` で作ったもの)を使います。動かすPCに OpenGL ES の動くGPUドライバ(Mesa。ふつうは入っています)、日本語フォント(`fonts-noto-cjk`)を入れます
 2. 画面とキーボード・マウスを使えるよう、ユーザーを `video` と `input` のグループに入れて、ログインし直します
 
    ```
