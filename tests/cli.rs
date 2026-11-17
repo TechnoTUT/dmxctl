@@ -195,3 +195,15 @@ fn impossible_limits_and_blackout_conflicts_are_rejected() {
     project.save(&dir.file("project.json")).unwrap();
     assert!(!dir.run(&["simulate","--project","project.json"]).status.success());
 }
+
+#[test]
+fn serve_defaults_to_no_inputs_and_gui_ignores_unknown_args() {
+    use dmxctl::control::Launch;
+    let args=|a:&[&str]|a.iter().map(|s|s.to_string()).collect::<Vec<_>>();
+    let serve=Launch::parse(&args(&["--project","p.json"]),true).unwrap();
+    assert!(!serve.inputs && !serve.output && !serve.autosave);
+    assert!(Launch::parse(&args(&["--project","p.json","--inputs","configured"]),true).unwrap().inputs);
+    assert!(Launch::parse(&args(&["--project","p.json","--bogus"]),true).is_err());
+    let gui=Launch::parse(&args(&["-psn_0_12345","--bogus"]),false).unwrap();
+    assert!(gui.inputs && gui.output && gui.autosave);
+}

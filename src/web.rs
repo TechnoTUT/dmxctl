@@ -213,7 +213,7 @@ pub fn command(c: &mut Core, v: &Value) -> Result<(), String> {
             c.fade_to_black(dark, secs);
         }
         // 押している間だけ(ボタンを離したら on: false が来る)
-        "flash" => c.rt.flash = on.unwrap_or(false).then_some(true),
+        "flash" => c.set_flash(on.unwrap_or(false).then_some(true)),
         "tap" => c.tap(),
         "resync" => c.resync(),
         "bpm" => c.set_bpm(num.ok_or("value がありません")?),

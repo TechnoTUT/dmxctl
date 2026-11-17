@@ -27,7 +27,9 @@ impl Default for Launch {
 impl Launch {
     pub fn parse(args: &[String], serve: bool) -> anyhow::Result<Self> {
         let mut result = Self::default();
-        if serve { result.output = false; result.autosave = false; result.listen = Some(DEFAULT_ADDRESS.parse()?); }
+        // serve は本番のGUIと同じPCで試すことがあるので、既定では実機出力・自動保存・入力(MIDI/OSC/Link/操作パネル)をすべて切る。
+        // 入力が要るときは --inputs configured
+        if serve { result.output = false; result.autosave = false; result.inputs = false; result.listen = Some(DEFAULT_ADDRESS.parse()?); }
         let mut i = 0;
         while i < args.len() {
             let arg = &args[i];
@@ -47,6 +49,8 @@ impl Launch {
                 "--autosave" => result.autosave = true,
                 "--no-autosave" => result.autosave = false,
                 "--headless"|"--kmsdrm"|"--apply-layout" if !serve => {},
+                // GUIは今まで知らない引数を無視していた(ショートカットやランチャーが付ける引数で起動できなくならないように)
+                _ if !serve => eprintln!("unknown startup option ignored: {arg}"),
                 _ => bail!("unknown startup option: {arg}"),
             }
             i += 1;
@@ -238,9 +242,7 @@ impl Host {
                 let result = commands::apply(&mut core, command);
                 log_command(&core, command, result.as_ref().err().map(|e|e.to_string()));
                 result?;
-                if command["cmd"] == "flash" {
-                    core.rt.flash_deadline = hold.map(|duration|Instant::now()+duration);
-                }
+                // フラッシュの期限は commands::apply が core.now()(仮想時間でも同じ時計)で決める
                 let frame = core.rt.frame_id;
                 drop(core);
                 if command["cmd"] == "flash" {

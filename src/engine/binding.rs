@@ -303,7 +303,7 @@ impl Core {
             }
             Action::Flash { white, mode } => {
                 if let Some(on) = edge.switch(mode, self.rt.flash.is_some()) {
-                    self.rt.flash = on.then_some(white);
+                    self.set_flash(on.then_some(white));
                 }
             }
             Action::Mute { sel, mode } => {
