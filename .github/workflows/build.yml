@@ -157,8 +157,12 @@ jobs:
   pr-record:
     # Pull requests only: once tests and builds pass, leave a marker named after the
     # source tree, so a tag on the same tree can reuse this run's executables
-    if: github.event_name == 'pull_request'
+    # A skipped reuse job would skip this one too (skips propagate through needs),
+    # so check the results explicitly instead
     needs: [test, linux, windows]
+    if: >-
+      ${{ !cancelled() && github.event_name == 'pull_request'
+      && needs.test.result == 'success' && needs.linux.result == 'success' && needs.windows.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - env:
