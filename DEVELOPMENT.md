@@ -118,6 +118,22 @@ DMXCTL_NDI_SOURCE=ソース名の一部 cargo test --release hw_ndi -- --ignored
 DMXCTL_SHEET_DIR=保存先 cargo test --release preset_sheet -- --ignored               # LEDバーの模様の一覧画像
 ```
 
+## CI の self-hosted runner
+
+リポジトリが private なので、GitHub の runner を使える時間には限りがある。そこで `build.yml` とは別に、Linux のテストとビルドを自分で用意した runner で動かす `self-hosted.yml` を置いている。
+
+`self-hosted.yml` のジョブはどれも Debian のコンテナの中で動く。arm64 の常駐版も x86_64 の上でクロスビルドするので、runner は x86_64 のマシン1台でよい。Release は作らない。
+
+runner のマシンに要るもの:
+
+1. **Docker**: Debian なら `sudo apt install docker.io` をして、runner を動かすユーザーを `docker` グループに入れる
+2. **runner 本体**: GitHub のリポジトリの Settings → Actions → Runners → New self-hosted runner に出る手順で入れる。ラベルは既定の `self-hosted`・`linux`・`x64` のままでよい
+3. **常駐させる**: runner のフォルダで `sudo ./svc.sh install && sudo ./svc.sh start`
+
+runner は1台だと1度に1つのジョブしか動かさない。PR では Linux のジョブが3つあるので、順番に動く。速くしたいときは、同じマシンにもう1つ runner を登録する。
+
+runner が止まっていると、`self-hosted.yml` のジョブは待ったままになる。
+
 ## はまりどころ
 
 - **USB-DMXが開けない(Resource busy)**: QLC+ など別の照明ソフトが使っていないか確認する

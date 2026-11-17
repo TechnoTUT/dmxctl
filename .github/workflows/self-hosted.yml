@@ -1,0 +1,102 @@
+# Linux のテストとビルドを、self-hosted runner(ラベル self-hosted・linux・x64)で動かす。
+# private リポジトリでは GitHub の runner の使える時間に限りがあるため。
+# どのジョブも Debian のコンテナの中で動かすので、runner のマシンには Docker だけがあればよい。
+# - push(ブランチ): テスト
+# - PR: テストと、Linux用のビルド(x86_64 と、クロスビルドの arm64)
+# - 毎週(main): テストだけ。ビルドのキャッシュを温めておく
+# Release は作らない(build.yml が作る)
+name: self-hosted
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  schedule:
+    - cron: '0 18 * * 0'
+
+# 同じブランチ・PRに続けてpushしたら、古い実行は止める
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    # テストだけなので最適化しない設定で作る
+    runs-on: [self-hosted, linux, x64]
+    container: rust:1-trixie
+    steps:
+      - name: 開発用ライブラリを入れる
+        run: apt-get update && apt-get install -y --no-install-recommends libasound2-dev libudev-dev libsdl2-dev
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+      - uses: Swatinem/rust-cache@v2
+      - name: テスト
+        run: cargo test --features kmsdrm
+
+  linux-build:
+    # 配布用のLinux版。Debian 13(glibc 2.41)で作れば Debian 13 以降で動く
+    if: github.event_name == 'pull_request'
+    runs-on: [self-hosted, linux, x64]
+    container: rust:1-trixie
+    steps:
+      - name: 開発用ライブラリを入れる
+        run: apt-get update && apt-get install -y --no-install-recommends libasound2-dev libudev-dev libsdl2-dev
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+      - uses: Swatinem/rust-cache@v2
+      - name: Linux版をビルド
+        run: chmod +x scripts/build-linux.sh && ./scripts/build-linux.sh
+      - name: デスクトップ用(dmxctl)が SDL2 を要らないことを確かめる
+        run: |
+          ldd dist/linux/dmxctl
+          if ldd dist/linux/dmxctl | grep -q libSDL2; then echo "dmxctl が libSDL2 を必要としています"; exit 1; fi
+          ldd dist/linux/dmxctl-kmsdrm | grep libSDL2
+      - name: 常駐版(x86_64)をまとめる
+        run: ./scripts/package-linux-headless.sh x86_64
+      - uses: actions/upload-artifact@v7
+        with:
+          name: DMX-Controller-linux
+          path: |
+            dist/linux/DMX-Controller-linux.tar.gz
+            dist/linux/DMX-Controller-linux-headless-x86_64.tar.gz
+
+  linux-arm64-build:
+    # 常駐版の arm64(Raspberry Pi 4/5 など)。x86_64 の上で arm64 向けにクロスビルドする。
+    # Raspberry Pi OS Bookworm でも動くよう、Debian 12(glibc 2.36)で作る
+    if: github.event_name == 'pull_request'
+    runs-on: [self-hosted, linux, x64]
+    container: rust:1-bookworm
+    env:
+      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+      CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
+      CXX_aarch64_unknown_linux_gnu: aarch64-linux-gnu-g++
+      PKG_CONFIG_ALLOW_CROSS: '1'
+      PKG_CONFIG_LIBDIR: /usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig
+    steps:
+      - name: arm64 用のコンパイラとライブラリを入れる
+        run: |
+          dpkg --add-architecture arm64
+          apt-get update
+          apt-get install -y --no-install-recommends g++-aarch64-linux-gnu libc6-dev-arm64-cross libasound2-dev:arm64 libudev-dev:arm64
+          rustup target add aarch64-unknown-linux-gnu
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+      - uses: Swatinem/rust-cache@v2
+      - name: dmxctl をビルド
+        run: |
+          cargo build --release --target aarch64-unknown-linux-gnu
+          mkdir -p dist/linux && cp target/aarch64-unknown-linux-gnu/release/dmxctl dist/linux/dmxctl
+      - name: arm64 の実行ファイルになっていることを確かめる
+        run: readelf -h dist/linux/dmxctl | grep -q AArch64
+      - name: 常駐版(arm64)をまとめる
+        run: chmod +x scripts/package-linux-headless.sh && ./scripts/package-linux-headless.sh arm64
+      - uses: actions/upload-artifact@v7
+        with:
+          name: DMX-Controller-linux-headless-arm64
+          path: dist/linux/DMX-Controller-linux-headless-arm64.tar.gz
