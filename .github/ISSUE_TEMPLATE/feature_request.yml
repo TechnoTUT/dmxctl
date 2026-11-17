@@ -1,0 +1,46 @@
+name: 機能の提案
+description: 「こうできたらいい」というアイデアを知らせる
+title: "[提案] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        アイデアを教えてくれてありがとうございます。下の項目を埋めてください。
+        まだ形になっていなくても大丈夫です。
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 困っていること
+      description: どんな場面で、何に困っているかを書いてください。機能の名前より、場面を先に書いてもらえると助かります。
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 提案する動き
+      description: こうできたらいい、という形を書いてください。
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 今の方法や、ほかに考えた方法
+      description: 今どうしているか、ほかにどんな方法を考えたかを書いてください。
+
+  - type: textarea
+    id: area
+    attributes:
+      label: 関係する画面・機能・機材
+      description: 画面のタブ名、機材の種類、CLI のコマンドなど、わかるものを書いてください。
+
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: 安全への影響
+      options:
+        - label: レーザーや人に向く照明の動きに関係する
+          required: false
