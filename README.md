@@ -751,9 +751,9 @@ Linux(X11 / Wayland のどちらでも)で動きます。**デスクトップ環
 
 1. Rust を入れる: https://rustup.rs
 2. ビルドに要るものを入れる
-   - Ubuntu / Debian: `sudo apt install build-essential pkg-config cmake libasound2-dev libudev-dev libdrm-dev libgbm-dev libegl-dev libgles-dev`
-   - Fedora: `sudo dnf install gcc-c++ pkgconf cmake alsa-lib-devel systemd-devel libatomic libdrm-devel mesa-libgbm-devel mesa-libEGL-devel mesa-libGLES-devel`
-   - Arch: `sudo pacman -S base-devel cmake alsa-lib libdrm mesa`
+   - Ubuntu / Debian: `sudo apt install build-essential pkg-config cmake libasound2-dev libudev-dev libdrm-dev libgbm-dev libegl-dev libgles-dev libxext-dev`
+   - Fedora: `sudo dnf install gcc-c++ pkgconf cmake alsa-lib-devel systemd-devel libatomic libdrm-devel mesa-libgbm-devel mesa-libEGL-devel mesa-libGLES-devel libXext-devel`
+   - Arch: `sudo pacman -S base-devel cmake alsa-lib libdrm mesa libxext`
 3. ソースを取ってくる: `git clone --recursive https://github.com/TechnoTUT/dmxctl`(NDIの部分 `moip-engine/` も一緒に取ってきます)
 4. `./scripts/build-linux.sh`
 5. `dist/linux/dmxctl` ができます。`./dist/linux/dmxctl` で起動

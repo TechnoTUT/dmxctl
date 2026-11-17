@@ -32,7 +32,7 @@ libc = "0.2"
 
 # デスクトップ環境の無いLinuxで、画面(KMS/DRM)に直接出す(src/kmsdrm.rs)。
 # SDL2 はソースからビルドして実行ファイルに内蔵する(動かすPCに libSDL2 は要らない。libdrm・EGL などは SDL が実行時に読み込む)。
-# ビルドに cmake と libdrm-dev・libgbm-dev・libegl-dev・libgles-dev が要る
+# ビルドに cmake と libdrm-dev・libgbm-dev・libegl-dev・libgles-dev・libxext-dev が要る
 [target.'cfg(target_os = "linux")'.dependencies]
 egui_glow = { version = "0.36.2", default-features = false }
 glow = "0.17.0"

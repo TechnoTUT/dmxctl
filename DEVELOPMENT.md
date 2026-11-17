@@ -34,7 +34,7 @@ target\release\dmxctl.exe
 
 ### Linux
 1. **Rust**: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
-2. **ビルドに要るもの**(Debian / Ubuntu): `sudo apt install build-essential pkg-config cmake libasound2-dev libudev-dev libdrm-dev libgbm-dev libegl-dev libgles-dev`(Fedora / Arch は README の「Linux で使う」)
+2. **ビルドに要るもの**(Debian / Ubuntu): `sudo apt install build-essential pkg-config cmake libasound2-dev libudev-dev libdrm-dev libgbm-dev libegl-dev libgles-dev libxext-dev`(Fedora / Arch は README の「Linux で使う」)
 3. **日本語フォント**: `sudo apt install fonts-noto-cjk`
 4. **権限**: `sudo usermod -aG dialout,video,input $USER`(USB-DMX、KMSDRMの画面・キーボード/マウス)
 5. (NDIを使うなら)**NDI SDK for Linux** のライブラリ: README の「Linux で NDI を使う」

@@ -27,7 +27,7 @@ permissions:
 
 env:
   # Build dependencies for Linux (SDL2 is built from source with cmake and linked statically)
-  LINUX_DEPS: build-essential pkg-config cmake libasound2-dev libudev-dev libdrm-dev libgbm-dev libegl-dev libgles-dev
+  LINUX_DEPS: build-essential pkg-config cmake libasound2-dev libudev-dev libdrm-dev libgbm-dev libegl-dev libgles-dev libxext-dev
 
 jobs:
   test:
