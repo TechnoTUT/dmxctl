@@ -272,13 +272,13 @@ impl App {
 
     fn status_bar(&mut self, ui: &mut egui::Ui) {
         use crate::theme;
-        let (midi, last, outs, blt) = {
+        let (midi, last, outs, blt, remote_emergency) = {
             let c = lock(&self.host.core);
-            (c.rt.midi_status.clone(), c.rt.last_midi.clone(), c.rt.output_status.clone(), c.project.auto.enabled.then(|| c.blt_state()))
+            (c.rt.midi_status.clone(), c.rt.last_midi.clone(), c.rt.output_status.clone(), c.project.auto.enabled.then(|| c.blt_state()), c.rt.remote_emergency)
         };
         ui.add_space(3.0);
         ui.horizontal(|ui| {
-            if crate::engine::EMERGENCY.load(std::sync::atomic::Ordering::SeqCst) {
+            if crate::engine::EMERGENCY.load(std::sync::atomic::Ordering::SeqCst) || remote_emergency {
                 theme::dot(ui, theme::DANGER);
                 ui.label(RichText::new("安全停止中(アプリを再起動してください)").small().color(theme::DANGER));
                 ui.separator();

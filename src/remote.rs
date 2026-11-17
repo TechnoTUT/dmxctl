@@ -249,7 +249,8 @@ fn apply_rt_state(c: &mut Core, d: &Value) {
     rt.manual_last = from_age(&d["manual_age"]);
     rt.clock.last = from_age(&d["clock_age"]);
     rt.frame_id = val(d, "frame", rt.frame_id);
-    EMERGENCY.store(val(d, "emergency", false), Ordering::SeqCst);
+    // このプロセスの EMERGENCY(終了のシグナルなど)は上書きしない
+    rt.remote_emergency = val(d, "emergency", false);
     c.dirty = val(d, "dirty", false);
     apply_armed(c, d);
 }
@@ -1074,6 +1075,28 @@ mod tests {
         assert_eq!(lock(&core).rt.learn, Some(0));
         lock(&core).live(LiveOp::Midi { kind: crate::project::TriggerKind::Note, channel: 0, number: 60, value: 100 });
         assert!(wait(|| lock(&server_core).rt.notes_down[60]));
+    }
+
+    #[test]
+    fn a_client_reconnects_to_a_restarted_server() {
+        let (_old_core, server) = server();
+        let address = server.address;
+        let (core, mut client) = client(&server);
+        drop(server);
+        assert!(wait(|| !client.connected()));
+        // 同じアドレスで、別のプロジェクトのサーバーを起動し直す
+        let (lib, _) = Library::load(std::path::Path::new("/nonexistent"));
+        let mut project = Project::starter(&lib);
+        project.fixtures[0].name = "after restart".into();
+        let new_core: Shared = Arc::new(Mutex::new(Core::new(project, Arc::new(lib))));
+        let _server = RemoteServer::start(new_core.clone(), eframe::egui::Context::default(), address).unwrap();
+        assert!(wait(|| {
+            frame(&mut client, &core, |_| {});
+            client.connected() && lock(&core).project.fixtures[0].name == "after restart"
+        }));
+        // つなぎ直したあとの操作も届く
+        lock(&core).live(LiveOp::SetBlackout { on: true });
+        assert!(wait(|| lock(&new_core).rt.blackout));
     }
 
     #[test]

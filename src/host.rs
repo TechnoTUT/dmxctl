@@ -174,6 +174,20 @@ impl Host {
             initial_midi: String::new(),
         };
         host.auto_connect_midi();
+        // 終了のシグナル(Ctrl+C など)は、ふだんは出力ループが安全な値を送ってから終わらせる。
+        // クライアントには出力ループが無い(照明も出していない)ので、画面を閉じてすぐ終わる
+        if crate::engine::SAFETY_HOOKS.load(std::sync::atomic::Ordering::SeqCst) {
+            let ctx = ctx.clone();
+            std::thread::Builder::new().name("client-exit".into()).spawn(move || {
+                while !crate::engine::EMERGENCY.load(std::sync::atomic::Ordering::SeqCst) {
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                ctx.request_repaint();
+                std::thread::sleep(Duration::from_secs(1));
+                std::process::exit(0);
+            })?;
+        }
         Ok(host)
     }
 
