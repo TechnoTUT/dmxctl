@@ -8,7 +8,7 @@
 
 ```powershell
 cargo build --bins
-./target/debug/dmxctl-cli serve --project examples/cli/project.json --inputs none
+./target/debug/dmxctl-cli serve --project examples/cli/project.json
 ```
 
 GUIを操作対象にする場合は、代わりに次で起動します。既にこのGUIを起動している場合、別の `serve` を追加で起動する必要はありません。
@@ -30,7 +30,7 @@ GUIを操作対象にする場合は、代わりに次で起動します。既�
 ./target/debug/dmxctl-cli ctl stop
 ```
 
-- `serve` は既定で実機送信なし、自動保存なしです。MIDIなどの入力は保存設定に従い起動するため、デバッグ例では `--inputs none` を指定しています。実機送信は `--output live`、自動保存は `--autosave` で有効にできます。
+- `serve` は既定で実機送信なし、自動保存なし、入力(MIDI・OSC・Ableton Link・操作パネル)なしです。本番のGUIと同じPCで動かしても、コントローラーやポートを取り合いません。入力は `--inputs configured`、実機送信は `--output live`、自動保存は `--autosave` で有効にできます。
 - GUIの通常起動は従来どおりの出力・保存動作です。デバッグ時は上の例のように起動時オプションを指定します。
 - `--output none` は保存済みの出力先を変更せず、送信だけを無効にします。GUIで出力先を追加・有効化しても、そのプロセスからは送信しません。40Hzの合成は続くため、最終DMX値を確認できます。
 - `--no-autosave` の実行では、変更を残すときに `ctl project save` が必要です。終了時にも自動保存しません。保存する値は元のプロジェクト形式で、実行時に無効化した出力先や入力機器の設定も保持します。

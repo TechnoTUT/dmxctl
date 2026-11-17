@@ -146,6 +146,10 @@ impl App {
             }
             core.rt.fades.retain(|f| f.fixture != id);
             core.project.pairs.retain(|p| p.leader != id && p.follower != id);
+            // シーン・位置プリセットに残った、消した機材の値も消す
+            for s in core.project.scenes.iter_mut().chain(core.project.positions.iter_mut()) {
+                s.values.retain(|v| v.fixture != id);
+            }
             changed = true;
         }
         if changed {

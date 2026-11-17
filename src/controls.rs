@@ -268,4 +268,16 @@ mod tests {
         c.remote_input(&json!({"source":"osc","address":"/dmx/flash","args":[1],"hold_ms":50})).unwrap();
         c.rt.virtual_now=Some(start+Duration::from_millis(60));c.render();assert_eq!(c.rt.flash,None);
     }
+    #[test]
+    fn local_flash_is_not_cut_by_a_pending_remote_deadline() {
+        let mut c=core();let start=c.now();c.rt.virtual_now=Some(start);
+        crate::commands::apply(&mut c,&json!({"cmd":"flash","on":true,"hold_ms":50})).unwrap();
+        assert_eq!(c.rt.flash_deadline,Some(start+Duration::from_millis(50)),"deadline uses the engine clock");
+        // 期限が来る前に、人が操作パネル/OSC/MIDIでフラッシュを押し直す
+        crate::web::command(&mut c,&json!({"cmd":"flash","on":true})).unwrap();
+        c.rt.virtual_now=Some(start+Duration::from_millis(60));c.render();
+        assert_eq!(c.rt.flash,Some(true));
+        c.handle_osc(&crate::osc::Message{addr:"/dmx/flash".into(),args:vec![crate::osc::Arg::Int(1)]});
+        c.render();assert_eq!(c.rt.flash,Some(true));
+    }
 }

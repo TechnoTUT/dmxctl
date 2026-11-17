@@ -365,19 +365,22 @@ impl App {
         }
     }
 
+    /// GUIの保存・自動保存・終了時の保存。厳しい検証(editing::validate)はかけない:
+    /// GUIの編集で検証に通らない状態(機材を消したあとの参照など)になっても、作業内容を失わないように。
+    /// リモートの "save" は、呼ぶ前に検証する
     pub(crate) fn save_checked(&mut self) -> anyhow::Result<()> {
         let project = {
             let mut c = lock(&self.core);
             c.project.ensure_binding_ids();
-            crate::editing::validate(&c.project,&c.lib)?;
             c.dirty = false;
             c.project.clone()
         };
+        // 失敗しても次の自動保存まで待つ(毎フレーム保存し直さない)
+        self.last_save = Instant::now();
         if let Err(e) = project.save(&self.project_path) {
             lock(&self.core).dirty = true;
             return Err(e);
         }
-        self.last_save = Instant::now();
         Ok(())
     }
 
@@ -770,9 +773,12 @@ impl App {
         if let (Some(p), Some(cpu)) = (self.perf.as_mut(), cpu_usage) {
             p.frame_cpu += cpu;
         }
-        let before=lock(&self.core).history_state();
+        let before=lock(&self.core).history_snapshot();
         self.ui_timed(ui);
-        lock(&self.core).record_observation(before,"gui_frame");
+        if before.is_some() {
+            let after=lock(&self.core).history_snapshot();
+            crate::recording::HistorySnapshot::observe(before,after,"gui_frame");
+        }
         if let Some(s) = self.shot.as_mut() {
             s.tick(ui.ctx());
         }

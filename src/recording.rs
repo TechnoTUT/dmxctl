@@ -135,12 +135,22 @@ impl Core {
     }
 
     pub(crate) fn history_state(&self)->Option<Value> {
-        self.rt.recorder.as_ref()?;
-        Some(json!({"project":crate::editing::redact(&serde_json::to_value(&self.project).unwrap()),
-            "profiles":self.lib.profiles.iter().map(|p|p.as_ref()).collect::<Vec<_>>(),
-            "runtime":{"master":self.rt.master,"blackout":self.rt.blackout,"page":self.rt.page,"key_page":self.rt.key_page,
+        self.history_snapshot().map(HistorySnapshot::state)
+    }
+
+    /// 記録中だけ、比較用の状態を複製する(ロック中は複製だけ。JSONにするのはロックの外)
+    pub(crate) fn history_snapshot(&self)->Option<HistorySnapshot> {
+        let recorder=self.rt.recorder.clone()?;
+        Some(HistorySnapshot {
+            project:self.project.clone(),
+            profiles:self.lib.profiles.clone(),
+            runtime:json!({"master":self.rt.master,"blackout":self.rt.blackout,"page":self.rt.page,"key_page":self.rt.key_page,
                 "armed":self.project.fixtures.iter().map(|f|json!({"fixture":f.id,"armed":f.armed})).collect::<Vec<_>>(),
-                "muted":self.rt.muted,"flash":self.rt.flash,"selected":self.rt.selected,"color_global":self.rt.color_global}}))
+                "muted":self.rt.muted,"flash":self.rt.flash,"selected":self.rt.selected,"color_global":self.rt.color_global}),
+            recorder,
+            frame:self.rt.frame_id,
+            t_ms:self.now().saturating_duration_since(self.rt.t0).as_millis() as u64,
+        })
     }
 
     pub(crate) fn record_observation(&self,before:Option<Value>,source:&str) {
@@ -151,6 +161,38 @@ impl Core {
         recorder.emit(json!({"type":"state_change","source":source,"before":before,"after":after,
             "t_ms":self.now().saturating_duration_since(self.rt.t0).as_millis() as u64,
             "observed_at_engine_frame":self.rt.frame_id,"replayable":false}));
+    }
+}
+
+/// GUIの1フレームの前後を比べるための状態。Coreのロックを持たずにJSONにできる
+pub(crate) struct HistorySnapshot {
+    project:crate::project::Project,
+    profiles:Vec<Arc<crate::fixture::Profile>>,
+    runtime:Value,
+    recorder:Recorder,
+    frame:u64,
+    t_ms:u64,
+}
+
+impl HistorySnapshot {
+    fn state(self)->Value {
+        json!({"project":crate::editing::redact(&serde_json::to_value(&self.project).unwrap()),
+            "profiles":self.profiles.iter().map(|p|p.as_ref()).collect::<Vec<_>>(),"runtime":self.runtime})
+    }
+
+    /// 前後で変わっていれば state_change を記録する。Coreのロックの外で呼ぶ(40Hzの出力を止めない)
+    pub(crate) fn observe(before:Option<Self>,after:Option<Self>,source:&str) {
+        let (Some(before),Some(after))=(before,after) else {return;};
+        // 機材定義は Arc を共有したままなら同じもの。プロジェクトと実行状態が同じなら比べるまでもない
+        let same_profiles=before.profiles.len()==after.profiles.len()
+            && before.profiles.iter().zip(&after.profiles).all(|(a,b)|Arc::ptr_eq(a,b));
+        if same_profiles && before.runtime==after.runtime
+            && serde_json::to_value(&before.project).ok()==serde_json::to_value(&after.project).ok() {return;}
+        let (recorder,frame,t_ms)=(after.recorder.clone(),after.frame,after.t_ms);
+        let (before,after)=(before.state(),after.state());
+        if before==after {return;}
+        recorder.emit(json!({"type":"state_change","source":source,"before":before,"after":after,
+            "t_ms":t_ms,"observed_at_engine_frame":frame,"replayable":false}));
     }
 }
 

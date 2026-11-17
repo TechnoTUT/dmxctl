@@ -381,8 +381,8 @@ impl crate::app::App {
             project.next_binding_id=project.next_binding_id.max(core.project.next_binding_id);
             project.next_id=project.next_id.max(core.project.next_id);
             project.ensure_binding_ids();
-            if remote {safety_unchanged(&core.project,&project,&core.lib)?;}
-            validate(&project,&core.lib)?;
+            // GUIの「読み込み」は今までどおり厳しい検証をしない(GUIで保存したファイルを読み戻せるように)
+            if remote {safety_unchanged(&core.project,&project,&core.lib)?;validate(&project,&core.lib)?;}
             core.project.clone()
         };
         if dry_run {return Ok(json!({"applied":false,"valid":true,"source":path}));}

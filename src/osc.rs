@@ -413,7 +413,7 @@ impl Core {
                 }
             }
             ["swap"] if press => self.swap_palette(),
-            ["flash"] => self.rt.flash = press.then_some(true),
+            ["flash"] => self.set_flash(press.then_some(true)),
             // 2つ目の数値があれば秒数(無ければ設定の秒数)
             ["fade"] => {
                 let secs = m.args.iter().filter_map(|a| a.num()).nth(1).unwrap_or(self.project.fade_secs);
@@ -425,7 +425,7 @@ impl Core {
                     self.dirty = true;
                 }
             }
-            ["flash", "color"] => self.rt.flash = press.then_some(false),
+            ["flash", "color"] => self.set_flash(press.then_some(false)),
             ["swap", "auto"] => self.set_palette_auto(press),
             ["page"] => {
                 if let Some(v) = num {

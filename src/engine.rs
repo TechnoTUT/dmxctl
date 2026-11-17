@@ -300,6 +300,14 @@ impl Core {
         self.rt.virtual_now.unwrap_or_else(Instant::now)
     }
 
+    /// 手元の操作(MIDI・OSC・操作パネル)でフラッシュを変える。
+    /// リモートのフラッシュの期限が残っていても、人が押しているフラッシュをその期限で切らないよう、期限を消す
+    /// (リモートの経路は、このあとで期限を付け直す)
+    pub fn set_flash(&mut self, flash: Option<bool>) {
+        self.rt.flash = flash;
+        self.rt.flash_deadline = None;
+    }
+
     pub fn new(mut project: Project, lib: Arc<Library>) -> Self {
         project.ensure_binding_ids();
         let mut rt = Runtime::new();
