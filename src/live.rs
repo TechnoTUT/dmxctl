@@ -6,7 +6,8 @@
 use crate::color::{ColorRole, ColorTarget, NamedColor};
 use crate::engine::Core;
 use crate::motion::MotionOp;
-use crate::project::{PhraseLook, Selector, TempoSource, PAGES};
+use crate::engine::MidiMsg;
+use crate::project::{PhraseLook, Selector, TempoSource, TriggerKind, PAGES};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -14,6 +15,10 @@ use serde::{Deserialize, Serialize};
 pub enum LiveOp {
     /// 機材の値(手動)
     SetAttr { sel: Selector, attr: String, value: f32 },
+    /// MIDIコントローラーからの入力
+    Midi { kind: TriggerKind, channel: u8, number: u8, value: u8 },
+    /// APC mini mk2 から読み取ったフェーダー1..9の位置(表示用。割り当ては実行しない)
+    FaderPositions { positions: [u8; 9] },
     /// キーボードの割り当て(押した/離した)
     Key { number: u8, pressed: bool },
     SetBpm { bpm: f32 },
@@ -71,6 +76,8 @@ impl Core {
     pub fn live(&mut self, op: LiveOp) {
         match op {
             LiveOp::SetAttr { sel, attr, value } => self.set_attr(&sel, &attr, value),
+            LiveOp::Midi { kind, channel, number, value } => self.handle_midi(MidiMsg { kind, channel: channel & 0x0F, number: number & 0x7F, value: value & 0x7F }),
+            LiveOp::FaderPositions { positions } => self.set_fader_positions(&positions),
             LiveOp::Key { number, pressed } => self.handle_key(number, pressed),
             LiveOp::SetBpm { bpm } => self.set_bpm(bpm),
             LiveOp::Tap => self.tap(),
