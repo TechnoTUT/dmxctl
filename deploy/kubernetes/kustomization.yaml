@@ -10,3 +10,10 @@ resources:
   - pvc.yaml
   - deployment.yaml
   - service.yaml
+
+# 見本の設定 (example/project.json)。ConfigMap の dmxctl-example に入る。
+# Deployment はまだ使っていないので、本番の設定は Secret の dmxctl-seed のまま
+configMapGenerator:
+  - name: dmxctl-example
+    files:
+      - example/project.json
