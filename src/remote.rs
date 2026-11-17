@@ -487,6 +487,8 @@ fn serve_conn(stream: TcpStream, core: &Shared, ctx: &eframe::egui::Context, eve
         })?
     };
     guard(conns).push(conn.clone());
+    // このクライアントが押したまま、まだ離していないパッド・キー(切れたら離す)
+    let mut held = Held::default();
 
     let result = (|| -> anyhow::Result<()> {
         while conn.alive.load(Ordering::Relaxed) {
@@ -534,6 +536,7 @@ fn serve_conn(stream: TcpStream, core: &Shared, ctx: &eframe::egui::Context, eve
                 let r = match v["t"].as_str().unwrap_or("") {
                     "live" => serde_json::from_value::<LiveOp>(v["op"].clone()).map_err(anyhow::Error::from).map(|op| {
                         let services = op.needs_services();
+                        held.track(&op);
                         c.live(op);
                         services
                     }),
@@ -579,8 +582,51 @@ fn serve_conn(stream: TcpStream, core: &Shared, ctx: &eframe::egui::Context, eve
         Ok(())
     })();
     conn.alive.store(false, Ordering::Relaxed);
+    // 押している間だけ効くもの(フラッシュ・暗転など)を押したまま切れたら、離したことにする
+    // (照明が戻らなくならないように)
+    let releases = held.releases();
+    if !releases.is_empty() {
+        let mut c = lock(core);
+        for op in releases {
+            c.live(op);
+        }
+        drop(c);
+        ctx.request_repaint();
+    }
     let _ = writer_thread.join();
     result
+}
+
+/// クライアントが押したまま離していないMIDIのノートとキーボードのキー
+#[derive(Default)]
+struct Held {
+    notes: std::collections::BTreeSet<(u8, u8)>,
+    keys: std::collections::BTreeSet<u8>,
+}
+
+impl Held {
+    fn track(&mut self, op: &LiveOp) {
+        use crate::project::TriggerKind;
+        match *op {
+            LiveOp::Midi { kind: TriggerKind::Note, channel, number, value } => {
+                let note = (channel & 0x0F, number & 0x7F);
+                if value > 0 { self.notes.insert(note); } else { self.notes.remove(&note); }
+            }
+            LiveOp::Midi { kind: TriggerKind::Key, number, value, .. } => self.key(number, value > 0),
+            LiveOp::Key { number, pressed } => self.key(number, pressed),
+            _ => {}
+        }
+    }
+
+    fn key(&mut self, number: u8, pressed: bool) {
+        if pressed { self.keys.insert(number); } else { self.keys.remove(&number); }
+    }
+
+    /// 全部を離す操作
+    fn releases(&self) -> Vec<LiveOp> {
+        let notes = self.notes.iter().map(|&(channel, number)| LiveOp::Midi { kind: crate::project::TriggerKind::Note, channel, number, value: 0 });
+        notes.chain(self.keys.iter().map(|&number| LiveOp::Key { number, pressed: false })).collect()
+    }
 }
 
 fn broadcast_loop(core: &Shared, conns: &Mutex<Vec<Arc<Conn>>>, stop: &AtomicBool) {
@@ -1198,6 +1244,40 @@ mod tests {
         client.before_frame(core);
         edit(&mut lock(core));
         client.after_frame(core);
+    }
+
+    fn server_with(project: Project) -> (Shared, RemoteServer) {
+        let (lib, _) = Library::load(std::path::Path::new("/nonexistent"));
+        let core: Shared = Arc::new(Mutex::new(Core::new(project, Arc::new(lib))));
+        let server = RemoteServer::start(core.clone(), eframe::egui::Context::default(), "127.0.0.1:0".parse().unwrap()).unwrap();
+        (core, server)
+    }
+
+    #[test]
+    fn held_pads_and_keys_are_released_when_a_client_drops() {
+        use crate::project::{Action, Binding, MidiTrigger, PadMode, TriggerKind};
+        let (lib, _) = Library::load(std::path::Path::new("/nonexistent"));
+        let mut project = Project::starter(&lib);
+        project.bindings.clear();
+        for (name, kind, number) in [("Flash pad", TriggerKind::Note, 40), ("Flash key", TriggerKind::Key, 16)] {
+            project.bindings.push(Binding { id: 0, name: name.into(), action: Action::Flash { white: true, mode: PadMode::Momentary },
+                trigger: Some(MidiTrigger { kind, channel: None, number }), page: None, osc: None });
+        }
+        project.ensure_binding_ids();
+        let (server_core, server) = server_with(project);
+        let (core, client) = client(&server);
+        lock(&core).live(LiveOp::Midi { kind: TriggerKind::Note, channel: 0, number: 40, value: 127 });
+        lock(&core).live(LiveOp::Key { number: 16, pressed: true });
+        assert!(wait(|| {
+            let c = lock(&server_core);
+            c.rt.flash == Some(true) && c.rt.notes_down[40] && c.rt.keys_down.contains(&16)
+        }));
+        // 押したまま切れる(LANが切れた・クライアントが落ちた)
+        drop(client);
+        assert!(wait(|| {
+            let c = lock(&server_core);
+            c.rt.flash.is_none() && !c.rt.notes_down[40] && c.rt.keys_down.is_empty()
+        }), "the server must release what the dropped client was holding");
     }
 
     #[test]
