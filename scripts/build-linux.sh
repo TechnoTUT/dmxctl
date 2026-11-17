@@ -6,7 +6,7 @@
 #   Fedora:        sudo dnf install gcc-c++ pkgconf alsa-lib-devel systemd-devel libatomic SDL2-devel
 #   Arch:          sudo pacman -S base-devel alsa-lib sdl2
 # 2つ作る:
-#   dmxctl        … デスクトップ環境(X11 / Wayland)用。SDL2は要らない
+#   dmxctl        … デスクトップ環境(X11 / Wayland)用。SDL2は要らない。画面なし(dmxctl headless)・CLI(dmxctl ctl など)も同じファイル
 #   dmxctl-kmsdrm … デスクトップ環境の無い画面(KMS/DRM)にも出せる版(kmsdrm機能。動かすPCに SDL2 が要る)
 # SDL2を入れたくないときは DMXCTL_NO_KMSDRM=1 ./scripts/build-linux.sh(dmxctl だけ作る)
 # できるもの: dist/linux/dmxctl・dmxctl-kmsdrm と dist/linux/DMX-Controller-linux.tar.gz
@@ -19,8 +19,7 @@ mkdir -p "$OUT"
 rm -f "$OUT/dmxctl-kmsdrm"
 cargo build --release
 cp target/release/dmxctl "$OUT/dmxctl"
-cp target/release/dmxctl-cli "$OUT/dmxctl-cli"
-FILES="dmxctl dmxctl-cli dmxctl.desktop"
+FILES="dmxctl dmxctl.desktop"
 if [ -z "${DMXCTL_NO_KMSDRM:-}" ]; then
   cargo build --release --features kmsdrm
   cp target/release/dmxctl "$OUT/dmxctl-kmsdrm"
