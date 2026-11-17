@@ -14,7 +14,7 @@ pub fn category_order(name: &str) -> (usize, String) {
     (CATEGORIES.iter().position(|c| *c == name).unwrap_or(CATEGORIES.len()), name.to_string())
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(schemars::JsonSchema, Debug, Clone, Deserialize, Serialize)]
 pub struct Range {
     pub from: u8,
     pub to: u8,
@@ -85,7 +85,7 @@ pub fn range_issues(ranges: &[Range]) -> Vec<String> {
     issues
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(schemars::JsonSchema, Debug, Clone, Deserialize, Serialize)]
 pub struct ChannelDef {
     pub name: String,
     /// 機能名(pan / tilt / dimmer / color ...)。MIDI割り当てやエフェクトはこの名前で対象を指定する
@@ -142,7 +142,7 @@ impl ChannelDef {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(schemars::JsonSchema, Debug, Clone, Deserialize, Serialize)]
 pub struct Mode {
     pub name: String,
     pub channels: Vec<ChannelDef>,
@@ -321,7 +321,7 @@ impl Mode {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(schemars::JsonSchema, Debug, Clone, Deserialize, Serialize)]
 pub struct Profile {
     pub id: String,
     pub name: String,
@@ -463,6 +463,7 @@ impl ModeInfo {
     }
 }
 
+#[derive(Clone)]
 pub struct Library {
     pub profiles: Vec<Arc<Profile>>,
     /// プロファイルid → (作ったときのプロファイル, モードごとの下調べ)
@@ -542,6 +543,26 @@ fn inherit_forbid(p: &mut Profile, builtin: &Profile) {
 }
 
 impl Library {
+    pub(crate) fn preview_user(&self,profile:&Profile)->Self {
+        let mut candidate=self.clone();let mut profile=profile.clone();
+        for source in BUILTIN {
+            if let Ok(builtin)=serde_json::from_str::<Profile>(source) {
+                if builtin.id==profile.id {inherit_forbid(&mut profile,&builtin);}
+            }
+        }
+        candidate.add(profile);candidate
+    }
+
+    pub(crate) fn register_user_file(&mut self,id:&str,path:PathBuf) {self.user_files.insert(id.to_string(),path);}
+
+    pub(crate) fn preview_delete(&self,id:&str)->Self {
+        let mut candidate=self.clone();
+        candidate.profiles.retain(|p|p.id!=id);candidate.infos.remove(id);candidate.user_files.remove(id);
+        for source in BUILTIN {if let Ok(profile)=serde_json::from_str::<Profile>(source) {if profile.id==id {candidate.add(profile);}}}
+        let bar=generic_led_bar();if bar.id==id {candidate.add(bar);}
+        candidate
+    }
+
     /// 内蔵プロファイル + ユーザーフォルダ(同じidならユーザーのものが優先)
     pub fn load(user_dir: &Path) -> (Self, Vec<String>) {
         let mut lib = Library { user_dir: user_dir.to_path_buf(), ..Library::default() };

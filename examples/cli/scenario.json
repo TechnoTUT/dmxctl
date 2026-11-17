@@ -1,0 +1,7 @@
+[
+  {"at_ms": 0, "command": {"id": "tempo", "cmd": "bpm", "value": 128}},
+  {"at_ms": 0, "command": {"id": "circle", "cmd": "motion", "params": {"shape": "Circle", "beats": 4, "size": 0.3}}},
+  {"at_ms": 1000, "command": {"id": "laser-limit", "cmd": "set", "fixture": 2, "attr": "pan", "value": 200}},
+  {"at_ms": 2000, "command": {"id": "dark", "cmd": "blackout", "on": true}},
+  {"at_ms": 2500, "command": {"id": "restore", "cmd": "blackout", "on": false}}
+]

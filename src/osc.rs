@@ -249,6 +249,13 @@ impl Core {
     }
 
     pub fn handle_osc(&mut self, m: &Message) {
+        if self.rt.recorder.is_some() && self.rt.audit_depth==0 {
+            let args:Vec<serde_json::Value>=m.args.iter().map(|a|match a {
+                Arg::Int(v)=>serde_json::json!(v),Arg::Float(v)=>serde_json::json!(v),
+                Arg::Str(v)=>serde_json::json!(v),Arg::Bool(v)=>serde_json::json!(v),
+            }).collect();
+            self.record_input(serde_json::json!({"cmd":"input","source":"osc","address":m.addr,"args":args}));
+        }
         let first_num = m.args.iter().find_map(|a| a.num());
         let args_text: Vec<String> = m
             .args
@@ -406,7 +413,7 @@ impl Core {
                 }
             }
             ["swap"] if press => self.swap_palette(),
-            ["flash"] => self.rt.flash = press.then_some(true),
+            ["flash"] => self.set_flash(press.then_some(true)),
             // 2つ目の数値があれば秒数(無ければ設定の秒数)
             ["fade"] => {
                 let secs = m.args.iter().filter_map(|a| a.num()).nth(1).unwrap_or(self.project.fade_secs);
@@ -418,7 +425,7 @@ impl Core {
                     self.dirty = true;
                 }
             }
-            ["flash", "color"] => self.rt.flash = press.then_some(false),
+            ["flash", "color"] => self.set_flash(press.then_some(false)),
             ["swap", "auto"] => self.set_palette_auto(press),
             ["page"] => {
                 if let Some(v) = num {

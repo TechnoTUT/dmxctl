@@ -18,7 +18,7 @@ fn core() -> Core {
 }
 
 fn bind(c: &mut Core, kind: TriggerKind, num: u8, action: Action) {
-    c.project.bindings.push(Binding { name: "b".into(), trigger: Some(MidiTrigger { kind, channel: None, number: num }), action, page: None, osc: None });
+    c.project.bindings.push(Binding { id: 0, name: "b".into(), trigger: Some(MidiTrigger { kind, channel: None, number: num }), action, page: None, osc: None });
 }
 
 fn led(c: &Core, note: u8) -> Led {

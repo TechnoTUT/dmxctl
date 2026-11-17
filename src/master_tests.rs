@@ -128,14 +128,14 @@ fn fader_position_report_syncs_the_master() {
 fn master_modes_for_pads() {
     let mut c = core();
     c.project.bindings.clear();
-    c.project.bindings.push(Binding {
+    c.project.bindings.push(Binding { id: 0,
         name: "half".into(),
         trigger: Some(MidiTrigger { kind: TriggerKind::Note, channel: None, number: 1 }),
         action: Action::Master { mode: PadMode::Toggle, on: 30.0, off: 100.0 },
         page: None,
         osc: None,
     });
-    c.project.bindings.push(Binding {
+    c.project.bindings.push(Binding { id: 0,
         name: "dark while held".into(),
         trigger: Some(MidiTrigger { kind: TriggerKind::Note, channel: None, number: 2 }),
         action: Action::Master { mode: PadMode::Momentary, on: 0.0, off: 100.0 },
@@ -167,7 +167,7 @@ fn master_binding_is_seeded_once_and_respects_existing_use() {
 
     // 右端のフェーダーが別の用途で使われている場合は、上書きしない
     let mut q = Project::default();
-    q.bindings.push(Binding {
+    q.bindings.push(Binding { id: 0,
         name: "mine".into(),
         trigger: Some(MidiTrigger { kind: TriggerKind::Cc, channel: None, number: 0x38 }),
         action: Action::SetValue { sel: Selector::All, attr: "dimmer".into(), mode: PadMode::Continuous, on: 255.0, off: 0.0 },

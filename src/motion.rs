@@ -11,7 +11,7 @@ pub const PAN_DEG: f64 = 540.0;
 pub const TILT_DEG: f64 = 270.0;
 
 /// 動きの形
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(schemars::JsonSchema, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum Shape {
     /// 動かさない(向きだけ)
     #[default]
@@ -44,7 +44,7 @@ pub const SHAPES: [(Shape, &str); 9] = [
 ];
 
 /// 台どうしの揃え方
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(schemars::JsonSchema, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum Spread {
     /// 全台同じ動き
     Sync,
@@ -64,7 +64,7 @@ pub const RATES: [(f32, &str); 5] = [(16.0, "4小節"), (8.0, "2小節"), (4.0, 
 pub const POSITIONS: [&str; 4] = ["真上", "扇形", "交差", "客席"];
 
 /// 今の動き(保存する)
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(schemars::JsonSchema, Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct Motion {
     pub shape: Shape,
@@ -74,6 +74,7 @@ pub struct Motion {
     /// 基準の向き(POSITIONS の番号)。Noneなら、パン/チルトの今の値(位置プリセットなど)を中心にする
     pub position: Option<u8>,
     /// 動きの大きさ 0..1(1で中心から45°)
+    #[schemars(range(min=0,max=1))]
     pub size: f32,
     /// 客席(正面)を向くときのPanの値 0..1(本体の置き方で決まる)
     pub pan_front: f32,
@@ -82,6 +83,7 @@ pub struct Motion {
     /// 「4点」で移っていく4つの向き(傾き [右, 前] 度。0,0 = 真上、前 = 客席側)
     pub points: [[f32; 2]; 4],
     /// 「4点」で次の向きへ移るのにかける時間(1つの向きにいる時間に対する割合。0 = 拍で一瞬で移る / 1 = ずっと動いている)
+    #[schemars(range(min=0,max=1))]
     pub glide: f32,
 }
 
@@ -102,7 +104,7 @@ impl Motion {
 pub const DEFAULT_POINTS: [[f32; 2]; 4] = [[-30.0, 15.0], [30.0, 15.0], [30.0, 50.0], [-30.0, 50.0]];
 
 /// 動きの操作(パッド・キーボード・画面のボタン共通)
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(schemars::JsonSchema, Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum MotionOp {
     Shape(Shape),
     /// 1周の拍数

@@ -5,7 +5,6 @@ use crate::engine::lock;
 use crate::fixture::*;
 use crate::ui_control::category_color;
 use eframe::egui::{self, vec2, Align, Layout, RichText};
-use std::sync::Arc;
 
 pub struct ProfileEd {
     pub draft: Option<Profile>,
@@ -174,15 +173,12 @@ impl App {
                     if !report.errors.is_empty() {
                         self.pe.msg = (true, format!("保存できません: {}", report.errors.join(" / ")));
                     } else {
-                        match lib.save_user(&d) {
-                            Ok(path) => {
-                                let (newlib, errs) = Library::load(&lib.user_dir);
-                                core.replace_library(Arc::new(newlib));
+                        match core.save_profile(&d,false,false) {
+                            Ok(result) => {
                                 self.pe.is_new = false;
                                 self.pe.dirty = false;
                                 let warn = if report.warnings.is_empty() { String::new() } else { format!("(確認: {})", report.warnings.join(" / ")) };
-                                let bad = if errs.is_empty() { String::new() } else { format!(" 読めなかったファイル: {}", errs.join(" / ")) };
-                                self.pe.msg = (false, format!("保存しました → 機材にも反映済み {warn}{bad}\n{}", path.display()));
+                                self.pe.msg = (false, format!("保存しました → 機材にも反映済み {warn}\n{}", result["path"].as_str().unwrap_or("")));
                             }
                             Err(e) => self.pe.msg = (true, format!("保存に失敗しました: {e}")),
                         }
@@ -191,11 +187,9 @@ impl App {
             }
             Some(Act::Delete) => {
                 if let Some(d) = self.pe.draft.clone() {
-                    match lib.delete_user(&d.id) {
-                        Ok(()) => {
-                            let (newlib, _) = Library::load(&lib.user_dir);
-                            let newlib = Arc::new(newlib);
-                            core.replace_library(newlib.clone());
+                    match core.delete_profile(&d.id,false,false) {
+                        Ok(_) => {
+                            let newlib=core.lib.clone();
                             if newlib.get(&d.id).is_some() {
                                 self.pe_load(&newlib, &d.id);
                                 self.pe.msg = (false, "内蔵の定義に戻しました".into());

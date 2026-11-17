@@ -40,23 +40,23 @@ impl BltState {
 impl Core {
     /// BLTなどから曲の情報が届いた(オートの「つながっている」の目印)
     pub(crate) fn note_live_input(&mut self) {
-        self.rt.auto_last = Some(Instant::now());
+        self.rt.auto_last = Some(self.now());
     }
 
     /// MIDIコントローラー・キーボードで操作した(手動優先)
     pub(crate) fn note_manual(&mut self) {
-        self.rt.manual_last = Some(Instant::now());
+        self.rt.manual_last = Some(self.now());
     }
 
     /// 手動優先の間か(オートがONで、さっき人が操作した)。この間はオートは照明を変えない
     pub fn manual_active(&self) -> bool {
         let secs = self.project.auto.manual_secs;
-        self.project.auto.enabled && secs > 0.0 && self.rt.manual_last.is_some_and(|t| t.elapsed().as_secs_f32() < secs)
+        self.project.auto.enabled && secs > 0.0 && self.rt.manual_last.is_some_and(|t| self.now().saturating_duration_since(t).as_secs_f32() < secs)
     }
 
     /// 手動優先の残りの秒数
     pub fn manual_remaining(&self) -> Option<f32> {
-        self.manual_active().then(|| self.project.auto.manual_secs - self.rt.manual_last.map(|t| t.elapsed().as_secs_f32()).unwrap_or(0.0))
+        self.manual_active().then(|| self.project.auto.manual_secs - self.rt.manual_last.map(|t| self.now().saturating_duration_since(t).as_secs_f32()).unwrap_or(0.0))
     }
 
     /// Beat Link Trigger の様子(画面・ログの表示用)
@@ -68,7 +68,7 @@ impl Core {
         if self.rt.link_peers > 0 && self.project.tempo_source == TempoSource::Link {
             return BltState::Waiting;
         }
-        let gone = self.rt.blt_seen.elapsed();
+        let gone = self.now().saturating_duration_since(self.rt.blt_seen);
         if cfg.enabled && cfg.alert_secs > 0.0 && gone.as_secs_f32() >= cfg.alert_secs {
             BltState::Missing(gone)
         } else {
@@ -79,7 +79,7 @@ impl Core {
     /// オートで、曲の情報が届いているか
     pub fn auto_online(&self) -> bool {
         let timeout = Duration::from_secs_f32(self.project.auto.timeout_secs.clamp(1.0, 600.0));
-        self.rt.auto_last.is_some_and(|t| t.elapsed() < timeout)
+        self.rt.auto_last.is_some_and(|t| self.now().saturating_duration_since(t) < timeout)
     }
 
     /// 毎フレーム: つながった/切れたときの切り替えと、待機の見た目へのフェード
@@ -88,7 +88,7 @@ impl Core {
         let online = enabled && self.auto_online();
         // BLTの気配: 曲の情報が届いている、または(テンポがLinkで)Linkの仲間がいる
         if self.auto_online() || (self.rt.link_peers > 0 && self.project.tempo_source == TempoSource::Link) {
-            self.rt.blt_seen = Instant::now();
+            self.rt.blt_seen = self.now();
         }
         let manual = self.manual_active();
         // サビの頭の全開は1拍で戻す(オートを切った・手動になったときも)
@@ -205,7 +205,7 @@ impl Core {
             self.rt.osc_rgb = [None, None];
         }
         // 明るさ(1秒かけて)
-        let now = Instant::now();
+        let now = self.now();
         OscGlide::aim(&mut self.rt.auto_bright, [look.brightness.clamp(0.0, 1.0)], [1.0], 1.0, None, now);
         // シーン
         if !look.scene.is_empty() {

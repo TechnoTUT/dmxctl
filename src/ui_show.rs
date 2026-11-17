@@ -67,13 +67,11 @@ impl App {
         if ui.button("＋ 現在の状態をシーンとして保存").clicked() && !self.scene_name.trim().is_empty() {
             let ids: Vec<u32> = core.project.fixtures.iter().map(|f| f.id).filter(|id| !self.scene_skip.contains(id)).collect();
             let name = self.scene_name.trim().to_string();
-            let scene = core.capture_scene(&name, self.scene_fade, &ids, &self.scene_skip_cats);
-            match core.project.scenes.iter_mut().find(|s| s.name == name) {
-                Some(s) => *s = scene,
-                None => core.project.scenes.push(scene),
+            match crate::editing::gui_apply(core,&serde_json::json!([{"entity":"scene","op":"capture",
+                "data":{"name":name,"fade":self.scene_fade,"fixtures":ids,"skip_categories":self.scene_skip_cats}}])) {
+                Ok(_)=>{self.scene_name.clear();changed=true;}
+                Err(error)=>self.notice=format!("シーンを保存できません: {error}"),
             }
-            self.scene_name.clear();
-            changed = true;
         }
         ui.separator();
 
@@ -107,8 +105,9 @@ impl App {
                 changed = true;
             }
             Some(SceneOp::Delete(i)) => {
-                core.project.scenes.remove(i);
-                changed = true;
+                match crate::editing::gui_apply(core,&serde_json::json!([{"entity":"scene","op":"delete","index":i}])) {
+                    Ok(_)=>changed=true,Err(error)=>self.notice=format!("シーンを削除できません: {error}"),
+                }
             }
             None => {}
         }

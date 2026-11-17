@@ -88,7 +88,7 @@ impl Core {
     /// シーン/位置プリセットの値を、フェード(秒)付きで適用する
     fn apply_values(&mut self, values: &[SceneValue], fade: f32) {
         let lib = self.lib.clone();
-        let now = Instant::now();
+        let now = self.now();
         for sv in values {
             let Some(i) = self.project.fixture_index(sv.fixture) else { continue };
             let fx = &mut self.project.fixtures[i];

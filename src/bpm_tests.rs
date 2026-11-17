@@ -18,7 +18,7 @@ fn note(n: u8, v: u8) -> MidiMsg {
 }
 
 fn bind(c: &mut Core, num: u8, action: Action) {
-    c.project.bindings.push(Binding { name: "b".into(), trigger: Some(MidiTrigger { kind: TriggerKind::Note, channel: None, number: num }), action, page: None, osc: None });
+    c.project.bindings.push(Binding { id: 0, name: "b".into(), trigger: Some(MidiTrigger { kind: TriggerKind::Note, channel: None, number: num }), action, page: None, osc: None });
 }
 
 #[test]
@@ -248,7 +248,7 @@ fn midi_tempo_actions() {
     bind(&mut c, 2, Action::Tempo { op: TempoOp::Resync });
     bind(&mut c, 3, Action::Tempo { op: TempoOp::Nudge { delta: 5.0 } });
     bind(&mut c, 4, Action::Tempo { op: TempoOp::Nudge { delta: -10.0 } });
-    c.project.bindings.push(Binding {
+    c.project.bindings.push(Binding { id: 0,
         name: "fader".into(),
         trigger: Some(MidiTrigger { kind: TriggerKind::Cc, channel: None, number: 9 }),
         action: Action::Tempo { op: TempoOp::Set { min: 60.0, max: 187.0 } },

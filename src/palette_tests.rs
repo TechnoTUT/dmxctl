@@ -40,7 +40,7 @@ fn note(n: u8, v: u8) -> MidiMsg {
 }
 
 fn bind(c: &mut Core, kind: TriggerKind, num: u8, action: Action) {
-    c.project.bindings.push(Binding { name: "b".into(), trigger: Some(MidiTrigger { kind, channel: None, number: num }), action, page: None, osc: None });
+    c.project.bindings.push(Binding { id: 0, name: "b".into(), trigger: Some(MidiTrigger { kind, channel: None, number: num }), action, page: None, osc: None });
 }
 
 /// スポット=メイン、レーザー=サブ、メイン=赤、サブ=青
@@ -205,7 +205,7 @@ fn template_places_main_sub_controls() {
     assert!(matches!(find(0x35, TriggerKind::Cc), Some(Action::Color { color: None, target: ColorTarget::Main })));
     // 使用中なら代わりのボタンへ(シーンボタン7 → トラックボタン8)
     let mut q = Project::default();
-    q.bindings.push(Binding { name: "x".into(), trigger: Some(MidiTrigger { kind: TriggerKind::Note, channel: None, number: 0x76 }), action: Action::Blackout { mode: PadMode::Toggle }, page: None, osc: None });
+    q.bindings.push(Binding { id: 0, name: "x".into(), trigger: Some(MidiTrigger { kind: TriggerKind::Note, channel: None, number: 0x76 }), action: Action::Blackout { mode: PadMode::Toggle }, page: None, osc: None });
     color::add_palette_template(&mut q);
     assert!(q.bindings.iter().any(|b| b.trigger.is_some_and(|t| t.number == 0x6B) && matches!(b.action, Action::Palette { op: PaletteOp::Swap })));
 }

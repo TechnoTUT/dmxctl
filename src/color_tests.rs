@@ -47,7 +47,7 @@ fn note(n: u8, v: u8) -> MidiMsg {
 }
 
 fn bind(c: &mut Core, num: u8, action: Action) {
-    c.project.bindings.push(Binding { name: "b".into(), trigger: Some(MidiTrigger { kind: TriggerKind::Note, channel: None, number: num }), action, page: None, osc: None });
+    c.project.bindings.push(Binding { id: 0, name: "b".into(), trigger: Some(MidiTrigger { kind: TriggerKind::Note, channel: None, number: num }), action, page: None, osc: None });
 }
 
 #[test]
@@ -146,7 +146,7 @@ fn midi_pads_fader_scope_and_selection() {
     bind(&mut c, 3, Action::Select { fixture: 2, op: SelectOp::Only });
     bind(&mut c, 4, Action::Select { fixture: 3, op: SelectOp::Toggle });
     bind(&mut c, 5, Action::ColorScope { op: ScopeOp::HoldIndividual });
-    c.project.bindings.push(Binding {
+    c.project.bindings.push(Binding { id: 0,
         name: "hue".into(),
         trigger: Some(MidiTrigger { kind: TriggerKind::Cc, channel: None, number: 9 }),
         action: Action::Color { color: None, target: ColorTarget::All },
@@ -250,7 +250,7 @@ fn hsv_primaries() {
 fn template_places_free_buttons_only() {
     let mut c = core();
     // 0x00(下段の左端のパッド)は使用中
-    c.project.bindings.push(Binding {
+    c.project.bindings.push(Binding { id: 0,
         name: "mine".into(),
         trigger: Some(MidiTrigger { kind: TriggerKind::Note, channel: None, number: 0x00 }),
         action: Action::Blackout { mode: PadMode::Toggle },
@@ -281,7 +281,7 @@ fn old_bindings_and_projects_still_load() {
 fn hue_fader_covers_the_full_360_degree_circle() {
     let mut c = core();
     c.project.bindings.clear();
-    c.project.bindings.push(Binding {
+    c.project.bindings.push(Binding { id: 0,
         name: "H".into(),
         trigger: Some(MidiTrigger { kind: TriggerKind::Cc, channel: None, number: 0x37 }),
         action: Action::Color { color: None, target: ColorTarget::All },
@@ -421,7 +421,7 @@ fn led_uses_the_nearest_palette_color_of_the_explicit_color() {
     c.project.led_true_color = false;
     c.project.bindings.clear();
     for (num, on) in [(0u8, 4.0f32), (1, 14.0), (2, 24.0), (3, 34.0)] {
-        c.project.bindings.push(Binding {
+        c.project.bindings.push(Binding { id: 0,
             name: "b".into(),
             trigger: Some(MidiTrigger { kind: TriggerKind::Note, channel: None, number: num }),
             action: Action::SetValue { sel: Selector::All, attr: "color".into(), mode: PadMode::Trigger, on, off: 0.0 },

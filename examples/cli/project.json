@@ -1,0 +1,16 @@
+{
+  "bpm": 120,
+  "fixtures": [
+    {
+      "id": 1, "name": "Spot", "profile": "stage-evolution/minispot30",
+      "mode": 0, "universe": 0, "address": 1,
+      "values": [128, 128, 0, 0, 0, 180, 0, 0, 0]
+    },
+    {
+      "id": 2, "name": "Laser (SAFE)", "profile": "stage-evolution/laserscan300",
+      "mode": 0, "universe": 0, "address": 10,
+      "values": [255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      "limits": {"pan": [20, 90], "tilt": [30, 60]}
+    }
+  ]
+}

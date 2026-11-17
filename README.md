@@ -869,6 +869,8 @@ sudo ldconfig
 
 ## テスト
 
+AIからパラメータを操作し、実行中と実行後にDMX値を確認するCLIもあります。起動中のGUIへの接続、画面なしの常駐、実機へ送信しないシミュレーションに対応します。[CLIの使い方](docs/ai-cli.md)、[実行例](examples/cli/scenario.json)、[今後の実装段階](docs/automation-roadmap.md)を参照してください。
+
 ```
 cargo test
 ```

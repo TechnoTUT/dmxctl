@@ -1,0 +1,6 @@
+[
+  {"entity":"group","op":"create","data":{"name":"Spots","fixtures":[1]}},
+  {"entity":"effect","op":"create","data":{"name":"Pulse","attr":"dimmer","sel":{"Group":"Spots"},"beats":2,"min":40,"max":180,"enabled":true}},
+  {"entity":"scene","op":"capture","data":{"name":"Intro","fade":1,"fixtures":[1]}},
+  {"entity":"binding","op":"create","data":{"name":"Flash white","trigger":{"kind":"Note","channel":9,"number":40},"action":{"Flash":{"white":true,"mode":"Momentary"}}}}
+]

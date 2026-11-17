@@ -42,7 +42,7 @@ fn heavy_core() -> Core {
     }
     p.master_seeded = true;
     for n in 0..64u8 {
-        p.bindings.push(Binding {
+        p.bindings.push(Binding { id: 0,
             name: "b".into(),
             trigger: Some(MidiTrigger { kind: TriggerKind::Note, channel: None, number: n }),
             action: match n % 6 {

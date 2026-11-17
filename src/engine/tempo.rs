@@ -33,7 +33,7 @@ impl Core {
     /// 画面用の、今この瞬間の拍の位置。`rt.beat` は出力のたび(25msごと)にしか進まないので、
     /// そのまま描くと拍で動く点などがガタガタに見える。最後に進めた時刻からの経過ぶんを足す
     pub fn beat_now(&self) -> f64 {
-        let since = self.rt.last_beat_t.map(|t| t.elapsed().as_secs_f64().min(0.1)).unwrap_or(0.0);
+        let since = self.rt.last_beat_t.map(|t| self.now().saturating_duration_since(t).as_secs_f64().min(0.1)).unwrap_or(0.0);
         self.rt.beat + since * self.project.bpm as f64 / 60.0
     }
 
@@ -204,7 +204,7 @@ impl Core {
     }
 
     pub fn tap(&mut self) {
-        self.tap_at(Instant::now());
+        self.tap_at(self.now());
     }
 
     /// タップテンポ: 直近のタップの間隔の平均からBPMを決め、拍の位置を叩いたタイミング(最も近い拍)に合わせる。

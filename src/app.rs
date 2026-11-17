@@ -72,6 +72,10 @@ pub const RED: Color32 = crate::theme::DANGER;
 pub const WARN: Color32 = crate::theme::WARN;
 
 pub struct App {
+    pub(crate) launch: crate::control::Launch,
+    control: Option<crate::control::Host>,
+    shutdown_requested: bool,
+    shutdown_done: bool,
     pub core: Shared,
     engine: Engine,
     pub midi: Midi,
@@ -140,17 +144,34 @@ struct Perf {
 impl App {
     /// 画面の土台(eframe / KMSDRM)によらず、eguiのContextだけで作る。`no_desktop`=デスクトップ環境の無い画面(KMSDRM)
     pub fn new(egui_ctx: &egui::Context, no_desktop: bool) -> Self {
+        Self::with_options(egui_ctx, no_desktop, crate::control::Launch::default()).expect("default app startup")
+    }
+
+    pub fn with_options(egui_ctx: &egui::Context, no_desktop: bool, options: crate::control::Launch) -> anyhow::Result<Self> {
         egui_ctx.data_mut(|d| d.insert_temp(no_desktop_id(), no_desktop));
         crate::theme::setup_fonts(egui_ctx);
         crate::theme::apply(egui_ctx);
 
-        let (lib, lib_errors) = Library::load(&config_dir().join("fixtures"));
+        let path = options.project.clone().unwrap_or_else(default_project_path);
+        let path = if path.is_absolute() {path}else{std::env::current_dir()?.join(path)};
+        let fixture_dir = if options.project.is_some() {
+            path.parent().unwrap_or(std::path::Path::new(".")).join("fixtures")
+        } else { config_dir().join("fixtures") };
+        let (lib, lib_errors) = Library::load(&fixture_dir);
         let lib = Arc::new(lib);
-        let path = default_project_path();
         let mut notice = lib_errors.join(" / ");
         // 起動のたびに、前回の保存ファイルをバックアップに残す(うっかり消した割り当てなどを戻せるように)
-        backup_to(&path, &backup_dir(), BACKUP_KEEP);
-        let mut project = match Project::load_lenient(&path) {
+        if options.autosave {
+            let backups = if options.project.is_some() { path.parent().unwrap_or(std::path::Path::new(".")).join("backups") } else { backup_dir() };
+            backup_to(&path, &backups, BACKUP_KEEP);
+        }
+        let mut project = if options.project.is_some() {
+            anyhow::ensure!(lib_errors.is_empty(), "fixture errors: {}", lib_errors.join("; "));
+            let text = std::fs::read_to_string(&path)?;
+            let project: Project = serde_json::from_str(text.trim_start_matches('\u{feff}'))?;
+            crate::commands::validate(&project, &lib)?;
+            project
+        } else { match Project::load_lenient(&path) {
             Ok((p, skipped)) if skipped.is_empty() => p,
             // 新しい版で保存したファイル: 読めない項目だけ既定値にして読む(元のファイルは別名で残す)
             Ok((p, skipped)) => {
@@ -169,17 +190,24 @@ impl App {
                 notice = format!("プロジェクトを読めませんでした({e})。初期状態で起動します。{saved}");
                 Project::starter(&lib)
             }
-        };
+        }};
         // 全体光量を右端のフェーダーに初期割り当て(既存のプロジェクトにも、一度だけ)
         if project.seed_master_binding() == Some(false) {
             notice = format!("{notice} 右端のフェーダーは別の用途で使われているため、全体光量は未割り当てです(MIDIタブで割り当てられます)");
         }
         let midi_choice = project.midi_input.clone();
-        let core: Shared = Arc::new(Mutex::new(Core::new(project, lib)));
+        let mut initial_core=Core::new(project,lib);
+        initial_core.rt.project_path=Some(path.clone());
+        let core: Shared = Arc::new(Mutex::new(initial_core));
         // 初回のoutput_gen(0)でエンジンが出力を組み立てる
-        let engine = Engine::spawn(core.clone());
+        let control = options.listen.map(|address|crate::control::Host::start(address,egui_ctx.clone())).transpose()?;
+        let engine = Engine::spawn_with_output(core.clone(), options.output);
 
         let mut app = App {
+            launch: options.clone(),
+            control,
+            shutdown_requested: false,
+            shutdown_done: false,
             core,
             engine,
             midi: Midi::default(),
@@ -193,9 +221,9 @@ impl App {
             scene_fade: 1.0,
             monitor_universe: 0,
             monitor_all: false,
-            midi_ports: midi::list_ports(),
+            midi_ports: if options.inputs { midi::list_ports() } else { Vec::new() },
             midi_choice,
-            serial_ports: crate::opendmx::list_serial_ports(),
+            serial_ports: if options.output { crate::opendmx::list_serial_ports() } else { Vec::new() },
             d2xx: Ok(Vec::new()),
             new_group: String::new(),
             map_sel: None,
@@ -208,7 +236,7 @@ impl App {
             web_status: String::new(),
             ndi: None,
             audio: None,
-            audio_ports: crate::audio::input_devices(),
+            audio_ports: if options.inputs { crate::audio::input_devices() } else { Vec::new() },
             osc_port_edit: 9000,
             pos_name: String::new(),
             pos_fade: 0.5,
@@ -233,7 +261,7 @@ impl App {
         }
         // 前回のMIDI機器、なければAPC mini が見つかれば自動接続。
         // 環境変数 DMXCTL_NO_MIDI=1 なら自動接続しない(本番のアプリが使っているコントローラーを、2つ目のアプリが奪わないように)
-        let auto_midi = std::env::var_os("DMXCTL_NO_MIDI").is_none();
+        let auto_midi = options.inputs && std::env::var_os("DMXCTL_NO_MIDI").is_none();
         if !auto_midi {
             app.midi_choice.clear();
         } else if (app.midi_choice.is_empty() || !app.midi_ports.contains(&app.midi_choice))
@@ -248,11 +276,21 @@ impl App {
             }
         }
         app.apply_services();
-        app
+        Ok(app)
     }
 
     /// 設定に合わせて、Ableton Link・OSC受信・MIDIクロック用の入力を開始/停止する
     pub fn apply_services(&mut self) {
+        if !self.launch.inputs {
+            self.osc = None;
+            self.web = None;
+            self.ndi = None;
+            self.audio = None;
+            self.midi.disconnect_clock();
+            self.midi.disconnect();
+            lock(&self.core).rt.link = None;
+            return;
+        }
         let (osc_on, port, src, clock_port, ndi_on, audio_port, web_want) = {
             let mut c = lock(&self.core);
             c.ensure_link();
@@ -322,42 +360,39 @@ impl App {
     }
 
     pub fn save(&mut self) {
+        if let Err(error) = self.save_checked() {
+            self.notice = format!("保存に失敗しました: {error}");
+        }
+    }
+
+    /// GUIの保存・自動保存・終了時の保存。厳しい検証(editing::validate)はかけない:
+    /// GUIの編集で検証に通らない状態(機材を消したあとの参照など)になっても、作業内容を失わないように。
+    /// リモートの "save" は、呼ぶ前に検証する
+    pub(crate) fn save_checked(&mut self) -> anyhow::Result<()> {
         let project = {
             let mut c = lock(&self.core);
+            c.project.ensure_binding_ids();
             c.dirty = false;
             c.project.clone()
         };
-        if let Err(e) = project.save(&self.project_path) {
-            self.notice = format!("保存に失敗しました: {e}");
-            lock(&self.core).dirty = true;
-        }
+        // 失敗しても次の自動保存まで待つ(毎フレーム保存し直さない)
         self.last_save = Instant::now();
+        if let Err(e) = project.save(&self.project_path) {
+            lock(&self.core).dirty = true;
+            return Err(e);
+        }
+        Ok(())
     }
 
     fn load_from(&mut self, path: PathBuf) {
-        // 読み込むと今の内容は置き換わる(自動保存で上書きされる)ので、先に保存してバックアップに残す
-        self.save();
-        backup_to(&self.project_path, &backup_dir(), BACKUP_KEEP);
-        match Project::load(&path) {
-            Ok(p) => {
-                let mut c = lock(&self.core);
-                c.project = p;
-                c.rt.fades.clear();
-                c.rt.pad_state.clear();
-                c.rt.toggle_state.clear();
-                c.rt.learn = None;
-                c.rt.osc_learn = None;
-                c.rt.page = 0;
-                c.apply_outputs_changed();
-                drop(c);
-                self.apply_services();
-                self.notice = format!("読み込みました: {}", path.display());
-            }
-            Err(e) => self.notice = format!("読み込みに失敗しました: {e}"),
+        match self.reload_checked(Some(&path), false, false) {
+            Ok(_) => self.notice = format!("読み込みました: {}", path.display()),
+            Err(error) => self.notice = format!("読み込みに失敗しました: {error}"),
         }
     }
 
     fn autosave(&mut self) {
+        if !self.launch.autosave { return; }
         if self.last_save.elapsed() > Duration::from_secs(5) {
             let dirty = lock(&self.core).dirty;
             if dirty {
@@ -453,7 +488,9 @@ impl App {
             let bad = on.iter().filter(|(_, s)| output_has_error(s)).count();
             let color = if outs.is_empty() || bad > 0 { theme::WARN } else if on.is_empty() { theme::TEXT_FAINT } else { theme::OK };
             theme::dot(ui, color);
-            let text = if outs.is_empty() {
+            let text = if !self.launch.output {
+                "出力: シミュレーション(実機送信なし)".to_string()
+            } else if outs.is_empty() {
                 "出力: 未設定(「出力」タブで追加)".to_string()
             } else if bad > 0 {
                 format!("出力 {}/{} ・ エラー {bad}件", on.len(), outs.len())
@@ -534,6 +571,29 @@ fn tab_button(ui: &mut egui::Ui, selected: bool, label: &str) -> egui::Response 
 }
 
 impl App {
+    fn control_tick(&mut self) {
+        if let Some(mut host) = self.control.take() {
+            self.shutdown_requested |= host.poll(self);
+            self.control = Some(host);
+        }
+    }
+
+    /// Runs the same App and Engine as the GUI, without forcing BLT/auto settings.
+    pub fn serve(options: crate::control::Launch) -> anyhow::Result<()> {
+        let ctx = egui::Context::default();
+        let mut app = Self::with_options(&ctx, true, options)?;
+        let address = app.control.as_ref().map(|host|host.address);
+        println!("{}",serde_json::json!({"ready":true,"listen":address,"project":app.project_path,
+            "output_enabled":app.launch.output,"inputs_enabled":app.launch.inputs,"autosave":app.launch.autosave}));
+        while !app.shutdown_requested {
+            app.control_tick();
+            app.autosave();
+            if !app.shutdown_requested { std::thread::sleep(crate::engine::TICK); }
+        }
+        app.shutdown();
+        Ok(())
+    }
+
     fn ui_timed(&mut self, ui: &mut egui::Ui) {
         let t_frame = Instant::now();
         self.ui_body(ui);
@@ -678,7 +738,7 @@ impl App {
         self.autosave();
         // NDIの受信は、設定(パッド・画面)でONにしている間だけ動かす
         let ndi_on = lock(&self.core).project.ndi.enabled;
-        if ndi_on != self.ndi.is_some() {
+        if self.launch.inputs && ndi_on != self.ndi.is_some() {
             self.ndi = ndi_on.then(|| crate::ndi::NdiService::start(self.core.clone(), Some(self.ctx.clone())));
         }
 
@@ -706,10 +766,19 @@ impl App {
 impl App {
     /// 1フレームぶんの画面。cpu_usage は前のフレームのCPU時間(秒。分からなければNone)
     pub fn frame(&mut self, ui: &mut egui::Ui, cpu_usage: Option<f32>) {
+        self.control_tick();
+        if self.shutdown_requested {
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+        }
         if let (Some(p), Some(cpu)) = (self.perf.as_mut(), cpu_usage) {
             p.frame_cpu += cpu;
         }
+        let before=lock(&self.core).history_snapshot();
         self.ui_timed(ui);
+        if before.is_some() {
+            let after=lock(&self.core).history_snapshot();
+            crate::recording::HistorySnapshot::observe(before,after,"gui_frame");
+        }
         if let Some(s) = self.shot.as_mut() {
             s.tick(ui.ctx());
         }
@@ -718,8 +787,15 @@ impl App {
     /// 画面を出さずに動かす(`dmxctl --headless`)。モニターの無いPCで、Beat Link Triggerと一緒に置いてオートで動かす用。
     /// OSC受信・テンポの元(Ableton Link)・オートを必ずONにする。終了は SIGTERM / Ctrl+C(安全な値を送ってから終わる)
     pub fn run_headless() -> ! {
+        Self::run_headless_with_options(crate::control::Launch::default())
+    }
+
+    pub fn run_headless_with_options(options: crate::control::Launch) -> ! {
         let ctx = egui::Context::default();
-        let mut app = App::new(&ctx, true);
+        let mut app = App::with_options(&ctx, true, options).unwrap_or_else(|error| {
+            eprintln!("{error}");
+            std::process::exit(1);
+        });
         let port = {
             let mut c = lock(&app.core);
             c.project.osc_enabled = true;
@@ -742,6 +818,8 @@ impl App {
         let mut blt_report: Option<Instant> = None;
         loop {
             std::thread::sleep(Duration::from_millis(250));
+            app.control_tick();
+            if app.shutdown_requested { app.shutdown(); std::process::exit(0); }
             app.autosave();
             let (ndi_on, state, bpm, peers, osc, blt) = {
                 let c = lock(&app.core);
@@ -763,7 +841,7 @@ impl App {
                 println!("Beat Link Trigger が見つかりました");
                 blt_report = None;
             }
-            if ndi_on != app.ndi.is_some() {
+            if app.launch.inputs && ndi_on != app.ndi.is_some() {
                 app.ndi = ndi_on.then(|| crate::ndi::NdiService::start(app.core.clone(), None));
             }
             // 状態が変わったときと、1分ごとに知らせる(journalctl で見られる)
@@ -777,10 +855,12 @@ impl App {
 
     /// 終了時は先にブラックアウトを数フレーム送ってから止める(レーザーを出しっぱなしにしない)
     pub fn shutdown(&mut self) {
+        if self.shutdown_done { return; }
+        self.shutdown_done = true;
         {
             let mut c = lock(&self.core);
             c.rt.blackout = true;
-            c.project.midi_input = self.midi.connected.clone().unwrap_or_default();
+            if self.launch.inputs { c.project.midi_input = self.midi.connected.clone().unwrap_or_default(); }
         }
         std::thread::sleep(Duration::from_millis(200));
         self.osc = None;
@@ -790,7 +870,11 @@ impl App {
         self.midi.disconnect_clock();
         self.midi.disconnect();
         self.engine.stop();
-        self.save();
+        if let Some(mut host) = self.control.take() {
+            // A recording may not be active; keep the normal shutdown path quiet.
+            let _ = host.finish_recording(self);
+        }
+        if self.launch.autosave { self.save(); }
     }
 }
 
