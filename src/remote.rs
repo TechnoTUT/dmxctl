@@ -524,10 +524,14 @@ fn serve_conn(stream: TcpStream, core: &Shared, ctx: &eframe::egui::Context, eve
                 ctx.request_repaint();
                 continue;
             }
-            // 機器の一覧は時間がかかることがあるので、Core を持たずに作る
+            // 機器の一覧は作るのに時間がかかる(数百ms)ので、別のスレッドで作る。
+            // このループで作ると、そのあいだ同じクライアントの操作(MIDI・パッド)が待たされる
             if v["t"] == "devices" {
-                let devices = Devices::list();
-                let _ = conn.tx.try_send(json!({"t":"devices","devices":devices}).to_string());
+                let tx = conn.tx.clone();
+                let _ = std::thread::Builder::new().name("remote-devices".into()).spawn(move || {
+                    let devices = Devices::list();
+                    let _ = tx.try_send(json!({"t":"devices","devices":devices}).to_string());
+                });
                 guard(&conn.state).ack = seq;
                 continue;
             }
