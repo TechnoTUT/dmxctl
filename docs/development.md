@@ -17,7 +17,7 @@ NDI 機能はサブモジュール `moip-engine/` 内の `ndi` クレートを�
 ### Windows
 
 1. **Rust**: https://rustup.rs の `rustup-init.exe` を既定のまま入れます。MSVC版になります
-2. **Visual Studio Build Tools 2022** の「C++ によるデスクトップ開発」: Ableton Link の C++ の部分をビルドするために要ります
+2. **Visual Studio Build Tools 2022** の「C++ によるデスクトップ開発」: Rust の MSVC版がリンクに使います
 3. **FTDIドライバ**: FT232R の USB-DMX を挿すと、ふつうは Windows Update で入ります。COMポート方式と D2XX方式の両方が使えます
 4. NDI を使うなら **NDI Tools**: https://ndi.video/tools/
 
@@ -51,7 +51,7 @@ bash ./scripts/build-linux.sh          # Linuxの上で dist/linux/dmxctl を作
 
 - Windows の上では `cargo build --release` で `target\release\dmxctl.exe` ができます。追加のDLLは要らず、exe 1つで動きます
 - Linux 版は SDL2 を静的リンクしているので、1つの実行ファイルで、デスクトップ環境の有る画面と無い画面の両方に対応します
-- `DMXCTL_CHECK_ONLY=1 cargo check --target …` で、C++ をビルドせずに、ほかのOS向けの型チェックだけができます
+- `cargo check --target …` で、ほかのOS向けの型チェックだけができます
 
 ### CI と Release
 
@@ -102,6 +102,7 @@ cargo test --release perf -- --ignored --nocapture                              
 | `DMXCTL_SCALE=1.5` | KMS/DRM の画面の拡大率。指定が無ければ画面の大きさから自動で決める |
 | `dmxctl headless` | 画面を出さずに動かす。`Host::run_headless` で、OSC受信・Link・オートを必ずONにする |
 | `DMXCTL_D2XX_LIB` / `DMXCTL_NDI_LIB` | ライブラリの場所を直接指定する |
+| `DMXCTL_CARABINER_PORT=17000` | Ableton Link の窓口の Carabiner につなぐポート。指定が無ければ 17000 |
 | `dmxctl apply-layout` | 保存してある設定を、おすすめのMIDI配置にする。先にバックアップを残す |
 | `--remote-listen ADDR` / `dmxctl connect HOST[:PORT]` | サーバーとしてクライアントを待ち受ける。アドレスは必須で、ポートの既定は 9300 / サーバーにつなぐクライアントとして起動する。同じPCで試すなら `dmxctl serve --project examples/cli/project.json --remote-listen 127.0.0.1:9300` と `DMXCTL_NO_MIDI=1 dmxctl connect 127.0.0.1` |
 | `--remote-allow-safety-edit` | サーバーで、クライアントから機材定義の安全の設定を変えることを許す。既定では自動操作の窓口と同じく変えられない |
@@ -134,7 +135,7 @@ cargo test --release perf -- --ignored --nocapture                              
 | `src/ui_laser.rs` / `src/ui_auto.rs` | レーザータブ / オートタブ。オートタブは、フレーズごとの見た目のプリセット `AutoPreset` / `PhraseLook` の表 |
 | `src/theme.rs` | 色・フォントなどの見た目 |
 | `src/kmsdrm.rs` / `src/kmsdrm/` | Linuxだけ。デスクトップ環境の無い画面に、SDL2 の KMSDRM と OpenGL ES の egui_glow で描くループ / キーの変換・タッチ |
-| `third_party/link/` | Ableton Link。`build.rs` で `native/link_shim.cpp` ごと静的にリンクする |
+| `src/link.rs` | Ableton Link。別のプログラムの Carabiner に、同じPC内の TCP でつなぎ、テンポと拍の位置を聞く。Link のコードは入れていない。テスト用に Carabiner のふりをするサーバー `link::fake` がある |
 
 ### 設計のポイント
 
@@ -178,4 +179,6 @@ cargo test --release perf -- --ignored --nocapture                              
 
 ## ライセンスについて
 
-GPLv2 以降で配布されている Ableton Link を組み込んでいるため、このアプリを他の人に配る場合は、GPL に従ってソースコードを一緒に公開する必要があります。Link のソースとライセンス文書は `third_party/link/` にあります。
+Ableton Link は GPLv2 以降なので、このアプリには入れていません。Link を使う部分は、別のプログラムの [Carabiner](https://github.com/Deep-Symmetry/carabiner) に TCP でつなぐ作りです。Carabiner は同梱せず、使う人が自分で入れます。そのため、このアプリを配るときに、Link のソースを公開する必要はありません。
+
+Carabiner を一緒に配りたいときは、Carabiner と Link のソースを公開し、GPL に従ってください。

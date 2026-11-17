@@ -162,8 +162,10 @@ impl App {
             }
             TempoSource::Link => {
                 let peers = core.rt.link_peers;
-                let (text, color) = if core.rt.link.is_none() && !core.rt.remote_link {
-                    ("Linkを開始できませんでした".to_string(), WARN)
+                // クライアントの画面では、サーバーが Carabiner につながっているかが remote_link で届く
+                let connected = core.rt.remote_link || core.rt.link.as_ref().is_some_and(|l| l.connected());
+                let (text, color) = if !connected {
+                    ("Carabinerにつながっていません。Carabinerを起動してください".to_string(), WARN)
                 } else if peers == 0 {
                     ("接続中のアプリ: 0(相手のLinkをONにしてください)".to_string(), WARN)
                 } else {
@@ -173,7 +175,7 @@ impl App {
                 crate::theme::help(
                     ui,
                     "同じPC・同じネットワークのLink対応アプリ(TouchDesignerの Ableton Link CHOP、Resolume、Ableton Live など)と、テンポと拍の位置が揃います。\
-                     ここでのTAP・BPM変更・頭出しは相手にも伝わります。初回はファイアウォール(Macでは「ローカルネットワーク」)の確認が出ます",
+                     ここでのTAP・BPM変更・頭出しは相手にも伝わります。Linkへの参加は、別に動かしておく Carabiner が受け持ちます。Beat Link Trigger が動いていれば、その Carabiner につながります",
                 );
             }
             TempoSource::MidiClock => {

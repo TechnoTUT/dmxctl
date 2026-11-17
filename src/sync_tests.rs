@@ -109,9 +109,16 @@ fn midi_clock_is_ignored_unless_selected() {
 
 #[test]
 fn link_drives_beat_and_receives_tempo_changes() {
+    // Carabiner のふりをするサーバーに、Link の仲間が1ついる
+    let fake = crate::link::fake::FakeCarabiner::new(100.0, 1);
+    let _key = crate::link::set_test_port(fake.port);
     let mut c = core();
     c.set_tempo_source(TempoSource::Link);
     assert!(c.rt.link.is_some());
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !c.rt.link.as_ref().unwrap().connected() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+    }
     c.set_bpm(100.0);
     c.resync();
     c.render();
@@ -123,14 +130,8 @@ fn link_drives_beat_and_receives_tempo_changes() {
     assert!((c.rt.beat - b0 - 0.5).abs() < 0.1, "{b0} -> {}", c.rt.beat);
     assert_eq!(c.project.bpm, 100.0);
 
-    // 同じPCの別のLink参加者(映像ソフトの代わり)がテンポを変えると、こちらも追従する
-    let other = crate::link::Link::start(100.0).unwrap();
-    let deadline = Instant::now() + Duration::from_secs(8);
-    while other.peers() == 0 && Instant::now() < deadline {
-        std::thread::sleep(Duration::from_millis(100));
-    }
-    assert!(other.peers() > 0, "Linkの相手が見つからない");
-    other.set_tempo(140.0);
+    // 仲間(映像ソフトの代わり)がテンポを変えると、こちらも追従する
+    fake.peer_set_bpm(140.0);
     let deadline = Instant::now() + Duration::from_secs(5);
     while (c.project.bpm - 140.0).abs() > 0.01 && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(50));
@@ -141,19 +142,38 @@ fn link_drives_beat_and_receives_tempo_changes() {
     // こちらのTAP/BPM変更は相手に伝わる
     c.set_bpm(90.0);
     let deadline = Instant::now() + Duration::from_secs(5);
-    while (other.state(4.0).unwrap().0 - 90.0).abs() > 0.01 && Instant::now() < deadline {
+    while (fake.bpm() - 90.0).abs() > 0.01 && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(50));
     }
-    assert!((other.state(4.0).unwrap().0 - 90.0).abs() < 0.01);
+    assert!((fake.bpm() - 90.0).abs() < 0.01);
     // 拍の位置も揃っている(1小節の中での位置)
     c.render();
     let mine = c.rt.beat.rem_euclid(4.0);
-    let theirs = other.state(4.0).unwrap().1.rem_euclid(4.0);
+    let theirs = fake.beat().rem_euclid(4.0);
     let diff = (mine - theirs).abs().min(4.0 - (mine - theirs).abs());
     assert!(diff < 0.1, "拍がずれている: {mine} / {theirs}");
 
     c.set_tempo_source(TempoSource::Internal);
     assert!(c.rt.link.is_none());
+}
+
+#[test]
+fn link_without_carabiner_keeps_running_on_internal_clock() {
+    // 誰も待っていないポートを使う
+    let port = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap().local_addr().unwrap().port();
+    let _key = crate::link::set_test_port(port);
+    let mut c = core();
+    c.set_bpm(120.0);
+    c.set_tempo_source(TempoSource::Link);
+    c.resync();
+    c.render();
+    std::thread::sleep(Duration::from_millis(300));
+    c.render();
+    assert_eq!(c.rt.link_peers, 0);
+    assert!(!c.rt.link.as_ref().unwrap().connected());
+    // 120BPM で 0.3秒 = 0.6拍。Carabiner が無くても内部の時計で進む
+    assert!((c.rt.beat - 0.6).abs() < 0.15, "{}", c.rt.beat);
+    c.set_tempo_source(TempoSource::Internal);
 }
 
 // ------------------------------------------------------------ ページ

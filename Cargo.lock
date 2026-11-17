@@ -554,7 +554,6 @@ name = "dmxctl"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "cc",
  "cpal",
  "eframe",
  "egui_glow",

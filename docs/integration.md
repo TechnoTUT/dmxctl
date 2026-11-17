@@ -10,7 +10,10 @@
 | **Ableton Link** | 同じPCや同じネットワークにある Link 対応アプリと、**テンポと小節の頭**が揃います。TouchDesigner の **Ableton Link CHOP**、Resolume、Ableton Live、DJソフトなどが対応しています。相手のテンポ変更についていき、ここでの TAP・BPM変更・頭出しも相手に伝わります |
 | MIDIクロック | 外から来る、1拍24回の MIDIクロックでテンポと拍を決めます。Start の 0xFA で小節の頭に揃います。クロックが途切れても、最後のテンポのまま内部で走り続けるので、照明は止まりません。入力は、メインのMIDI入力か、loopMIDI のような仮想ポートなど別のポートを選べます。クロック中はBPMの手入力とTAPは効きません |
 
-- Link は、公式の C++ 実装の Ableton Link 4 をそのまま組み込んでいます。Windows では、Link や OSC を初めて有効にしたときにファイアウォールの確認が出ます。別のPCとつなぐ場合は「許可」が必要です。確認は実行ファイルの場所ごとに初回のみ出ます。Linux でファイアウォールを有効にしている場合は [Linux で使う](platforms.md#linux-で使う) を見てください
+- **Carabiner が要ります**: Link はライセンスの都合でこのアプリに入れておらず、別のプログラムの [Carabiner](https://github.com/Deep-Symmetry/carabiner/releases) が Link に参加します。このアプリは、同じPCで動く Carabiner に、ポート 17000 でつなぎます。Windows・Mac・Linux 用が配られています。ダウンロードして、端末で `Carabiner` を起動しておいてください。ポートを変えたときは、環境変数 `DMXCTL_CARABINER_PORT` に同じ番号を入れます
+- Carabiner につながっていないときは、「BPM/チェイス」タブに「Carabinerにつながっていません」と出ます。その間は、内部の時計で拍が進みます。起動すると、自動でつながります
+- **Beat Link Trigger を使っているとき**: BLT も Carabiner を使います。BLT が Carabiner を動かしていれば、このアプリはそれにそのままつながるので、別に起動する必要はありません
+- Windows では、Carabiner や OSC を初めて有効にしたときにファイアウォールの確認が出ます。別のPCとつなぐ場合は「許可」が必要です。Linux でファイアウォールを有効にしている場合は [Linux で使う](platforms.md#linux-で使う) を見てください
 - TouchDesigner では、Ableton Link CHOP の `Enable` をONにするだけで、このアプリとテンポ・拍が揃います。Beat CHOP などで作った映像の動きと、照明のBPM同期エフェクト・チェイスが同じ拍で動きます
 
 ## OSC受信

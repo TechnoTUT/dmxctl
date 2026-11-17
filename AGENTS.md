@@ -5,7 +5,7 @@ dmxctl を開発する人と AI エージェント向けのルールです。ビ
 ## 確かめ方
 
 - コミットの前に `cargo test --release` を通す
-- 他のOS向けのコードを変えたときは、`DMXCTL_CHECK_ONLY=1 cargo check --target …` で型チェックする。この場合 C++ はビルドしない
+- 他のOS向けのコードを変えたときは、`cargo check --target …` で型チェックする
 - 画面の見た目は `DMXCTL_SHOT=保存先.png DMXCTL_TAB=タブ名` で撮って確かめる
 - 動作は CLI の `dmxctl serve` / `ctl` / `simulate` で最終DMX値を検証できる。使い方は [docs/cli.md](docs/cli.md)
 - 本番の設定や機器に触れない。`DMXCTL_CONFIG_DIR` で別の設定を使い、本番と同じPCで試すときは `DMXCTL_NO_MIDI=1` を付ける。`serve` は既定で実機送信・自動保存・入力を切っている
@@ -47,4 +47,4 @@ dmxctl を開発する人と AI エージェント向けのルールです。ビ
 - コミットのタイトルは日本語の1文で、何ができるようになるか・何を直すかを書く。例: 「クライアントから別のファイルを開けるようにする」。1つのコミットには1つの変更
 - PR の説明は、何が良くなるかを先に書く
 - NDI のライブラリは配布条件のため同梱しない
-- Ableton Link は GPLv2 以降なので、配布物にはソースの公開が要る
+- Ableton Link は GPLv2 以降なので、このアプリに入れない。別のプログラムの Carabiner に TCP でつなぐ。Link のコードや Carabiner を、このリポジトリや配布物に入れない

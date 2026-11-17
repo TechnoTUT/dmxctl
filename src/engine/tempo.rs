@@ -84,7 +84,7 @@ impl Core {
         match self.project.tempo_source {
             TempoSource::Link => {
                 if let Some(l) = self.rt.link.as_ref()
-                    && let Some((tempo, beat)) = l.state(BEATS_PER_BAR as f64) {
+                    && let Some((tempo, beat)) = l.state() {
                     self.rt.link_peers = l.peers();
                     self.rt.beat = beat;
                     // 仲間から来たテンポの変更は、保存のきっかけにしない
@@ -229,7 +229,7 @@ impl Core {
             TempoSource::Internal => self.rt.beat = rounded,
             TempoSource::Link => {
                 if let Some(l) = self.link() {
-                    l.force_beat(rounded, BEATS_PER_BAR as f64);
+                    l.force_beat(rounded);
                 }
             }
             // 拍の位置はクロックが決める
@@ -241,7 +241,7 @@ impl Core {
     /// 拍の位置を小節の頭に戻す
     pub fn resync(&mut self) {
         if let Some(l) = self.link() {
-            l.force_beat(0.0, BEATS_PER_BAR as f64);
+            l.force_beat(0.0);
         }
         let c = &mut self.rt.clock;
         c.base = -(c.ticks as f64) / CLOCK_PPQ;

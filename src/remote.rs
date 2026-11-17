@@ -128,7 +128,7 @@ fn rt_state(c: &Core) -> Value {
         "beat": rt.beat,
         "beat_age": age(rt.last_beat_t),
         "link_peers": rt.link_peers,
-        "link": rt.link.is_some(),
+        "link": rt.link.as_ref().is_some_and(|l| l.connected()),
         "osc_status": rt.osc_status,
         "audio_status": rt.audio_status,
         "audio_conf": rt.audio_conf,
