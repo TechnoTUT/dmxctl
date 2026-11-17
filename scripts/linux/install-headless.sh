@@ -2,14 +2,23 @@
 # モニターの無いLinuxで、dmxctl(オート)と Beat Link Trigger を、電源を入れたら自動で動くようにする。
 #   ./scripts/linux/install-headless.sh            dmxctl と BLT の両方
 #   ./scripts/linux/install-headless.sh --no-blt   dmxctl だけ
-# 先に ./scripts/build-linux.sh で dist/linux/dmxctl を作っておく(または Release の tar.gz を展開した dmxctl をこのフォルダの dist/linux に置く)。
+# 常駐版(Release の DMX-Controller-linux-headless-*.tar.gz)では、展開したフォルダの ./install.sh がこのスクリプト。
+#   dmxctl 本体はこのスクリプトと同じフォルダのものを使う。
+# ソースから使うときは、先に ./scripts/build-linux.sh で dist/linux/dmxctl を作っておく。
 # Beat Link Trigger は公式の .deb(https://github.com/Deep-Symmetry/beat-link-trigger/releases)を先に入れておく
 set -euo pipefail
-cd "$(dirname "$0")/../.."
+HERE="$(cd "$(dirname "$0")" && pwd)"
 WITH_BLT=1
 [ "${1:-}" = "--no-blt" ] && WITH_BLT=0
 
-[ -x dist/linux/dmxctl ] || { echo "dist/linux/dmxctl がありません。先に ./scripts/build-linux.sh を実行してください"; exit 1; }
+if [ -x "$HERE/dmxctl" ]; then
+  BIN="$HERE/dmxctl"
+elif [ -x "$HERE/../../dist/linux/dmxctl" ]; then
+  BIN="$HERE/../../dist/linux/dmxctl"
+else
+  echo "dmxctl が見つかりません。Release の常駐版を展開したフォルダで実行するか、先に ./scripts/build-linux.sh を実行してください"
+  exit 1
+fi
 
 # USB-DMX(dialout)を使えるように
 if ! id -nG | grep -qw dialout; then
@@ -22,12 +31,12 @@ if [ "$WITH_BLT" = 1 ] && ! command -v Xvfb >/dev/null; then
 fi
 
 mkdir -p "$HOME/dmxctl" "$HOME/.config/systemd/user"
-install -m 755 dist/linux/dmxctl "$HOME/dmxctl/dmxctl"
-install -m 644 scripts/linux/dmxctl-headless.service "$HOME/.config/systemd/user/"
+install -m 755 "$BIN" "$HOME/dmxctl/dmxctl"
+install -m 644 "$HERE/dmxctl-headless.service" "$HOME/.config/systemd/user/"
 UNITS="dmxctl-headless.service"
 if [ "$WITH_BLT" = 1 ]; then
-  install -m 755 scripts/linux/blt-headless.sh "$HOME/dmxctl/blt-headless.sh"
-  install -m 644 scripts/linux/beat-link-trigger.service "$HOME/.config/systemd/user/"
+  install -m 755 "$HERE/blt-headless.sh" "$HOME/dmxctl/blt-headless.sh"
+  install -m 644 "$HERE/beat-link-trigger.service" "$HOME/.config/systemd/user/"
   UNITS="$UNITS beat-link-trigger.service"
 fi
 
