@@ -1,6 +1,6 @@
-# Linux のテストとビルドを、self-hosted runner(ラベル self-hosted・linux・x64)で動かす。
+# Linux のテストとビルドを、self-hosted runner(runs-on: k8s)で動かす。
 # private リポジトリでは GitHub の runner の使える時間に限りがあるため。
-# どのジョブも Debian のコンテナの中で動かすので、runner のマシンには Docker だけがあればよい。
+# どのジョブも Debian のコンテナの中で動かす(container: を使う)。
 # - push(ブランチ): テスト
 # - PR: テストと、Linux用のビルド(x86_64 と、クロスビルドの arm64)
 # - 毎週(main): テストだけ。ビルドのキャッシュを温めておく
@@ -25,7 +25,7 @@ permissions:
 jobs:
   linux:
     # テストだけなので最適化しない設定で作る
-    runs-on: [self-hosted, linux, x64]
+    runs-on: k8s
     container: rust:1-trixie
     steps:
       - name: 開発用ライブラリを入れる
@@ -40,7 +40,7 @@ jobs:
   linux-build:
     # 配布用のLinux版。Debian 13(glibc 2.41)で作れば Debian 13 以降で動く
     if: github.event_name == 'pull_request'
-    runs-on: [self-hosted, linux, x64]
+    runs-on: k8s
     container: rust:1-trixie
     steps:
       - name: 開発用ライブラリを入れる
@@ -69,7 +69,7 @@ jobs:
     # 常駐版の arm64(Raspberry Pi 4/5 など)。x86_64 の上で arm64 向けにクロスビルドする。
     # Raspberry Pi OS Bookworm でも動くよう、Debian 12(glibc 2.36)で作る
     if: github.event_name == 'pull_request'
-    runs-on: [self-hosted, linux, x64]
+    runs-on: k8s
     container: rust:1-bookworm
     env:
       CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
