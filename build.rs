@@ -20,6 +20,14 @@ fn main() {
             if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("gnu") {
                 // MinGW(MacからWindows版を作るとき)。libstdc++はDLLにせずexeに内蔵する(下で静的にリンク)
                 b.flag("-std=c++17").flag_if_supported("-Wa,-mbig-obj").cpp_link_stdlib(None);
+                // Link は <Windows.h> などを大文字で書いているが、MinGW のヘッダは小文字。
+                // 大文字・小文字を区別するファイルシステム(LinuxからのクロスビルドやCI)でも見つかるよう、別名を用意する
+                let dir = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("mingw-case");
+                std::fs::create_dir_all(&dir).unwrap();
+                for (alias, real) in [("Windows.h", "windows.h"), ("WinSock2.h", "winsock2.h"), ("WS2tcpip.h", "ws2tcpip.h")] {
+                    std::fs::write(dir.join(alias), format!("#include <{real}>\n")).unwrap();
+                }
+                b.include(dir);
             } else {
                 b.flag_if_supported("/std:c++17").flag_if_supported("/EHsc").flag_if_supported("/bigobj");
             }

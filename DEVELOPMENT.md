@@ -34,7 +34,7 @@ target\release\dmxctl.exe
 
 ### Linux
 1. **Rust**: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
-2. **ビルドに要るもの**(Debian / Ubuntu): `sudo apt install build-essential pkg-config libasound2-dev libudev-dev libsdl2-dev`(Fedora / Arch は README の「Linux で使う」)
+2. **ビルドに要るもの**(Debian / Ubuntu): `sudo apt install build-essential pkg-config cmake libasound2-dev libudev-dev libdrm-dev libgbm-dev libegl-dev libgles-dev libxext-dev`(Fedora / Arch は README の「Linux で使う」)
 3. **日本語フォント**: `sudo apt install fonts-noto-cjk`
 4. **権限**: `sudo usermod -aG dialout,video,input $USER`(USB-DMX、KMSDRMの画面・キーボード/マウス)
 5. (NDIを使うなら)**NDI SDK for Linux** のライブラリ: README の「Linux で NDI を使う」
@@ -42,15 +42,14 @@ target\release\dmxctl.exe
 ビルド:
 ```
 bash ./scripts/build-mac.sh            # dist/mac/DMX Controller.app(ユニバーサル版)
-bash ./scripts/build-windows-mingw.sh  # dist/windows/dmxctl.exe(MacからWindows版)
-bash ./scripts/build-linux.sh          # dist/linux/dmxctl と dmxctl-kmsdrm(Linuxの上で。後者だけkmsdrm機能入り)
+bash ./scripts/build-windows-mingw.sh  # dist/windows/dmxctl.exe(Mac・LinuxからWindows版。Linuxでは sudo apt install mingw-w64)
+bash ./scripts/build-linux.sh          # dist/linux/dmxctl(Linuxの上で)
 cargo run --release                    # 開発中の確認
 ```
 
 ### テスト
 ```
-cargo test --release
-cargo test --release --features kmsdrm   # Linux: KMSDRMの部分(キーの変換・拡大率)も
+cargo test --release                     # Linux では KMSDRMの部分(キーの変換・拡大率)も
 ```
 
 ## 新しいPCで最初にやること
@@ -85,7 +84,7 @@ cargo test --release --features kmsdrm   # Linux: KMSDRMの部分(キーの変�
 | `src/theme.rs` | 見た目(色・フォント) |
 | `src/opendmx.rs` / `src/output.rs` | USB-DMX / Art-Net の出力 |
 | `src/main.rs` / `src/app.rs` | 起動(eframe か KMSDRM かを選ぶ) / アプリ本体。`App::new`・`App::frame`・`App::shutdown` は eframe に頼らないので、どちらの土台からも呼べる |
-| `src/kmsdrm.rs` / `src/kmsdrm/keys.rs` | Linux・`kmsdrm`機能のときだけ: デスクトップ環境の無い画面に、SDL2(KMSDRM)+ OpenGL ES(egui_glow)で描くループ / SDLのキーをeguiのキーに直す表 |
+| `src/kmsdrm.rs` / `src/kmsdrm/keys.rs` | Linuxだけ: デスクトップ環境の無い画面に、SDL2(KMSDRM)+ OpenGL ES(egui_glow)で描くループ / SDLのキーをeguiのキーに直す表 |
 
 ## 開発用の環境変数・コマンド
 
@@ -95,12 +94,12 @@ cargo test --release --features kmsdrm   # Linux: KMSDRMの部分(キーの変�
 | `DMXCTL_NO_MIDI=1` | MIDI機器に自動接続しない(本番と2つ起動するとき) |
 | `DMXCTL_SHOT=保存先.png` + `DMXCTL_TAB=タブ名` / `DMXCTL_PAGE=2` / `DMXCTL_SIZE=1280x800` / `DMXCTL_UNIVERSE=2` | 画面を撮って保存して終了(見た目の確認用) |
 | `DMXCTL_PERF=1` | 描画の時間を表示 |
-| `DMXCTL_KMSDRM=1` / `=0` / `--kmsdrm` | Linux(`kmsdrm`機能入り): KMSDRMで必ず起動する / 使わない。指定が無ければ `DISPLAY` と `WAYLAND_DISPLAY` が無いときに使う |
-| `--headless` / `DMXCTL_HEADLESS=1` | 画面を出さずに動かす(`App::run_headless`)。OSC受信・Link・オートを必ずONにする。`scripts/linux/install-headless.sh` で BLT と一緒に常駐 |
+| `DMXCTL_KMSDRM=1` / `=0` / `dmxctl kmsdrm` | Linux: KMSDRMで必ず起動する / 使わない。指定が無ければ `DISPLAY` と `WAYLAND_DISPLAY` が無いときに使う |
+| `dmxctl headless` / `DMXCTL_HEADLESS=1` | 画面を出さずに動かす(`App::run_headless`)。OSC受信・Link・オートを必ずONにする。`scripts/linux/install-headless.sh` で BLT と一緒に常駐 |
 | `DMXCTL_SCALE=1.5` | KMSDRMの画面の拡大率(指定が無ければ画面の大きさから自動) |
 | `DMXCTL_D2XX_LIB` / `DMXCTL_NDI_LIB` | ライブラリの場所を直接指定 |
 | `DMXCTL_CHECK_ONLY=1 cargo check --target …` | C++をビルドせずに、他のOS向けに型チェックだけ |
-| `dmxctl --apply-layout` | 保存してある設定を、おすすめのMIDI配置にする(先にバックアップを残す) |
+| `dmxctl apply-layout` | 保存してある設定を、おすすめのMIDI配置にする(先にバックアップを残す) |
 
 ## 実機の確認用テスト(`--ignored` で実行)
 

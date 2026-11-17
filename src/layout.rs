@@ -1,4 +1,4 @@
-//! おすすめのMIDI配置(AKAI APC mini mk2)。マップの「配置」メニュー・初回起動・`--apply-layout` で使う。
+//! おすすめのMIDI配置(AKAI APC mini mk2)。マップの「配置」メニュー・初回起動・`dmxctl apply-layout` で使う。
 //!
 //! パッド(上から): 1〜4段=LEDバーの模様(チル/グルーヴ/ピーク/モノクロ) / 5段=ムービングの動き /
 //! 6段=ムービングの見た目(明るさ・ゴボ・カラー) / 7段=その他の機材(Twinkle Ball・レーザー) / 8段=押している間だけ効くアクセント
@@ -495,7 +495,7 @@ fn bar_group(p: &mut Project, bars: &[(u32, String)]) -> Selector {
     Selector::Group(name)
 }
 
-/// `dmxctl --apply-layout`: 保存してあるプロジェクトをおすすめ配置にする(画面は開かない)。先にバックアップを残す
+/// `dmxctl apply-layout`: 保存してあるプロジェクトをおすすめ配置にする(画面は開かない)。先にバックアップを残す
 pub fn cli() -> Result<(), String> {
     let (lib, _) = Library::load(&config_dir().join("fixtures"));
     let path = default_project_path();

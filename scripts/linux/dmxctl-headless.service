@@ -1,4 +1,4 @@
-# dmxctl を画面なし(--headless)で常に動かす(systemd のユーザーサービス)。
+# dmxctl を画面なし(dmxctl headless)で常に動かす(systemd のユーザーサービス)。
 # scripts/linux/install-headless.sh が ~/.config/systemd/user/ に入れる
 [Unit]
 Description=DMX Controller (headless, auto)
@@ -6,7 +6,7 @@ After=network-online.target sound.target
 Wants=network-online.target
 
 [Service]
-ExecStart=%h/dmxctl/dmxctl --headless
+ExecStart=%h/dmxctl/dmxctl headless
 # 落ちたら3秒後に起動し直す。終了のシグナルでは、安全な値を送ってから 130 で終わる(正常扱い)
 Restart=always
 RestartSec=3

@@ -1,20 +1,27 @@
-# CI:
-# - push(ブランチ): テスト(cargo test。Windows と Linux)
-# - PR: テストと、Mac用・Windows用・Linux用のビルドが通るかを確かめる
-# - 毎週(main): テストだけ。ビルドのキャッシュは7日使わないと消えるので、間が空いても次のpushが速いように温めておく
-# - タグ(v で始まる名前。例: v0.2.0)の push: ビルドして、成果物を GitHub の Release に添付する
+# CI. Everything except the macOS build runs on Linux runners, because private
+# repositories bill Windows minutes at 2x and macOS minutes at 10x.
+# - push to main: tests only (cargo test on Linux). Other branches are tested
+#   through their pull request, so a PR does not run the same tests twice.
+# - pull request: tests, plus Windows (cross-built from Linux with MinGW) and
+#   Linux (x86_64 / arm64) builds. Tests also run here because a PR from a fork
+#   does not show the fork's push results.
+# - push of a tag starting with "v" (e.g. v0.2.0): build macOS and attach all
+#   executables to a GitHub Release.
 #   git tag v0.2.0 && git push origin v0.2.0
+#   The Linux / Windows executables are reused from the pull request run that
+#   built exactly the same source tree (see pr-record / reuse). If there is none
+#   (main moved after the PR, or the artifacts expired), they are built again.
+# Artifacts are the executables themselves, not archives (macOS ships a zip
+# because the .app bundle is a directory).
 name: build
 
 on:
   push:
-    branches: ['**']
+    branches: [main]
     tags: ['v*']
   pull_request:
-  schedule:
-    - cron: '0 18 * * 0'
 
-# 同じブランチ・PRに続けてpushしたら、古い実行は止める(タグのReleaseは止めない)
+# Cancel older runs for the same branch or PR (never cancel a tag release)
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
@@ -22,137 +29,187 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # Build dependencies for Linux (SDL2 is built from source with cmake and linked statically)
+  LINUX_DEPS: build-essential pkg-config cmake libasound2-dev libudev-dev libdrm-dev libgbm-dev libegl-dev libgles-dev libxext-dev
+
 jobs:
+  reuse:
+    # Tags only: find a pull request run that built the same source tree as the tag
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      run_id: ${{ steps.find.outputs.run_id }}
+    steps:
+      - id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tree=$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$GITHUB_SHA" --jq .tree.sha)
+          echo "source tree: $tree"
+          run_id=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=source-tree-$tree" \
+            --jq '[.artifacts[] | select(.expired | not)][0].workflow_run.id // empty')
+          if [ -n "$run_id" ]; then
+            # Every executable must still be there, otherwise build again
+            count=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts?per_page=100" \
+              --jq '[.artifacts[] | select((.expired | not) and (.name | startswith("dmxctl-")))] | length')
+            [ "$count" = 3 ] || { echo "run $run_id has $count of 3 executables; building again"; run_id=""; }
+          fi
+          echo "reusing run: ${run_id:-none}"
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+
   test:
-    if: github.event_name == 'push' || github.event_name == 'schedule'
-    runs-on: windows-latest
+    # Debug profile: builds faster than release, and tests don't need optimization
+    if: "!startsWith(github.ref, 'refs/tags/')"
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
         with:
           submodules: true
       - uses: Swatinem/rust-cache@v2
-      # テストだけのジョブなので、最適化しない設定で作る(リリース設定よりビルドが3割ほど速い)
-      - name: テスト
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y $LINUX_DEPS
+      - name: Test
         run: cargo test
 
+  linux:
+    # Release builds for Linux. Binaries built against an older glibc run on newer
+    # ones (not the other way around), so build inside Debian 12 (glibc 2.36).
+    # Runs on Debian 12 / Raspberry Pi OS Bookworm / Ubuntu 24.04 and later.
+    needs: reuse
+    # !cancelled() keeps the job from being skipped when reuse is skipped (pull requests)
+    if: ${{ !cancelled() && (github.event_name == 'pull_request' || (needs.reuse.result == 'success' && needs.reuse.outputs.run_id == '')) }}
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-26.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    container: debian:12
+    steps:
+      - name: Install build dependencies
+        run: apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git $LINUX_DEPS
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: ./scripts/build-linux.sh
+      - name: Check that libSDL2 is not a runtime dependency
+        run: |
+          ldd dist/linux/dmxctl
+          if ldd dist/linux/dmxctl | grep -q libSDL2; then echo "dmxctl depends on libSDL2; it should be linked statically"; exit 1; fi
+      - name: Rename
+        run: mv dist/linux/dmxctl dist/dmxctl-linux-${{ matrix.arch }}
+      - uses: actions/upload-artifact@v7
+        with:
+          path: dist/dmxctl-linux-${{ matrix.arch }}
+          archive: false
+
+  windows:
+    # Cross-built from Linux with MinGW. .cargo/config.toml links the runtime
+    # statically, so the exe needs no extra DLLs.
+    needs: reuse
+    # !cancelled() keeps the job from being skipped when reuse is skipped (pull requests)
+    if: ${{ !cancelled() && (github.event_name == 'pull_request' || (needs.reuse.result == 'success' && needs.reuse.outputs.run_id == '')) }}
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+      - uses: Swatinem/rust-cache@v2
+      - name: Install MinGW-w64
+        run: sudo apt-get update && sudo apt-get install -y mingw-w64
+      - name: Build
+        run: ./scripts/build-windows-mingw.sh
+      - name: Rename
+        run: mv dist/windows/dmxctl.exe dist/dmxctl-windows-x86_64.exe
+      - uses: actions/upload-artifact@v7
+        with:
+          path: dist/dmxctl-windows-x86_64.exe
+          archive: false
+
   mac:
-    if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/v')
+    # Tags only, since macOS minutes are billed at 10x. (Cross-building from Linux
+    # would need the macOS SDK, which Apple licenses for Apple hardware only.)
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
         with:
           submodules: true
       - uses: Swatinem/rust-cache@v2
-      - name: Macアプリをビルド
-        run: chmod +x scripts/build-mac.sh && ./scripts/build-mac.sh
+      - name: Build the app
+        run: ./scripts/build-mac.sh
       - uses: actions/upload-artifact@v7
         with:
-          name: DMX-Controller-mac
           path: dist/mac/DMX-Controller-mac.zip
+          archive: false
 
-  windows:
-    if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/v')
-    runs-on: windows-latest
+  pr-record:
+    # Pull requests only: once tests and builds pass, leave a marker named after the
+    # source tree, so a tag on the same tree can reuse this run's executables
+    # A skipped reuse job would skip this one too (skips propagate through needs),
+    # so check the results explicitly instead
+    needs: [test, linux, windows]
+    if: >-
+      ${{ !cancelled() && github.event_name == 'pull_request'
+      && needs.test.result == 'success' && needs.linux.result == 'success' && needs.windows.result == 'success' }}
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-        with:
-          submodules: true
-      - uses: Swatinem/rust-cache@v2
-      - name: Windows版をビルド
-        run: cargo build --release
-      - name: zipにまとめる
-        shell: pwsh
+      - env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          New-Item -ItemType Directory -Force dist/windows | Out-Null
-          Compress-Archive -Force -Path target/release/dmxctl.exe,target/release/dmxctl-cli.exe -DestinationPath dist/windows/DMX-Controller-windows.zip
+          tree=$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$GITHUB_SHA" --jq .tree.sha)
+          echo "TREE=$tree" >> "$GITHUB_ENV"
+          echo "$GITHUB_SHA" > source-commit.txt
       - uses: actions/upload-artifact@v7
         with:
-          name: DMX-Controller-windows
-          path: dist/windows/DMX-Controller-windows.zip
-
-  linux:
-    # pushのたびにテスト(Ubuntu 26.04)。テストだけなので最適化しない設定で作る
-    runs-on: ubuntu-26.04
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          submodules: true
-      - uses: Swatinem/rust-cache@v2
-      - name: 開発用ライブラリを入れる
-        run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libasound2-dev libudev-dev libsdl2-dev
-      - name: テスト
-        run: cargo test --features kmsdrm
-
-  linux-build:
-    # 配布用のLinux版(PR とタグのときだけ)。Ubuntu 26.04 の上で Debian 13 のコンテナを動かし、その中で作る。
-    # glibc は古い版で作ったものが新しい版でも動く(逆は動かない)ので、Debian 13(glibc 2.41)で作れば
-    # Debian 13 以降で動く
-    if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-26.04
-    container: debian:13
-    steps:
-      - name: 開発用ライブラリを入れる
-        run: apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git build-essential pkg-config libasound2-dev libudev-dev libsdl2-dev
-      - uses: actions/checkout@v7
-        with:
-          submodules: true
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Linux版をビルド
-        run: chmod +x scripts/build-linux.sh && ./scripts/build-linux.sh
-      - name: デスクトップ用(dmxctl)が SDL2 を要らないことを確かめる
-        run: |
-          ldd dist/linux/dmxctl
-          if ldd dist/linux/dmxctl | grep -q libSDL2; then echo "dmxctl が libSDL2 を必要としています"; exit 1; fi
-          ldd dist/linux/dmxctl-kmsdrm | grep libSDL2
-      - name: 常駐版(x86_64)をまとめる
-        run: ./scripts/package-linux-headless.sh x86_64
-      - uses: actions/upload-artifact@v7
-        with:
-          name: DMX-Controller-linux
-          path: |
-            dist/linux/DMX-Controller-linux.tar.gz
-            dist/linux/DMX-Controller-linux-headless-x86_64.tar.gz
-
-  linux-arm64-build:
-    # 常駐版の arm64(Raspberry Pi 4/5 など)。画面は使わないので dmxctl だけを作る(SDL2 は要らない)。
-    # Raspberry Pi OS Bookworm でも動くよう、Debian 12(glibc 2.36)で作る
-    if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-24.04-arm
-    container: debian:12
-    steps:
-      - name: 開発用ライブラリを入れる
-        run: apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git build-essential pkg-config libasound2-dev libudev-dev
-      - uses: actions/checkout@v7
-        with:
-          submodules: true
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: dmxctl をビルド
-        run: |
-          cargo build --release
-          mkdir -p dist/linux && cp target/release/dmxctl dist/linux/dmxctl
-      - name: 常駐版(arm64)をまとめる
-        run: chmod +x scripts/package-linux-headless.sh && ./scripts/package-linux-headless.sh arm64
-      - uses: actions/upload-artifact@v7
-        with:
-          name: DMX-Controller-linux-headless-arm64
-          path: dist/linux/DMX-Controller-linux-headless-arm64.tar.gz
+          name: source-tree-${{ env.TREE }}
+          path: source-commit.txt
 
   release:
-    # タグを打ったときだけ、全部のビルドが通ったあとにReleaseを作る
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [mac, windows, linux-build, linux-arm64-build]
+    # Tags only: create the Release once every executable is ready
+    needs: [reuse, linux, windows, mac]
+    if: >-
+      ${{ !cancelled() && startsWith(github.ref, 'refs/tags/v') && needs.reuse.result == 'success' && needs.mac.result == 'success'
+      && (needs.reuse.outputs.run_id != '' || (needs.linux.result == 'success' && needs.windows.result == 'success')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: read
     steps:
-      - uses: actions/download-artifact@v8
-        with:
-          path: dist
-          merge-multiple: true
-      # このジョブはリポジトリを取ってこない(checkoutしない)ので、--repo でリポジトリを明示する
-      - name: Releaseを作って成果物を添付
+      # Download through the REST API: artifacts uploaded with archive: false come back
+      # as the file itself (gh run download expects a zip and fails on them)
+      - name: Collect executables
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REUSE_RUN: ${{ needs.reuse.outputs.run_id }}
+        run: |
+          mkdir dist
+          fetch() {
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$1/artifacts?per_page=100" \
+              --jq '.artifacts[] | select((.expired | not) and (.name | test("^(dmxctl-|DMX-Controller-)"))) | "\(.id) \(.name)"' |
+            while read -r id name; do
+              echo "run $1: $name"
+              gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id/zip" > "dist/$name"
+            done
+          }
+          fetch "$GITHUB_RUN_ID"
+          [ -z "$REUSE_RUN" ] || fetch "$REUSE_RUN"
+          ls -la dist
+          [ "$(ls dist | wc -l)" = 4 ] || { echo "expected 4 files"; exit 1; }
+      # This job doesn't check out the repository, so pass --repo explicitly
+      - name: Create the release and attach executables
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$GITHUB_REF_NAME" --generate-notes dist/*

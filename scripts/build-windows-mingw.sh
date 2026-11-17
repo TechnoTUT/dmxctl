@@ -1,7 +1,7 @@
 #!/bin/bash
-# MacからWindows用の dmxctl.exe を作る(MinGW-w64 を使う)。
-# 必要なもの: Rust、MinGW-w64(brew install mingw-w64)
-# できるもの: dist/windows/dmxctl.exe と dist/windows/DMX-Controller-windows.zip
+# Mac・LinuxからWindows用の dmxctl.exe を作る(MinGW-w64 を使う)。
+# 必要なもの: Rust、MinGW-w64(Mac: brew install mingw-w64 / Debian・Ubuntu: sudo apt install mingw-w64)
+# できるもの: dist/windows/dmxctl.exe(単体で動く。追加のDLLは不要)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 # NDIのクレート(サブモジュール moip-engine/)が無ければ取ってくる(--recursive を付けずに clone したとき)
@@ -12,7 +12,4 @@ CC_x86_64_pc_windows_gnu=x86_64-w64-mingw32-gcc CXX_x86_64_pc_windows_gnu=x86_64
   cargo build --release --target x86_64-pc-windows-gnu
 mkdir -p "$OUT"
 cp target/x86_64-pc-windows-gnu/release/dmxctl.exe "$OUT/dmxctl.exe"
-cp target/x86_64-pc-windows-gnu/release/dmxctl-cli.exe "$OUT/dmxctl-cli.exe"
-(cd "$OUT" && rm -f DMX-Controller-windows.zip && zip -q DMX-Controller-windows.zip dmxctl.exe dmxctl-cli.exe)
-echo "できました: $OUT/dmxctl.exe"
-echo "配布用: $OUT/DMX-Controller-windows.zip"
+echo "Built: $OUT/dmxctl.exe"

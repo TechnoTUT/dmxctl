@@ -6,10 +6,10 @@
 
 | PC | ファイル | 使い方 |
 |---|---|---|
-| Windows 10 / 11 | `DMX-Controller-windows.zip` | 展開して `dmxctl.exe` をダブルクリック。exe 1つで動きます(Visual C++ ランタイムなどのインストールは不要) |
+| Windows 10 / 11 | `dmxctl-windows-x86_64.exe` | ダブルクリックで起動。exe 1つで動きます(Visual C++ ランタイムなどのインストールは不要) |
 | Mac(Apple Silicon / Intel) | `DMX-Controller-mac.zip` | 展開して `DMX Controller.app` を「アプリケーション」へ。初めて開くときは、右クリック →「開く」(macOS 15 以降で開けないときは、「システム設定」→「プライバシーとセキュリティ」の「このまま開く」) |
-| Linux(Debian 13 / Ubuntu 24.04 以降) | `DMX-Controller-linux.tar.gz` | 展開して `./dmxctl`(デスクトップ用)。デスクトップ環境の無いPCは `./dmxctl-kmsdrm`、モニターの無いPCは `./dmxctl --headless`([Linux で使う](#linux-で使う)) |
-| モニターの無いLinuxで常駐(オート) | `DMX-Controller-linux-headless-x86_64.tar.gz`(普通のPC)/ `DMX-Controller-linux-headless-arm64.tar.gz`(Raspberry Pi 4/5 など) | 展開して `./install.sh`。電源を入れると自動で動きます(Beat Link Trigger も一緒に常駐。`--no-blt` なら dmxctl だけ)。[モニターの無いLinuxでオート](#モニターの無いlinuxでオートblt-と一緒に常駐) |
+| Linux(Debian 12 / Ubuntu 24.04 以降) | `dmxctl-linux-x86_64`(普通のPC)/ `dmxctl-linux-arm64`(Raspberry Pi 4/5 など) | `chmod +x dmxctl-linux-x86_64` して `./dmxctl-linux-x86_64` で起動。デスクトップ環境の無いPCでも同じファイルで、自動で画面に直接出します。モニターの無いPCは `headless` を付けて起動([Linux で使う](#linux-で使う)) |
+| モニターの無いLinuxで常駐(オート) | 上と同じ `dmxctl-linux-x86_64` / `dmxctl-linux-arm64` | このリポジトリの `./scripts/linux/install-headless.sh 落としたファイル` で入れると、電源を入れたら自動で動きます(Beat Link Trigger も一緒に常駐。`--no-blt` なら dmxctl だけ)。[モニターの無いLinuxでオート](#モニターの無いlinuxでオートblt-と一緒に常駐) |
 
 - **Windows で「WindowsによってPCが保護されました」と出たとき**: 署名の無いアプリなので出ます。「詳細情報」→「実行」で起動できます。初めて Ableton Link・OSC・操作パネルを使うときは、ファイアウォールの確認で「許可」を押します
 - 設定(機材・割り当て・シーン)は、アプリとは別の場所に自動で保存されます(Windows: `%APPDATA%\dmxctl\`)。新しい版に入れ替えても、そのまま引き継がれます
@@ -628,18 +628,18 @@ CDJ / XDJ ──(Pro DJ Link・LAN)── Linux PC ──(USB-DMX または Art-
                                   ├ Beat Link Trigger(仮想の画面の中)
                                   │   ├ テンポ・拍 → Ableton Link
                                   │   └ 波形の色・大きさ・フレーズ → OSC(127.0.0.1:9000)
-                                  └ dmxctl --headless(オート)
+                                  └ dmxctl headless(オート)
 ```
 
-- `dmxctl --headless`: 画面を出さずに動きます(モニター・X11・SDL2 は不要)。起動すると、OSC受信・テンポの元(Ableton Link)・オートを必ずONにします。様子は標準出力に出ます(待機/受信中・フレーズ・BPM・Linkの台数)
+- `dmxctl headless`: 画面を出さずに動きます(モニター・X11・SDL2 は不要)。起動すると、OSC受信・テンポの元(Ableton Link)・オートを必ずONにします。様子は標準出力に出ます(待機/受信中・フレーズ・BPM・Linkの台数)
 - Beat Link Trigger は画面のあるアプリなので、仮想の画面(Xvfb)の中で動かします。画面を出さずに動く [Open Beat Control](https://github.com/Deep-Symmetry/open-beat-control) もありますが、波形・フレーズは扱えないので、ここでは BLT を使います
 
 **準備**
 
 1. 照明の設定(機材・出力・シーン)は、画面のあるPC(または同じPCをモニターにつないで)で作り、`~/.config/dmxctl/` をこのPCにコピーします。フレーズごとの動きは **オート** タブのプリセットで決めておきます(シーン・エフェクトも選べます)
-2. [Releases](https://github.com/TechnoTUT/dmxctl/releases) から常駐版(`DMX-Controller-linux-headless-x86_64.tar.gz`、Raspberry Pi などは `-arm64`)を落として展開します。x86_64 版は Debian 13 / Ubuntu 24.04 以降、arm64 版は Raspberry Pi OS Bookworm(64bit)/ Debian 12 以降で動きます
+2. [Releases](https://github.com/TechnoTUT/dmxctl/releases) から `dmxctl-linux-x86_64`(Raspberry Pi などは `dmxctl-linux-arm64`)を落とし、このリポジトリも `git clone` しておきます。Debian 12 / Raspberry Pi OS Bookworm(64bit)/ Ubuntu 24.04 以降で動きます
 3. BLT の公式の `.deb` を入れます(`sudo apt install ./beat-link-trigger_*.deb`)。入った場所が `/opt/beat-link-trigger/bin/Beat Link Trigger` でなければ、`~/dmxctl/blt.env` に `BLT_CMD="起動コマンドの場所"` と書きます
-4. 展開したフォルダ(`dmxctl-headless/`)で `./install.sh` を実行すると、dmxctl と BLT が電源を入れたら動くようになります(ユーザーのサービス。`--no-blt` なら dmxctl だけ)。USB-DMX のグループに入ったときは、一度再起動してください。ソースから使うときは、`./scripts/build-linux.sh` のあと `./scripts/linux/install-headless.sh` でも同じです
+4. リポジトリのフォルダで `./scripts/linux/install-headless.sh ~/Downloads/dmxctl-linux-arm64`(落とした場所)を実行すると、dmxctl と BLT が電源を入れたら動くようになります(ユーザーのサービス。`--no-blt` を付けると dmxctl だけ)。USB-DMX のグループに入ったときは、一度再起動してください。ソースから使うときは、`./scripts/build-linux.sh` のあと場所を付けずに `./scripts/linux/install-headless.sh`
 
 **BLT の設定(最初に1回)**
 
@@ -680,7 +680,7 @@ dmxctl が動いているPCに、同じネットワークのスマホ・PCのブ
 http://このPCのIPアドレス:8080/
 ```
 
-- **`--headless`(画面なし)では必ずON**。起動したときのログに、開くアドレスが出ます(`操作パネル: http://192.168.x.x:8080/`)
+- **`dmxctl headless`(画面なし)では必ずON**。起動したときのログに、開くアドレスが出ます(`操作パネル: http://192.168.x.x:8080/`)
 - 画面のあるPCでは、「MIDI設定」タブの **スマホから操作(操作パネル)** をONにします。ポート・合言葉もここで決めます。ONにすると、開くアドレスが横に出ます
 
 | パネルでできること | |
@@ -731,9 +731,9 @@ cargo run --release
 3. このフォルダ(`moip-engine/` も含めて)をMacにコピーするか、`git clone --recursive https://github.com/TechnoTUT/dmxctl` で取ってきて、ターミナルで `./scripts/build-mac.sh`
 4. `dist/mac/DMX Controller.app` ができます(配布用の zip も同じ場所)
 
-**MacからWindows版を作る**: MinGW-w64 を入れて(`brew install mingw-w64`)、`bash ./scripts/build-windows-mingw.sh`。`dist/windows/dmxctl.exe`(単体で動く。追加のDLLは不要)と配布用のzipができます。
+**MacからWindows版を作る**: MinGW-w64 を入れて(`brew install mingw-w64`)、`bash ./scripts/build-windows-mingw.sh`。`dist/windows/dmxctl.exe`(単体で動く。追加のDLLは不要)ができます。Linux からも同じスクリプトで作れます(`sudo apt install mingw-w64`)。
 
-**Macが手元に無い場合**: GitHub で PR を作ると、`.github/workflows/build.yml` により Mac 用・Windows 用・Linux 用がビルドされます(ビルドが通るかの確認。ただの push ではテストだけ)。`v` で始まるタグ(例: `v0.2.0`)を push すると、そのビルドの成果物(zip / tar.gz)が GitHub の Release に添付されます。
+**Macが手元に無い場合**: `v` で始まるタグ(例: `v0.2.0`)を push すると、`.github/workflows/build.yml` により Mac 用・Windows 用・Linux 用がビルドされ、GitHub の Release に添付されます(Windows・Linux の実行ファイルはそのまま、Mac は .app の zip)。PR では Windows 用・Linux 用のビルドが通るかを確かめます(Mac 用はタグのときだけ)。ただの push ではテストだけです。
 
 **Macでの違い・注意**
 
@@ -751,17 +751,16 @@ Linux(X11 / Wayland のどちらでも)で動きます。**デスクトップ環
 
 1. Rust を入れる: https://rustup.rs
 2. ビルドに要るものを入れる
-   - Ubuntu / Debian: `sudo apt install build-essential pkg-config libasound2-dev libudev-dev libsdl2-dev`
-   - Fedora: `sudo dnf install gcc-c++ pkgconf alsa-lib-devel systemd-devel libatomic SDL2-devel`
-   - Arch: `sudo pacman -S base-devel alsa-lib sdl2`
+   - Ubuntu / Debian: `sudo apt install build-essential pkg-config cmake libasound2-dev libudev-dev libdrm-dev libgbm-dev libegl-dev libgles-dev libxext-dev`
+   - Fedora: `sudo dnf install gcc-c++ pkgconf cmake alsa-lib-devel systemd-devel libatomic libdrm-devel mesa-libgbm-devel mesa-libEGL-devel mesa-libGLES-devel libXext-devel`
+   - Arch: `sudo pacman -S base-devel cmake alsa-lib libdrm mesa libxext`
 3. ソースを取ってくる: `git clone --recursive https://github.com/TechnoTUT/dmxctl`(NDIの部分 `moip-engine/` も一緒に取ってきます)
 4. `./scripts/build-linux.sh`
-5. `dist/linux/dmxctl`(デスクトップ環境用)と `dist/linux/dmxctl-kmsdrm`(デスクトップ環境の無い画面用)ができます(配布用の `DMX-Controller-linux.tar.gz` も同じ場所)。デスクトップでは `./dmxctl` で起動
+5. `dist/linux/dmxctl` ができます。`./dist/linux/dmxctl` で起動
 
-GitHub の Release に付いている Linux 版(`DMX-Controller-linux.tar.gz`)は Debian 13 の中で作っているので、**Debian 13 以降**で動きます(今のところ Ubuntu 24.04 以降でも動きます)。それより古い Linux では起動できない(`GLIBC_2.xx not found` と出る)ので、上の手順でそのPCの上で作ってください。
+GitHub の Release に付いている Linux 版(`dmxctl-linux-x86_64` / `dmxctl-linux-arm64`)は Debian 12 の中で作っているので、**Debian 12 以降**で動きます(Raspberry Pi OS Bookworm・Ubuntu 24.04 以降でも動きます)。それより古い Linux では起動できない(`GLIBC_2.xx not found` と出る)ので、上の手順でそのPCの上で作ってください。
 
-- `dmxctl` は SDL2 を使わないので、デスクトップ環境のあるPCなら追加で入れるものはありません。`dmxctl-kmsdrm` は SDL2 を使う機能(`kmsdrm`)入りで、動かすPCに SDL2 が要ります(Ubuntu / Debian: `sudo apt install libsdl2-2.0-0`)
-- SDL2 を入れずに作るときは `DMXCTL_NO_KMSDRM=1 ./scripts/build-linux.sh`(`dmxctl` だけ作ります)
+- SDL2(デスクトップ環境の無い画面で使う)は `dmxctl` に内蔵しているので、動かすPCに入れるものはありません
 
 **Linuxでの違い・注意**
 
@@ -795,11 +794,11 @@ sudo ldconfig
 
 ### デスクトップ環境の無いLinuxで使う(KMS/DRM)
 
-デスクトップ環境(X11 / Wayland)が無いPCでは、`dmxctl-kmsdrm` を **コンソール(tty)から起動するだけ** で、画面全体に直接表示します(SDL2 の KMSDRM を使用)。照明卓専用の小さなPCや Raspberry Pi で、余計なものを入れずに動かせます。
+デスクトップ環境(X11 / Wayland)が無いPCでは、`dmxctl` を **コンソール(tty)から起動するだけ** で、画面全体に直接表示します(SDL2 の KMSDRM を使用)。照明卓専用の小さなPCや Raspberry Pi で、余計なものを入れずに動かせます。
 
 **準備**
 
-1. `./scripts/build-linux.sh` で作った `dmxctl-kmsdrm`(`kmsdrm` 機能入り。Release の tar.gz にも入っています)を使います。動かすPCに SDL2(`libsdl2-2.0-0`)、OpenGL ES の動くGPUドライバ(Mesa。ふつうは入っています)、日本語フォント(`fonts-noto-cjk`)を入れます
+1. Release の `dmxctl-linux-x86_64` / `dmxctl-linux-arm64`(または `./scripts/build-linux.sh` で作ったもの)を使います。動かすPCに OpenGL ES の動くGPUドライバ(Mesa。ふつうは入っています)、日本語フォント(`fonts-noto-cjk`)を入れます
 2. 画面とキーボード・マウスを使えるよう、ユーザーを `video` と `input` のグループに入れて、ログインし直します
 
    ```
@@ -808,18 +807,18 @@ sudo ldconfig
 
    (`dialout` は USB-DMX 用)。`input` に入っていないと、画面は出てもキーボード・マウスが効きません(画面下に知らせが出ます)
 
-3. コンソールにログインして `./dmxctl-kmsdrm` で起動します。SSH から起動することもできます(画面はそのPCにつないだモニターに出ます)
+3. コンソールにログインして `./dmxctl` で起動します。SSH から起動することもできます(画面はそのPCにつないだモニターに出ます)
 
 **操作・違い**
 
-- 画面全体に表示します。拡大率は画面の大きさから自動で決めます(1920×1080 なら1.25倍)。変えたいときは `DMXCTL_SCALE=1.5 ./dmxctl-kmsdrm` のように指定します
+- 画面全体に表示します。拡大率は画面の大きさから自動で決めます(1920×1080 なら1.25倍)。変えたいときは `DMXCTL_SCALE=1.5 ./dmxctl` のように指定します
 - **終了**: 「ファイル」メニューの「終了」、または Ctrl+Q(閉じるボタンが無いため)。起動した端末での Ctrl+C でも安全に止まります
 - ファイルを選ぶ画面(別名で保存・開く)は出せないので、「ファイル」メニューには出ません。設定は今までどおり自動保存され、「バックアップから戻す」は一覧から選べます
 - タッチパネル: 触った所をクリック(触ったまま動かすとドラッグ)
 - トラックパッド: 1本指でカーソルを動かす、軽く叩くと左クリック、2本指で叩くと右クリック、2本指で動かすとスクロール(指の動きに中身がついてくる向き)。押し込むクリックも使えます
 - 日本語入力(IME)は使えません。名前の欄などには英数字を入力してください
 - 他のアプリ(デスクトップ環境など)が画面を使っている間は起動できません
-- KMSDRMを使うかどうかは、ふつうは自動で決まります(環境変数 `DISPLAY` と `WAYLAND_DISPLAY` が無ければ使う)。`--kmsdrm` か `DMXCTL_KMSDRM=1` で必ず使い、`DMXCTL_KMSDRM=0` で使いません
+- KMSDRMを使うかどうかは、ふつうは自動で決まります(環境変数 `DISPLAY` と `WAYLAND_DISPLAY` が無ければ使う)。`dmxctl kmsdrm` か `DMXCTL_KMSDRM=1` で必ず使い、`DMXCTL_KMSDRM=0` で使いません
 
 **電源を入れたら自動で起動する(例)**
 
@@ -837,13 +836,13 @@ sudo ldconfig
    ExecStart=-/sbin/agetty --autologin ユーザー名 --noclear %I $TERM
    ```
 
-2. `~/.bash_profile` の最後に、tty1 のときだけ起動するよう書きます(`dmxctl-kmsdrm` を置いた場所に合わせる)
+2. `~/.bash_profile` の最後に、tty1 のときだけ起動するよう書きます(`dmxctl` を置いた場所に合わせる)
 
    ```
-   if [ "$(tty)" = /dev/tty1 ]; then ~/dmxctl/dmxctl-kmsdrm; fi
+   if [ "$(tty)" = /dev/tty1 ]; then ~/dmxctl/dmxctl; fi
    ```
 
-   アプリを終了するとコンソールに戻ります(`~/dmxctl/dmxctl-kmsdrm` の前に `exec` を付けると、終了しても自動でもう一度起動します)
+   アプリを終了するとコンソールに戻ります(`~/dmxctl/dmxctl` の前に `exec` を付けると、終了しても自動でもう一度起動します)
 
 ## USB-DMX(FT232系)について
 

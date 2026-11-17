@@ -1,22 +1,23 @@
 #!/bin/bash
 # モニターの無いLinuxで、dmxctl(オート)と Beat Link Trigger を、電源を入れたら自動で動くようにする。
-#   ./scripts/linux/install-headless.sh            dmxctl と BLT の両方
-#   ./scripts/linux/install-headless.sh --no-blt   dmxctl だけ
-# 常駐版(Release の DMX-Controller-linux-headless-*.tar.gz)では、展開したフォルダの ./install.sh がこのスクリプト。
-#   dmxctl 本体はこのスクリプトと同じフォルダのものを使う。
-# ソースから使うときは、先に ./scripts/build-linux.sh で dist/linux/dmxctl を作っておく。
+#   ./scripts/linux/install-headless.sh [--no-blt] [dmxctlの場所]
+#     --no-blt     dmxctl だけ(BLT は別のPCで動かすとき)
+#     dmxctlの場所 Release から落とした dmxctl-linux-x86_64 / dmxctl-linux-arm64 など。
+#                  省略すると ./scripts/build-linux.sh で作った dist/linux/dmxctl を使う
 # Beat Link Trigger は公式の .deb(https://github.com/Deep-Symmetry/beat-link-trigger/releases)を先に入れておく
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 WITH_BLT=1
-[ "${1:-}" = "--no-blt" ] && WITH_BLT=0
-
-if [ -x "$HERE/dmxctl" ]; then
-  BIN="$HERE/dmxctl"
-elif [ -x "$HERE/../../dist/linux/dmxctl" ]; then
-  BIN="$HERE/../../dist/linux/dmxctl"
-else
-  echo "dmxctl が見つかりません。Release の常駐版を展開したフォルダで実行するか、先に ./scripts/build-linux.sh を実行してください"
+BIN=""
+for arg in "$@"; do
+  case "$arg" in
+    --no-blt) WITH_BLT=0 ;;
+    *) BIN="$arg" ;;
+  esac
+done
+[ -n "$BIN" ] || BIN="$HERE/../../dist/linux/dmxctl"
+if [ ! -f "$BIN" ]; then
+  echo "dmxctl が見つかりません($BIN)。Release から落とした dmxctl-linux-* の場所を指定するか、先に ./scripts/build-linux.sh を実行してください"
   exit 1
 fi
 

@@ -18,7 +18,7 @@ impl Sandbox {
         project
     }
     fn run(&self, args: &[&str]) -> std::process::Output {
-        Command::new(env!("CARGO_BIN_EXE_dmxctl-cli")).args(args).current_dir(&self.0).output().unwrap()
+        Command::new(env!("CARGO_BIN_EXE_dmxctl")).args(args).current_dir(&self.0).output().unwrap()
     }
 }
 impl Drop for Sandbox {fn drop(&mut self) {let _ = std::fs::remove_dir_all(&self.0);}}
@@ -110,7 +110,7 @@ fn real_time_stdin_controls_next_frame_without_device_output() {
     use std::process::Stdio;
     let dir = Sandbox::new();
     dir.project();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_dmxctl-cli"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_dmxctl"))
         .args(["watch","--project","project.json","--duration","0.2","--stdin","--log","live.jsonl"])
         .current_dir(&dir.0).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
     child.stdin.take().unwrap().write_all(b"{\"cmd\":\"set\",\"id\":\"live\",\"fixture\":1,\"attr\":\"pan\",\"value\":77}\n").unwrap();
