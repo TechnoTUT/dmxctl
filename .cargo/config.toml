@@ -7,3 +7,8 @@ rustflags = ["-C", "target-feature=+crt-static"]
 [target.x86_64-pc-windows-gnu]
 linker = "x86_64-w64-mingw32-gcc"
 rustflags = ["-C", "target-feature=+crt-static", "-C", "link-args=-static -static-libgcc -static-libstdc++"]
+
+[env]
+# SDL2(sdl2-sys が内蔵するソース)の CMakeLists.txt は古い cmake_minimum_required を書いていて、
+# CMake 4 以降はそのままだと設定に失敗する。3.5 の動きで設定させる
+CMAKE_POLICY_VERSION_MINIMUM = "3.5"
