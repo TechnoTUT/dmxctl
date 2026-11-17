@@ -96,7 +96,7 @@ cargo test --release                     # Linux では KMSDRMの部分(キー�
 |---|---|
 | `DMXCTL_CONFIG_DIR=フォルダ` | 本番の設定に触れずに、別の設定で起動 |
 | `DMXCTL_NO_MIDI=1` | MIDI機器に自動接続しない(本番と2つ起動するとき) |
-| `DMXCTL_SHOT=保存先.png` + `DMXCTL_TAB=タブ名` / `DMXCTL_PAGE=2` / `DMXCTL_SIZE=1280x800` / `DMXCTL_UNIVERSE=2` | 画面を撮って保存して終了(見た目の確認用) |
+| `DMXCTL_SHOT=保存先.png` + `DMXCTL_TAB=タブ名` / `DMXCTL_PAGE=2` / `DMXCTL_SIZE=1280x800` / `DMXCTL_UNIVERSE=2` | 画面を撮って保存して終了(見た目の確認用)。`DMXCTL_SHOT_FRAMES=150` で撮るまでのフレーム数を延ばせる(操作を入れてから撮るとき) |
 | `DMXCTL_PERF=1` | 描画の時間を表示 |
 | `DMXCTL_KMSDRM=1` / `=0` / `dmxctl kmsdrm` | Linux: KMSDRMで必ず起動する / 使わない。指定が無ければ `DISPLAY` と `WAYLAND_DISPLAY` が無いときに使う |
 | `dmxctl headless` / `DMXCTL_HEADLESS=1` | 画面を出さずに動かす(`Host::run_headless`)。OSC受信・Link・オートを必ずONにする。`scripts/linux/install-headless.sh` で BLT と一緒に常駐 |
