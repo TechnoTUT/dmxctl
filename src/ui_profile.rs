@@ -63,6 +63,7 @@ impl App {
         let mut act: Option<Act> = None;
         let full = ui.available_size();
         let left_w = 250.0;
+        let client = self.host.is_client();
         let usage = |id: &str| core.project.fixtures.iter().filter(|f| f.profile == id).count();
 
         ui.horizontal_top(|ui| {
@@ -162,6 +163,10 @@ impl App {
                     self.pe_load(&lib, &id);
                 }
                 self.pe.msg = (false, String::new());
+            }
+            // 機材定義はサーバーのフォルダにあるので、クライアントからは保存・削除しない
+            Some(Act::Save | Act::Delete) if client => {
+                self.pe.msg = (true, "サーバーにつないでいる間は、機材定義を保存・削除できません(サーバーの画面で編集してください)".into());
             }
             Some(Act::Save) => {
                 if self.pe.is_new
