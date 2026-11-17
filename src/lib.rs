@@ -50,6 +50,7 @@ pub mod osc;
 pub mod output;
 pub mod pixel;
 pub mod project;
+pub mod project_patch;
 pub mod recording;
 pub mod shot;
 pub mod theme;
