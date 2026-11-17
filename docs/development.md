@@ -134,6 +134,7 @@ cargo test --release perf -- --ignored --nocapture                              
 | `src/ui_laser.rs` / `src/ui_auto.rs` | レーザータブ / オートタブ。オートタブは、フレーズごとの見た目のプリセット `AutoPreset` / `PhraseLook` の表 |
 | `src/theme.rs` | 色・フォントなどの見た目 |
 | `src/kmsdrm.rs` / `src/kmsdrm/` | Linuxだけ。デスクトップ環境の無い画面に、SDL2 の KMSDRM と OpenGL ES の egui_glow で描くループ / キーの変換・タッチ |
+| `Containerfile` / `.dockerignore` / `deploy/kubernetes/` | コンテナのイメージと Kubernetes のマニフェスト。画面を使わず `dmxctl serve` だけを動かす。手順は [コンテナで動かす](container.md) |
 | `third_party/link/` | Ableton Link。`build.rs` で `native/link_shim.cpp` ごと静的にリンクする |
 
 ### 設計のポイント
