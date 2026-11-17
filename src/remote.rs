@@ -400,6 +400,7 @@ impl RemoteServer {
                     match listener.accept() {
                         Ok((stream, _)) => {
                             if guard(&conns).iter().filter(|c| c.alive.load(Ordering::Relaxed)).count() >= MAX_CLIENTS {
+                                refuse(stream, &format!("つながっているクライアントが多すぎます({MAX_CLIENTS}台まで)"));
                                 continue;
                             }
                             let (core, ctx, conns, events) = (core.clone(), ctx.clone(), conns.clone(), events.clone());
@@ -436,6 +437,21 @@ impl Drop for RemoteServer {
             let _ = t.join();
         }
     }
+}
+
+/// 理由を伝えてから接続を閉じる(クライアントは接続中の表示に理由を出す)。
+/// 先に hello を読んでおく(読まずに閉じると、理由が届く前に接続がリセットされることがある)
+fn refuse(stream: TcpStream, msg: &str) {
+    let line = json!({"t":"error","fatal":true,"msg":msg}).to_string();
+    let _ = std::thread::Builder::new().name("remote-refuse".into()).spawn(move || {
+        let _ = stream.set_nonblocking(false);
+        let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+        let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
+        let Ok(mut writer) = stream.try_clone() else { return };
+        let _ = read_line(&mut BufReader::new(stream), &mut Vec::new());
+        let _ = writeln!(writer, "{line}");
+        let _ = writer.shutdown(std::net::Shutdown::Write);
+    });
 }
 
 fn serve_conn(stream: TcpStream, core: &Shared, ctx: &eframe::egui::Context, events: &ServerEvents, conns: &Mutex<Vec<Arc<Conn>>>) -> anyhow::Result<()> {
@@ -1339,6 +1355,16 @@ mod tests {
         assert_eq!(lock(&server_core).project.fixtures.len(), n);
         assert_eq!(lock(&server_core).project.fixtures[n - 1].name, "B edit");
         assert!(a.take_errors().iter().any(|e| e.contains("重なった")));
+    }
+
+    #[test]
+    fn a_client_over_the_limit_is_told_why() {
+        let (_core, server) = server();
+        let mut clients: Vec<_> = (0..MAX_CLIENTS).map(|_| client(&server)).collect();
+        assert!(wait(|| server.clients() == MAX_CLIENTS));
+        let error = Client::connect(&server.address.to_string(), eframe::egui::Context::default()).err().expect("over the limit");
+        assert!(error.to_string().contains("多すぎます"), "{error}");
+        clients.clear();
     }
 
     #[test]
