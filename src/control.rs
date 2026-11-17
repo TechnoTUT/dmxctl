@@ -473,7 +473,7 @@ pub fn client(args: &[String]) -> anyhow::Result<()> {
             json!({"op":"record_start","file":path})
         }
         ["record","stop"] => json!({"op":"record_stop"}),
-        _ => bail!("unknown control command; see dmxctl-cli --help"),
+        _ => bail!("unknown control command; see dmxctl --help"),
     };
     let watching = positional.as_slice()==["watch"];
     if payload["op"]=="edit" || (payload["op"]=="command" && payload["command"]["cmd"]=="edit") {

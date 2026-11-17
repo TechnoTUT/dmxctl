@@ -6,49 +6,52 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{collections::BTreeMap, io::{BufRead, Write}, path::{Path, PathBuf}, sync::{Arc, Mutex, mpsc}, time::{Duration, Instant}};
 
-const HELP: &str = r#"dmxctl-cli inspect --project FILE [--fixtures DIR]
-dmxctl-cli serve --project FILE [--listen 127.0.0.1:9190] [--output none|live] [--inputs none|configured] [--autosave]
-dmxctl-cli ctl [--connect 127.0.0.1:9190] status|inspect|stop
-dmxctl-cli ctl fixture list
-dmxctl-cli ctl button list
-dmxctl-cli ctl button click|press|release|hold binding:ID [--hold-ms N]
-dmxctl-cli ctl button set binding:ID --value 0.5
-dmxctl-cli ctl input midi --kind Note --channel 9 --number 40 --value 127
-dmxctl-cli ctl input key --json '{"number":16,"pressed":true}'
-dmxctl-cli ctl input osc --json '{"address":"/dmx/bpm","args":[128]}'
-dmxctl-cli ctl fixture set ID --attr pan --value 80
-dmxctl-cli ctl command --json '{"cmd":"motion","params":{"shape":"Circle"}}'
-dmxctl-cli ctl project save
-dmxctl-cli ctl edit --file operations.json [--dry-run]
-dmxctl-cli ctl fixture|group|binding|scene|position|effect|pixel|chase|pair|output|auto_preset list
-dmxctl-cli ctl ENTITY create --json '{...}'
-dmxctl-cli ctl ENTITY update KEY --json '{...}'
-dmxctl-cli ctl ENTITY delete KEY
-dmxctl-cli ctl ENTITY update --index N --json '{...}'
-dmxctl-cli ctl scene capture NAME [--json '{"fade":1,"fixtures":[1]}']
-dmxctl-cli ctl settings update --json '{"bpm":128}'
-dmxctl-cli ctl profile list|save|delete [--file FILE] [--dry-run]
-dmxctl-cli ctl project diff
-dmxctl-cli ctl project reload [--file FILE] [--dry-run]
-dmxctl-cli ctl project restore --file FILE [--dry-run]
-dmxctl-cli ctl output snapshot [--fixture ID] [--attrs pan,tilt]
-dmxctl-cli ctl watch [--fixture ID] [--attrs pan,tilt] [--duration SECONDS]
-dmxctl-cli ctl record start --file NEW.jsonl
-dmxctl-cli ctl record stop
-dmxctl-cli ctl schema [ENTITY]
-dmxctl-cli ctl version
-dmxctl-cli ctl explain --fixture ID --attr pan
-dmxctl-cli ctl assert --fixture ID --attr pan --equals 80 [--tolerance 0.1]
-dmxctl-cli ctl wait --frames 2 | --beats 4 | --ms 100
-dmxctl-cli ctl wait --fixture ID --attr pan --min 80 [--timeout-ms 5000]
-dmxctl-cli ctl fixture set ID --attr pan --value 80 --wait
-dmxctl-cli simulate --project FILE [--scenario FILE] [--duration SECONDS] [--log NEW.jsonl]
-dmxctl-cli run --project FILE [--scenario FILE] [--duration SECONDS] [--stdin] [--log NEW.jsonl] [--output]
-dmxctl-cli watch --project FILE [--duration SECONDS] [--stdin] [--log NEW.jsonl]
-dmxctl-cli log summarize FILE
-dmxctl-cli log scenario FILE --out NEW_DIRECTORY
-dmxctl-cli log query FILE [--from-ms N] [--to-ms N] [--universe N] [--address N] [--fixture N] [--attrs pan,tilt]
-dmxctl-cli diff BEFORE.jsonl AFTER.jsonl
+/// `dmxctl` の最初の引数がこれなら、CLIとして動かす
+pub const COMMANDS: &[&str] = &["serve","ctl","inspect","simulate","run","watch","log","diff"];
+
+pub const HELP: &str = r#"dmxctl inspect --project FILE [--fixtures DIR]
+dmxctl serve --project FILE [--listen 127.0.0.1:9190] [--output none|live] [--inputs none|configured] [--autosave]
+dmxctl ctl [--connect 127.0.0.1:9190] status|inspect|stop
+dmxctl ctl fixture list
+dmxctl ctl button list
+dmxctl ctl button click|press|release|hold binding:ID [--hold-ms N]
+dmxctl ctl button set binding:ID --value 0.5
+dmxctl ctl input midi --kind Note --channel 9 --number 40 --value 127
+dmxctl ctl input key --json '{"number":16,"pressed":true}'
+dmxctl ctl input osc --json '{"address":"/dmx/bpm","args":[128]}'
+dmxctl ctl fixture set ID --attr pan --value 80
+dmxctl ctl command --json '{"cmd":"motion","params":{"shape":"Circle"}}'
+dmxctl ctl project save
+dmxctl ctl edit --file operations.json [--dry-run]
+dmxctl ctl fixture|group|binding|scene|position|effect|pixel|chase|pair|output|auto_preset list
+dmxctl ctl ENTITY create --json '{...}'
+dmxctl ctl ENTITY update KEY --json '{...}'
+dmxctl ctl ENTITY delete KEY
+dmxctl ctl ENTITY update --index N --json '{...}'
+dmxctl ctl scene capture NAME [--json '{"fade":1,"fixtures":[1]}']
+dmxctl ctl settings update --json '{"bpm":128}'
+dmxctl ctl profile list|save|delete [--file FILE] [--dry-run]
+dmxctl ctl project diff
+dmxctl ctl project reload [--file FILE] [--dry-run]
+dmxctl ctl project restore --file FILE [--dry-run]
+dmxctl ctl output snapshot [--fixture ID] [--attrs pan,tilt]
+dmxctl ctl watch [--fixture ID] [--attrs pan,tilt] [--duration SECONDS]
+dmxctl ctl record start --file NEW.jsonl
+dmxctl ctl record stop
+dmxctl ctl schema [ENTITY]
+dmxctl ctl version
+dmxctl ctl explain --fixture ID --attr pan
+dmxctl ctl assert --fixture ID --attr pan --equals 80 [--tolerance 0.1]
+dmxctl ctl wait --frames 2 | --beats 4 | --ms 100
+dmxctl ctl wait --fixture ID --attr pan --min 80 [--timeout-ms 5000]
+dmxctl ctl fixture set ID --attr pan --value 80 --wait
+dmxctl simulate --project FILE [--scenario FILE] [--duration SECONDS] [--log NEW.jsonl]
+dmxctl run --project FILE [--scenario FILE] [--duration SECONDS] [--stdin] [--log NEW.jsonl] [--output]
+dmxctl watch --project FILE [--duration SECONDS] [--stdin] [--log NEW.jsonl]
+dmxctl log summarize FILE
+dmxctl log scenario FILE --out NEW_DIRECTORY
+dmxctl log query FILE [--from-ms N] [--to-ms N] [--universe N] [--address N] [--fixture N] [--attrs pan,tilt]
+dmxctl diff BEFORE.jsonl AFTER.jsonl
 
 All commands return JSON/JSONL. simulate advances a virtual 40 Hz clock without waiting.
 run/watch stream at real time; --stdin accepts one command JSON object per line.

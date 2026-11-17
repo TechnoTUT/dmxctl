@@ -16,10 +16,10 @@ use std::time::Instant;
 /// 別スレッド(MIDI・OSCなど)から再描画を頼まれたときに、入力待ちのループを起こすための合図
 struct Wake;
 
-/// KMSDRMで起動するか。`--kmsdrm` か `DMXCTL_KMSDRM=1` で必ず、`DMXCTL_KMSDRM=0` で使わない。
+/// KMSDRMで起動するか。`dmxctl kmsdrm` か `DMXCTL_KMSDRM=1` で必ず、`DMXCTL_KMSDRM=0` で使わない。
 /// どちらでもなければ、デスクトップ環境が無いとき(DISPLAY も WAYLAND_DISPLAY も無い)に使う
-pub fn wanted() -> bool {
-    if std::env::args().any(|a| a == "--kmsdrm") {
+pub fn wanted(forced: bool) -> bool {
+    if forced {
         return true;
     }
     match std::env::var("DMXCTL_KMSDRM").as_deref() {

@@ -15,7 +15,7 @@ impl Running {
         project.outputs.push(OutputCfg {enabled:true,universe:0,kind:OutputKind::ArtNet{ip:"127.0.0.1".into(),art_universe:0}});
         project.midi_input="preserve this device".into();
         project.save(&dir.join("project.json")).unwrap();
-        let mut child=Command::new(env!("CARGO_BIN_EXE_dmxctl-cli"))
+        let mut child=Command::new(env!("CARGO_BIN_EXE_dmxctl"))
             .args(["serve","--project","project.json","--listen","127.0.0.1:0","--inputs","none"])
             .current_dir(&dir).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
         let stdout=child.stdout.take().unwrap();
@@ -38,7 +38,7 @@ impl Running {
     }
     fn request(&self,value:Value) -> Value { control::request(self.address,&value).unwrap() }
     fn cli(&self,args:&[&str]) -> std::process::Output {
-        Command::new(env!("CARGO_BIN_EXE_dmxctl-cli")).args(["ctl","--connect",&self.address.to_string()])
+        Command::new(env!("CARGO_BIN_EXE_dmxctl")).args(["ctl","--connect",&self.address.to_string()])
             .args(args).current_dir(&self.dir).output().unwrap()
     }
     fn stop(&mut self) {
