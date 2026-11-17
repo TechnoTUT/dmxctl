@@ -83,7 +83,11 @@ cargo test --release                     # Linux では KMSDRMの部分(キー�
 | `src/keys.rs` / `src/ui_keys.rs` | キーボードの割り当て(`TriggerKind::Key`。番号=段×16+位置) / キーボードタブ(キーの絵) |
 | `src/theme.rs` | 見た目(色・フォント) |
 | `src/opendmx.rs` / `src/output.rs` | USB-DMX / Art-Net の出力 |
-| `src/main.rs` / `src/app.rs` | 起動(eframe か KMSDRM かを選ぶ) / アプリ本体。`App::new`・`App::frame`・`App::shutdown` は eframe に頼らないので、どちらの土台からも呼べる |
+| `src/main.rs` / `src/app.rs` | 起動(最初の引数で動かし方を選ぶ。eframe か KMSDRM か) / 画面。`App::new`・`App::frame`・`App::shutdown` は eframe に頼らないので、どちらの土台からも呼べる |
+| `src/host.rs` | 画面によらずに動く部分(`Host`): Core・出力ループ・MIDI/OSC/Link/NDI/音声/操作パネル・自動操作の窓口・保存。画面は `Host` を1つ持ち、headless・serve は `Host` だけで動く |
+| `src/live.rs` | 画面・MIDIから実行中の状態を変える操作(`LiveOp`)。必ず `Core::live` を通す(クライアントでは、ここでサーバーへ送る)。画面から Core のメソッドや `rt` を直接書き換えない |
+| `src/project_patch.rs` | 画面の1フレームで変わったプロジェクトの差分(`Change`)を作って当てる。クライアントの編集をサーバーへ送るのに使う |
+| `src/remote.rs` | サーバー(`--remote-listen`)とクライアント(`dmxctl connect`)の通信。食い違いを防ぐ仕組みは先頭のコメント |
 | `src/kmsdrm.rs` / `src/kmsdrm/keys.rs` | Linuxだけ: デスクトップ環境の無い画面に、SDL2(KMSDRM)+ OpenGL ES(egui_glow)で描くループ / SDLのキーをeguiのキーに直す表 |
 
 ## 開発用の環境変数・コマンド
@@ -95,11 +99,12 @@ cargo test --release                     # Linux では KMSDRMの部分(キー�
 | `DMXCTL_SHOT=保存先.png` + `DMXCTL_TAB=タブ名` / `DMXCTL_PAGE=2` / `DMXCTL_SIZE=1280x800` / `DMXCTL_UNIVERSE=2` | 画面を撮って保存して終了(見た目の確認用) |
 | `DMXCTL_PERF=1` | 描画の時間を表示 |
 | `DMXCTL_KMSDRM=1` / `=0` / `dmxctl kmsdrm` | Linux: KMSDRMで必ず起動する / 使わない。指定が無ければ `DISPLAY` と `WAYLAND_DISPLAY` が無いときに使う |
-| `dmxctl headless` / `DMXCTL_HEADLESS=1` | 画面を出さずに動かす(`App::run_headless`)。OSC受信・Link・オートを必ずONにする。`scripts/linux/install-headless.sh` で BLT と一緒に常駐 |
+| `dmxctl headless` / `DMXCTL_HEADLESS=1` | 画面を出さずに動かす(`Host::run_headless`)。OSC受信・Link・オートを必ずONにする。`scripts/linux/install-headless.sh` で BLT と一緒に常駐 |
 | `DMXCTL_SCALE=1.5` | KMSDRMの画面の拡大率(指定が無ければ画面の大きさから自動) |
 | `DMXCTL_D2XX_LIB` / `DMXCTL_NDI_LIB` | ライブラリの場所を直接指定 |
 | `DMXCTL_CHECK_ONLY=1 cargo check --target …` | C++をビルドせずに、他のOS向けに型チェックだけ |
 | `dmxctl apply-layout` | 保存してある設定を、おすすめのMIDI配置にする(先にバックアップを残す) |
+| `--remote-listen [ADDR]` / `dmxctl connect HOST[:PORT]` | サーバーとしてクライアントを待ち受ける(既定 0.0.0.0:9300) / サーバーにつなぐクライアントとして起動する。同じPCで試すなら `dmxctl serve --project examples/cli/project.json --remote-listen 127.0.0.1:9300` と `DMXCTL_NO_MIDI=1 dmxctl connect 127.0.0.1` |
 
 ## 実機の確認用テスト(`--ignored` で実行)
 
