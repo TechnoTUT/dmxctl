@@ -95,7 +95,7 @@ fn main() -> eframe::Result {
     // デスクトップ環境の無いLinux(または kmsdrm / DMXCTL_KMSDRM=1)では、画面に直接(KMS/DRM)出す
     #[cfg(target_os = "linux")]
     if kmsdrm::wanted(matches!(mode, Mode::Kmsdrm)) {
-        if let Err(e) = kmsdrm::run() {
+        if let Err(e) = kmsdrm::run(launch.clone()) {
             eprintln!("{e}");
             std::process::exit(1);
         }
