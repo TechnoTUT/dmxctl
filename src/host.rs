@@ -203,6 +203,38 @@ impl Host {
         self.client.as_ref().and_then(|c| c.devices())
     }
 
+    /// サーバーのPCのプロジェクトのファイルの一覧を頼み直す / 届いた一覧(クライアントのとき)
+    pub fn request_server_files(&self) {
+        if let Some(c) = &self.client {
+            c.request_files();
+        }
+    }
+
+    pub fn server_files(&self) -> Option<crate::remote::Files> {
+        self.client.as_ref().and_then(|c| c.files())
+    }
+
+    /// サーバーのPCのファイルを、サーバーで読み込んでもらう(クライアントのとき)
+    pub fn open_server_file(&mut self, path: &str) {
+        if let Some(c) = &self.client {
+            c.open_path(path);
+            self.notice = format!("読み込みをサーバーに頼みました: {path}");
+        }
+    }
+
+    /// このPCのファイルの中身をサーバーへ送って、読み込んでもらう(クライアントのとき)
+    pub fn open_local_file(&mut self, path: &std::path::Path) {
+        let Some(c) = &self.client else { return };
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("project.json").to_string();
+        match std::fs::read_to_string(path) {
+            Ok(text) => {
+                c.open_text(&name, text.trim_start_matches('\u{feff}'));
+                self.notice = format!("読み込みをサーバーに頼みました: {name}");
+            }
+            Err(e) => self.notice = format!("ファイルを読めません: {e}"),
+        }
+    }
+
     /// 機材定義の保存・削除をサーバーに頼む(クライアントのとき。頼んだらtrue)
     pub fn remote_save_profile(&self, profile: &crate::fixture::Profile) -> bool {
         self.client.as_ref().map(|c| c.save_profile(profile)).is_some()
@@ -391,8 +423,9 @@ impl Host {
     }
 
     pub(crate) fn load_from(&mut self, path: PathBuf) {
+        // クライアント: このPCで選んだファイルの中身を、サーバーで読み込んでもらう
         if self.client.is_some() {
-            self.notice = "サーバーにつないでいる間は、ファイルを開けません(サーバーで開いてください)".into();
+            self.open_local_file(&path);
             return;
         }
         match self.reload_checked(Some(&path), false, false) {
@@ -429,6 +462,20 @@ impl Host {
         }
         if services {
             self.apply_services();
+        }
+        // クライアントから頼まれた、プロジェクトの読み込み(ローカルの「開く」と同じく、保存先は変えない)
+        let requests = self.remote.as_ref().map(|r| std::mem::take(&mut *r.events.open.lock().unwrap_or_else(|e| e.into_inner()))).unwrap_or_default();
+        for request in requests {
+            let (name, result) = match &request.source {
+                crate::remote::OpenSource::Path(path) => (path.display().to_string(), self.reload_checked(Some(path), false, false)),
+                crate::remote::OpenSource::Text { name, text } => (name.clone(), self.reload_text(text, name, false, false)),
+            };
+            let msg = match result {
+                Ok(_) => format!("読み込みました: {name}"),
+                Err(e) => format!("読み込みに失敗しました({name}): {e}"),
+            };
+            self.notice = msg.clone();
+            request.reply(&msg);
         }
     }
 

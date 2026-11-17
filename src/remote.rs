@@ -291,11 +291,70 @@ impl Devices {
 
 // ------------------------------------------------------------------ サーバー
 
-/// サーバーの Host への知らせ(接続のスレッドからは保存・サービスの起動ができないので、Host のループで拾う)
+/// サーバーの Host への知らせ(接続のスレッドからは保存・サービスの起動・ファイルの読み込みができないので、Host のループで拾う)
 #[derive(Default)]
 pub struct ServerEvents {
     pub save: AtomicBool,
     pub services: AtomicBool,
+    /// クライアントから頼まれた、プロジェクトの読み込み
+    pub open: Mutex<Vec<OpenRequest>>,
+}
+
+/// クライアントから頼まれた、プロジェクトの読み込み(ローカルの画面の「開く」と同じく、中身を読み込むだけで保存先は変えない)
+pub struct OpenRequest {
+    pub source: OpenSource,
+    /// 結果を、頼んだクライアントに返す口
+    reply: mpsc::SyncSender<String>,
+}
+
+pub enum OpenSource {
+    /// サーバーのPCのファイル(`files` で配った一覧のもの)
+    Path(std::path::PathBuf),
+    /// クライアントのPCで選んだファイルの中身
+    Text { name: String, text: String },
+}
+
+impl OpenRequest {
+    /// 結果を、頼んだクライアントの画面の下に出す
+    pub fn reply(&self, msg: &str) {
+        let _ = self.reply.try_send(json!({"t":"notice","msg":msg}).to_string());
+    }
+}
+
+/// クライアントに見せる、サーバーのPCのプロジェクトのファイル(プロジェクトのフォルダの .json と、バックアップ)
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Files {
+    /// 今の保存先
+    pub current: String,
+    pub projects: Vec<String>,
+    pub backups: Vec<String>,
+}
+
+/// 新しいものから。多すぎると一覧が長くなるので、バックアップは最新50個まで
+fn list_json(dir: &std::path::Path, limit: usize) -> Vec<String> {
+    let Ok(rd) = std::fs::read_dir(dir) else { return Vec::new() };
+    let mut files: Vec<(std::time::SystemTime, String)> = rd
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_file() && p.extension().and_then(|e| e.to_str()) == Some("json"))
+        .filter_map(|p| Some((std::fs::metadata(&p).ok()?.modified().ok()?, p.display().to_string())))
+        .collect();
+    files.sort_by(|a, b| b.cmp(a));
+    files.into_iter().take(limit).map(|(_, p)| p).collect()
+}
+
+fn project_files(project_path: Option<&std::path::Path>) -> Files {
+    let Some(path) = project_path else { return Files::default() };
+    let dir = path.parent().unwrap_or(std::path::Path::new("."));
+    let mut projects = list_json(dir, 200);
+    projects.sort();
+    Files { current: path.display().to_string(), projects, backups: list_json(&dir.join("backups"), 50) }
+}
+
+/// クライアントが開いてよいのは、配った一覧にあるファイルだけ
+fn allowed_file(project_path: Option<&std::path::Path>, path: &str) -> bool {
+    let files = project_files(project_path);
+    files.projects.iter().chain(&files.backups).any(|p| p == path)
 }
 
 struct ConnState {
@@ -436,6 +495,33 @@ fn serve_conn(stream: TcpStream, core: &Shared, ctx: &eframe::egui::Context, eve
             }
             let v: Value = serde_json::from_slice(&buf)?;
             let seq = v["seq"].as_u64().unwrap_or(0);
+            // サーバーのPCのプロジェクトのファイルの一覧
+            if v["t"] == "files" {
+                let path = lock(core).rt.project_path.clone();
+                let files = project_files(path.as_deref());
+                let _ = conn.tx.try_send(json!({"t":"files","files":files}).to_string());
+                guard(&conn.state).ack = seq;
+                continue;
+            }
+            // プロジェクトの読み込みは Host が行う(サービスの設定し直し・バックアップなどがあるので)
+            if v["t"] == "open" || v["t"] == "open_content" {
+                let source = if v["t"] == "open" {
+                    let path = v["path"].as_str().unwrap_or("").to_string();
+                    let project_path = lock(core).rt.project_path.clone();
+                    if allowed_file(project_path.as_deref(), &path) { Some(OpenSource::Path(path.into())) } else { None }
+                } else {
+                    Some(OpenSource::Text { name: v["name"].as_str().unwrap_or("").to_string(), text: v["text"].as_str().unwrap_or("").to_string() })
+                };
+                match source {
+                    Some(source) => guard(&events.open).push(OpenRequest { source, reply: conn.tx.clone() }),
+                    None => {
+                        let _ = conn.tx.try_send(json!({"t":"error","msg":"そのファイルは開けません(プロジェクトのフォルダとバックアップのものだけ開けます)"}).to_string());
+                    }
+                }
+                guard(&conn.state).ack = seq;
+                ctx.request_repaint();
+                continue;
+            }
             // 機器の一覧は時間がかかることがあるので、Core を持たずに作る
             if v["t"] == "devices" {
                 let devices = Devices::list();
@@ -624,6 +710,8 @@ struct ClientSync {
     /// サーバーのPCの機器の一覧と、受け取った回数
     devices: Option<Devices>,
     devices_count: u64,
+    /// サーバーのPCのプロジェクトのファイルの一覧
+    files: Option<Files>,
     connected: bool,
     status: String,
     errors: Vec<String>,
@@ -711,6 +799,7 @@ impl Client {
             armed,
             devices: None,
             devices_count: 0,
+            files: None,
             connected: true,
             status: format!("接続中: {target}"),
             errors: Vec::new(),
@@ -858,6 +947,25 @@ impl Client {
     pub fn devices(&self) -> Option<(u64, Devices)> {
         let s = guard(&self.sync);
         s.devices.clone().map(|d| (s.devices_count, d))
+    }
+
+    /// サーバーのPCのプロジェクトのファイルの一覧を頼む(届いたら `files` で読める)
+    pub fn request_files(&self) {
+        self.link.send(json!({"t":"files"}));
+    }
+
+    pub fn files(&self) -> Option<Files> {
+        guard(&self.sync).files.clone()
+    }
+
+    /// サーバーのPCのファイルを読み込んでもらう
+    pub fn open_path(&self, path: &str) {
+        self.link.send(json!({"t":"open","path":path}));
+    }
+
+    /// このPCのファイルの中身を送って、サーバーで読み込んでもらう
+    pub fn open_text(&self, name: &str, text: &str) {
+        self.link.send(json!({"t":"open_content","name":name,"text":text}));
     }
 
     /// 機材定義をサーバーのフォルダに保存する / 消す
@@ -1008,6 +1116,17 @@ fn run_connection(
         match v["t"].as_str() {
             Some("state") => {
                 apply_state(core, sync, link, &v);
+                ctx.request_repaint();
+            }
+            Some("files") => {
+                if let Ok(f) = serde_json::from_value::<Files>(v["files"].clone()) {
+                    guard(sync).files = Some(f);
+                }
+                ctx.request_repaint();
+            }
+            // サーバーからの知らせ(読み込みの結果など)。エラーと同じく画面の下に出す
+            Some("notice") => {
+                guard(sync).errors.push(v["msg"].as_str().unwrap_or("").to_string());
                 ctx.request_repaint();
             }
             Some("devices") => {

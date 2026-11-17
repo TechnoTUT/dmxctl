@@ -375,6 +375,13 @@ impl crate::host::Host {
     pub(crate) fn reload_checked(&mut self,path:Option<&std::path::Path>,remote:bool,dry_run:bool)->anyhow::Result<Value> {
         let path=path.unwrap_or(&self.project_path).to_path_buf();
         let text=std::fs::read_to_string(&path)?;
+        self.reload_text(&text,&path.display().to_string(),remote,dry_run)
+    }
+
+    /// プロジェクトの中身(JSON)を読み込む。保存先(project_path)は変えない。読み込む前の状態はバックアップに残す。
+    /// `source` は結果に出す読み込み元(ファイルの場所や名前)
+    pub(crate) fn reload_text(&mut self,text:&str,source:&str,remote:bool,dry_run:bool)->anyhow::Result<Value> {
+        let path=source;
         let mut project:Project=serde_json::from_str(text.trim_start_matches('\u{feff}'))?;
         let previous={
             let core=crate::engine::lock(&self.core);

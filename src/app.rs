@@ -244,11 +244,15 @@ impl App {
             }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = 8.0;
-                ui.menu_button("ファイル ▼", |ui| {
+                let menu = ui.menu_button("ファイル ▼", |ui| {
                     if ui.button("保存").on_hover_text(if cfg!(target_os = "macos") { "⌘S" } else { "Ctrl+S" }).clicked() {
                         self.save();
-                        self.host.notice = "保存しました".into();
+                        self.host.notice = if self.host.is_client() { "保存をサーバーに頼みました".into() } else { "保存しました".into() };
                         ui.close();
+                    }
+                    if self.host.is_client() {
+                        self.file_menu_client(ui);
+                        return;
                     }
                     if no_desktop(ui.ctx()) {
                         self.file_menu_no_desktop(ui);
@@ -275,6 +279,10 @@ impl App {
                         }
                     }
                 });
+                // クライアント: メニューを開いたら、サーバーのファイルの一覧を取り直す
+                if menu.response.clicked() {
+                    self.host.request_server_files();
+                }
                 if lock(&self.host.core).dirty {
                     ui.label(RichText::new("● 未保存").small().color(theme::WARN)).on_hover_text("変更は5秒ごとに自動で保存されます");
                 }
@@ -483,7 +491,63 @@ impl App {
         }
         if save {
             self.save();
-            self.host.notice = "保存しました".into();
+            self.host.notice = if self.host.is_client() { "保存をサーバーに頼みました".into() } else { "保存しました".into() };
+        }
+    }
+
+    /// サーバーにつないでいるときのファイルメニュー(保存の後ろ)。ファイルはサーバーが読み込む
+    /// (ローカルの「開く」と同じく、中身を読み込むだけで保存先は変えない。読み込む前の状態はサーバーのバックアップに残る)
+    fn file_menu_client(&mut self, ui: &mut egui::Ui) {
+        let files = self.host.server_files();
+        let mut open: Option<String> = None;
+        ui.separator();
+        let list = |ui: &mut egui::Ui, items: &[String], current: &str, empty: &str, open: &mut Option<String>| {
+            if items.is_empty() {
+                ui.label(empty);
+            }
+            egui::ScrollArea::vertical().max_height(400.0).show(ui, |ui| {
+                for path in items {
+                    let name = std::path::Path::new(path).file_name().and_then(|n| n.to_str()).unwrap_or(path);
+                    let label = if path == current { format!("{name}(今の保存先)") } else { name.to_string() };
+                    if ui.button(label).on_hover_text(path).clicked() {
+                        *open = Some(path.clone());
+                        ui.close();
+                    }
+                }
+            });
+        };
+        let current = files.as_ref().map(|f| f.current.clone()).unwrap_or_default();
+        ui.menu_button("サーバーのファイルを開く", |ui| match &files {
+            Some(f) => list(ui, &f.projects, &current, "プロジェクトのフォルダに .json がありません", &mut open),
+            None => { ui.label("一覧を取得中…"); }
+        })
+        .response
+        .on_hover_text("サーバーのプロジェクトのフォルダにあるファイルを、サーバーで読み込みます(保存先は変わりません)");
+        ui.menu_button("サーバーのバックアップから戻す", |ui| match &files {
+            Some(f) => list(ui, &f.backups, &current, "バックアップはまだありません", &mut open),
+            None => { ui.label("一覧を取得中…"); }
+        })
+        .response
+        .on_hover_text("サーバーが起動のたび・別のファイルを開く前に残しているバックアップに戻します(戻す前の状態もバックアップされます)");
+        if !no_desktop(ui.ctx())
+            && ui.button("このPCのファイルを開く…").on_hover_text("このPCのファイルの中身をサーバーへ送って、サーバーで読み込みます(保存先は変わりません)").clicked() {
+            ui.close();
+            if let Some(p) = rfd::FileDialog::new().add_filter("プロジェクト", &["json"]).pick_file() {
+                self.host.open_local_file(&p);
+            }
+        }
+        if ui.button("一覧を更新").clicked() {
+            self.host.request_server_files();
+        }
+        if let Some(path) = open {
+            self.host.open_server_file(&path);
+        }
+        if no_desktop(ui.ctx()) {
+            ui.separator();
+            if ui.button("終了").on_hover_text("Ctrl+Q").clicked() {
+                ui.close();
+                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+            }
         }
     }
 
