@@ -3,7 +3,10 @@ use dmxctl::{control::Launch, engine::lock, fixture::Library, host::Host, live::
 use std::time::{Duration, Instant};
 
 fn project_dir() -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join(format!("dmxctl-remote-{}-{}", std::process::id(), Instant::now().elapsed().as_nanos()));
+    // テストは並んで動くので、番号を振ってフォルダが重ならないようにする
+    static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!("dmxctl-remote-{}-{n}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let (lib, _) = Library::load(&dir.join("fixtures"));
     Project::starter(&lib).save(&dir.join("project.json")).unwrap();
