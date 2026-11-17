@@ -40,10 +40,11 @@ impl Launch {
             match arg.as_str() {
                 "--control" => { if result.listen.is_none() { result.listen = Some(DEFAULT_ADDRESS.parse()?); } }
                 "--remote-listen" => {
-                    // 値を省くと 0.0.0.0:9300
-                    let value = args.get(i + 1).filter(|v| !v.starts_with("--"));
-                    if value.is_some() { i += 1; }
-                    result.remote_listen = Some(crate::remote::parse_listen(value.map(String::as_str).unwrap_or("9300"))?);
+                    // 認証をしないので、待ち受けるアドレスは必ず書いてもらう(既定で LAN 全体に開かない)
+                    i += 1;
+                    let value = args.get(i).filter(|v| !v.starts_with("--"))
+                        .context("--remote-listen needs an address (e.g. --remote-listen 192.168.1.10, or 0.0.0.0 to accept from anywhere)")?;
+                    result.remote_listen = Some(crate::remote::parse_listen(value)?);
                 }
                 "--project"|"--listen"|"--output"|"--inputs" => {
                     i += 1;

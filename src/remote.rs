@@ -1208,12 +1208,13 @@ fn run_connection(
     error
 }
 
-/// `--remote-listen` の値: `0.0.0.0:9300` / `:9300` / `9300`
+/// `--remote-listen` の値: `192.168.1.10` / `0.0.0.0:9300` など。
+/// 認証をしないので、どこから受けるか(アドレス)は必ず書いてもらう。ポートを省くと 9300
 pub fn parse_listen(value: &str) -> anyhow::Result<SocketAddr> {
-    if let Ok(port) = value.trim_start_matches(':').parse::<u16>() {
-        return Ok(SocketAddr::from(([0, 0, 0, 0], port)));
+    if let Ok(ip) = value.parse::<std::net::IpAddr>() {
+        return Ok(SocketAddr::new(ip, DEFAULT_PORT));
     }
-    value.parse().with_context(|| format!("待ち受けのアドレスが不正です: {value}(例: 0.0.0.0:{DEFAULT_PORT})"))
+    value.parse().with_context(|| format!("待ち受けのアドレスが不正です: {value}(例: 照明用のLANのアドレスなら 192.168.1.10、どこからでも受けるなら 0.0.0.0)"))
 }
 
 #[cfg(test)]
@@ -1469,10 +1470,13 @@ mod tests {
     }
 
     #[test]
-    fn listen_addresses_accept_a_bare_port() {
-        assert_eq!(parse_listen("9400").unwrap(), "0.0.0.0:9400".parse().unwrap());
-        assert_eq!(parse_listen(":9400").unwrap(), "0.0.0.0:9400".parse().unwrap());
+    fn listen_addresses_need_an_ip() {
+        assert_eq!(parse_listen("192.168.1.10").unwrap(), "192.168.1.10:9300".parse().unwrap());
+        assert_eq!(parse_listen("0.0.0.0:9400").unwrap(), "0.0.0.0:9400".parse().unwrap());
         assert_eq!(parse_listen("127.0.0.1:9401").unwrap(), "127.0.0.1:9401".parse().unwrap());
+        // ポートだけでは、どこから受けるかが分からない
+        assert!(parse_listen("9400").is_err());
+        assert!(parse_listen(":9400").is_err());
         assert!(parse_listen("nope").is_err());
     }
 }
