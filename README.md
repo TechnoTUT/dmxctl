@@ -9,6 +9,7 @@
 | Windows 10 / 11 | `DMX-Controller-windows.zip` | 展開して `dmxctl.exe` をダブルクリック。exe 1つで動きます(Visual C++ ランタイムなどのインストールは不要) |
 | Mac(Apple Silicon / Intel) | `DMX-Controller-mac.zip` | 展開して `DMX Controller.app` を「アプリケーション」へ。初めて開くときは、右クリック →「開く」(macOS 15 以降で開けないときは、「システム設定」→「プライバシーとセキュリティ」の「このまま開く」) |
 | Linux(Debian 13 / Ubuntu 24.04 以降) | `DMX-Controller-linux.tar.gz` | 展開して `./dmxctl`(デスクトップ用)。デスクトップ環境の無いPCは `./dmxctl-kmsdrm`、モニターの無いPCは `./dmxctl --headless`([Linux で使う](#linux-で使う)) |
+| モニターの無いLinuxで常駐(オート) | `DMX-Controller-linux-headless-x86_64.tar.gz`(普通のPC)/ `DMX-Controller-linux-headless-arm64.tar.gz`(Raspberry Pi 4/5 など) | 展開して `./install.sh`。電源を入れると自動で動きます(Beat Link Trigger も一緒に常駐。`--no-blt` なら dmxctl だけ)。[モニターの無いLinuxでオート](#モニターの無いlinuxでオートblt-と一緒に常駐) |
 
 - **Windows で「WindowsによってPCが保護されました」と出たとき**: 署名の無いアプリなので出ます。「詳細情報」→「実行」で起動できます。初めて Ableton Link・OSC・操作パネルを使うときは、ファイアウォールの確認で「許可」を押します
 - 設定(機材・割り当て・シーン)は、アプリとは別の場所に自動で保存されます(Windows: `%APPDATA%\dmxctl\`)。新しい版に入れ替えても、そのまま引き継がれます
@@ -636,9 +637,9 @@ CDJ / XDJ ──(Pro DJ Link・LAN)── Linux PC ──(USB-DMX または Art-
 **準備**
 
 1. 照明の設定(機材・出力・シーン)は、画面のあるPC(または同じPCをモニターにつないで)で作り、`~/.config/dmxctl/` をこのPCにコピーします。フレーズごとの動きは **オート** タブのプリセットで決めておきます(シーン・エフェクトも選べます)
-2. このPCで `./scripts/build-linux.sh`(または Release の tar.gz の `dmxctl` を `dist/linux/` に置く)
+2. [Releases](https://github.com/TechnoTUT/dmxctl/releases) から常駐版(`DMX-Controller-linux-headless-x86_64.tar.gz`、Raspberry Pi などは `-arm64`)を落として展開します。x86_64 版は Debian 13 / Ubuntu 24.04 以降、arm64 版は Raspberry Pi OS Bookworm(64bit)/ Debian 12 以降で動きます
 3. BLT の公式の `.deb` を入れます(`sudo apt install ./beat-link-trigger_*.deb`)。入った場所が `/opt/beat-link-trigger/bin/Beat Link Trigger` でなければ、`~/dmxctl/blt.env` に `BLT_CMD="起動コマンドの場所"` と書きます
-4. `./scripts/linux/install-headless.sh` で、dmxctl と BLT を電源を入れたら動くようにします(ユーザーのサービス。`--no-blt` なら dmxctl だけ)。USB-DMX のグループに入ったときは、一度再起動してください
+4. 展開したフォルダ(`dmxctl-headless/`)で `./install.sh` を実行すると、dmxctl と BLT が電源を入れたら動くようになります(ユーザーのサービス。`--no-blt` なら dmxctl だけ)。USB-DMX のグループに入ったときは、一度再起動してください。ソースから使うときは、`./scripts/build-linux.sh` のあと `./scripts/linux/install-headless.sh` でも同じです
 
 **BLT の設定(最初に1回)**
 

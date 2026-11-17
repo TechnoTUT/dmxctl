@@ -105,15 +105,44 @@ jobs:
           ldd dist/linux/dmxctl
           if ldd dist/linux/dmxctl | grep -q libSDL2; then echo "dmxctl が libSDL2 を必要としています"; exit 1; fi
           ldd dist/linux/dmxctl-kmsdrm | grep libSDL2
+      - name: 常駐版(x86_64)をまとめる
+        run: ./scripts/package-linux-headless.sh x86_64
       - uses: actions/upload-artifact@v7
         with:
           name: DMX-Controller-linux
-          path: dist/linux/DMX-Controller-linux.tar.gz
+          path: |
+            dist/linux/DMX-Controller-linux.tar.gz
+            dist/linux/DMX-Controller-linux-headless-x86_64.tar.gz
+
+  linux-arm64-build:
+    # 常駐版の arm64(Raspberry Pi 4/5 など)。画面は使わないので dmxctl だけを作る(SDL2 は要らない)。
+    # Raspberry Pi OS Bookworm でも動くよう、Debian 12(glibc 2.36)で作る
+    if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04-arm
+    container: debian:12
+    steps:
+      - name: 開発用ライブラリを入れる
+        run: apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git build-essential pkg-config libasound2-dev libudev-dev
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: dmxctl をビルド
+        run: |
+          cargo build --release
+          mkdir -p dist/linux && cp target/release/dmxctl dist/linux/dmxctl
+      - name: 常駐版(arm64)をまとめる
+        run: chmod +x scripts/package-linux-headless.sh && ./scripts/package-linux-headless.sh arm64
+      - uses: actions/upload-artifact@v7
+        with:
+          name: DMX-Controller-linux-headless-arm64
+          path: dist/linux/DMX-Controller-linux-headless-arm64.tar.gz
 
   release:
     # タグを打ったときだけ、全部のビルドが通ったあとにReleaseを作る
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [mac, windows, linux-build]
+    needs: [mac, windows, linux-build, linux-arm64-build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -126,4 +155,4 @@ jobs:
       - name: Releaseを作って成果物を添付
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$GITHUB_REF_NAME" --generate-notes dist/DMX-Controller-mac.zip dist/DMX-Controller-windows.zip dist/DMX-Controller-linux.tar.gz
+        run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$GITHUB_REF_NAME" --generate-notes dist/*
