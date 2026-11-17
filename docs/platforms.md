@@ -9,14 +9,14 @@ Release の `DMX-Controller-mac.zip` は、Apple Silicon と Intel の両方で�
 - 設定の保存場所は `~/Library/Application Support/dmxctl/` です。中身は Windows の `%APPDATA%\dmxctl\` と同じなので、`project.json` をコピーすればそのまま使えます
 - 保存のショートカットは ⌘S です。ほかのキーは同じです
 - FT232系の USB-DMX は、Mac標準のドライバで `/dev/cu.usbserial-…` として見え、「出力」タブのCOMポートの一覧に出ます。D2XX を使う場合は FTDI の `libftd2xx.dylib` を入れてください
-- 簡易署名のアプリなので、ダウンロードしたものを初めて開くときは「開発元を確認できません」と出ます。Finderでアプリを右クリック →「開く」で開けます
+- 簡易署名のアプリなので、ダウンロードしたものを初めて開くときは「開発元を確認できません」と出ます。Finderでアプリを右クリック →「開く」で開けます。macOS 15 以降で開けないときは、「システム設定」→「プライバシーとセキュリティ」の「このまま開く」を押します
 - 初めて Art-Net・Ableton Link・OSC を使うとき、「ローカルネットワーク上のデバイスの検索と接続」の許可を求められます。許可してください
 
 ## Linux で使う
 
 X11 と Wayland のどちらでも動きます。コンソールだけのPCや Raspberry Pi など、**デスクトップ環境の無いLinux** でも、画面に直接出して使えます。詳しくは [デスクトップ環境の無いLinuxで使う](#デスクトップ環境の無いlinuxで使う)。
 
-Release の Linux 版 `dmxctl-linux-x86_64` / `dmxctl-linux-arm64` は Debian 12 の中で作っているので、**Debian 12 以降**で動きます。Raspberry Pi OS Bookworm と Ubuntu 24.04 以降でも動きます。それより古い Linux では `GLIBC_2.xx not found` と出て起動できないので、そのPCの上でビルドしてください。手順は [開発ガイド](development.md#linux) にあります。デスクトップ環境の無い画面で使う SDL2 は `dmxctl` に内蔵しているので、動かすPCに入れるものはありません。
+Release の Linux 版 `dmxctl-linux-x86_64` / `dmxctl-linux-arm64` は Debian 12 環境でビルドしているため、**Debian 12・Raspberry Pi OS Bookworm・Ubuntu 24.04 以降** で動作します。古い環境では `GLIBC_2.xx not found` で起動できないため、その環境でビルドしてください。手順は [開発ガイド](development.md#linux) にあります。デスクトップ環境の無い画面で使う SDL2 は `dmxctl` に内蔵しているので、動かすPCに入れるものはありません。
 
 **Linuxでの違い・注意**
 
@@ -33,7 +33,7 @@ Release の Linux 版 `dmxctl-linux-x86_64` / `dmxctl-linux-arm64` は Debian 12
 
 ### Linux で NDI を使う
 
-Linux には NDI Tools が無いので、**NDI SDK for Linux** に入っているライブラリ `libndi.so.6` を入れます。配布条件のため、ライブラリはアプリに同梱していません。NDI を使わないなら要りません。無くてもアプリは起動します。
+Linux には NDI Tools が無いため、NDI を使う場合のみ **NDI SDK for Linux** の `libndi.so.6` を導入します。配布条件によりアプリへは同梱していませんが、無くても起動します。
 
 ```sh
 curl -fLO https://downloads.ndi.tv/SDK/NDI_SDK_Linux/Install_NDI_SDK_v6_Linux.tar.gz
@@ -71,7 +71,7 @@ X11 や Wayland のデスクトップ環境が無いPCでは、`dmxctl` を **�
 - 閉じるボタンが無いので、「ファイル」メニューの「終了」か Ctrl+Q で終了します。起動した端末で Ctrl+C を押しても安全に止まります
 - 別名で保存・開くのファイルを選ぶ画面は出せないので、「ファイル」メニューには出ません。設定は今までどおり自動保存され、「バックアップから戻す」は一覧から選べます
 - タッチパネルは、触った所をクリックします。触ったまま動かすとドラッグです
-- トラックパッドは、1本指でカーソルを動かし、軽く叩くと左クリック、2本指で叩くと右クリック、2本指で動かすとスクロールです。スクロールは指の動きに中身がついてくる向きです。押し込むクリックも使えます
+- トラックパッドは1本指で移動、タップで左クリック、2本指タップで右クリック、2本指ドラッグでスクロールできます。押し込みクリックも使えます
 - 日本語入力は使えません。名前の欄などには英数字を入力してください
 - デスクトップ環境など、ほかのアプリが画面を使っている間は起動できません
 - KMS/DRM を使うかどうかは、ふつうは自動で決まります。環境変数 `DISPLAY` と `WAYLAND_DISPLAY` が無ければ使います。`dmxctl kmsdrm` か `DMXCTL_KMSDRM=1` で必ず使い、`DMXCTL_KMSDRM=0` で使いません
