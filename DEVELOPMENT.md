@@ -105,6 +105,7 @@ cargo test --release                     # Linux では KMSDRMの部分(キー�
 | `DMXCTL_CHECK_ONLY=1 cargo check --target …` | C++をビルドせずに、他のOS向けに型チェックだけ |
 | `dmxctl apply-layout` | 保存してある設定を、おすすめのMIDI配置にする(先にバックアップを残す) |
 | `--remote-listen ADDR` / `dmxctl connect HOST[:PORT]` | サーバーとしてクライアントを待ち受ける。アドレスは必須で、ポートの既定は 9300 / サーバーにつなぐクライアントとして起動する。同じPCで試すなら `dmxctl serve --project examples/cli/project.json --remote-listen 127.0.0.1:9300` と `DMXCTL_NO_MIDI=1 dmxctl connect 127.0.0.1` |
+| `--remote-allow-safety-edit` | サーバーで、クライアントから機材定義の安全の設定を変えることを許す。既定では自動操作の窓口と同じく変えられない |
 
 ## 実機の確認用テスト(`--ignored` で実行)
 

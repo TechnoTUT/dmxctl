@@ -106,7 +106,7 @@ impl Host {
         // 初回のoutput_gen(0)でエンジンが出力を組み立てる
         let control = options.listen.map(|address|crate::control::Server::start(address,ctx.clone())).transpose()?;
         let engine = Some(Engine::spawn_with_output(core.clone(), options.output));
-        let remote = options.remote_listen.map(|address| crate::remote::RemoteServer::start(core.clone(), ctx.clone(), address)).transpose()?;
+        let remote = options.remote_listen.map(|address| crate::remote::RemoteServer::start(core.clone(), ctx.clone(), address, options.remote_allow_safety_edit)).transpose()?;
 
         let mut host = Host {
             launch: options.clone(),
@@ -149,6 +149,7 @@ impl Host {
         options.autosave = false;
         options.listen = None;
         options.remote_listen = None;
+        options.remote_allow_safety_edit = false;
         let mut host = Host {
             launch: options,
             control: None,

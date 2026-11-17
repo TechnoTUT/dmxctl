@@ -46,7 +46,7 @@ const PROJECT_EVERY: u32 = 3;
 /// 同時につなげるクライアントの数
 const MAX_CLIENTS: usize = 16;
 /// 機材定義の保存・削除に失敗したときの説明(安全の設定を変えようとしたときなど)
-const SAFETY_READ_ONLY: &str = "機材定義を保存できませんでした(レーザーなどの安全の設定は、サーバーのPCの画面でだけ変えられます)";
+const SAFETY_READ_ONLY: &str = "機材定義を保存できませんでした(レーザーなどの安全の設定は、サーバーのPCの画面か、サーバーを --remote-allow-safety-edit を付けて起動したときだけ変えられます)";
 
 fn guard<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
@@ -386,7 +386,8 @@ pub struct RemoteServer {
 
 impl RemoteServer {
     /// LANのクライアントを待ち受ける
-    pub fn start(core: Shared, ctx: eframe::egui::Context, address: SocketAddr) -> anyhow::Result<Self> {
+    /// `allow_safety_edit`: クライアントから、機材定義の安全の設定を変えることを許す(`--remote-allow-safety-edit`)
+    pub fn start(core: Shared, ctx: eframe::egui::Context, address: SocketAddr, allow_safety_edit: bool) -> anyhow::Result<Self> {
         let listener = TcpListener::bind(address).with_context(|| format!("クライアントの待ち受けを始められません({address})"))?;
         let address = listener.local_addr()?;
         listener.set_nonblocking(true)?;
@@ -405,7 +406,7 @@ impl RemoteServer {
                             }
                             let (core, ctx, conns, events) = (core.clone(), ctx.clone(), conns.clone(), events.clone());
                             let _ = std::thread::Builder::new().name("remote-conn".into()).spawn(move || {
-                                let _ = serve_conn(stream, &core, &ctx, &events, &conns);
+                                let _ = serve_conn(stream, &core, &ctx, &events, &conns, allow_safety_edit);
                             });
                         }
                         Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => std::thread::sleep(Duration::from_millis(50)),
@@ -454,7 +455,7 @@ fn refuse(stream: TcpStream, msg: &str) {
     });
 }
 
-fn serve_conn(stream: TcpStream, core: &Shared, ctx: &eframe::egui::Context, events: &ServerEvents, conns: &Mutex<Vec<Arc<Conn>>>) -> anyhow::Result<()> {
+fn serve_conn(stream: TcpStream, core: &Shared, ctx: &eframe::egui::Context, events: &ServerEvents, conns: &Mutex<Vec<Arc<Conn>>>, allow_safety_edit: bool) -> anyhow::Result<()> {
     // macOS/BSD では accept した接続がリスナーのノンブロッキングを引き継ぐ
     stream.set_nonblocking(false)?;
     stream.set_nodelay(true)?;
@@ -576,10 +577,11 @@ fn serve_conn(stream: TcpStream, core: &Shared, ctx: &eframe::egui::Context, eve
                         r.map(|a| a.services).map_err(|e| if e.is::<project_patch::Conflict>() { e } else { anyhow::anyhow!("{}({e})", project_patch::Conflict) })
                     }
                     // 機材定義はサーバーのフォルダに保存する(変わった定義は、次の状態で全クライアントに配られる)。
-                    // 自動操作の窓口と同じく、レーザーなどの安全の設定(安全な値・ARMが要るか)は変えさせない
+                    // 自動操作の窓口と同じく、レーザーなどの安全の設定(安全な値・ARMが要るか)は変えさせない。
+                    // サーバーを --remote-allow-safety-edit で起動したときだけ許す(画面の無いサーバーで変えるため)
                     "profile_save" => serde_json::from_value::<Profile>(v["profile"].clone()).map_err(anyhow::Error::from)
-                        .and_then(|p| c.save_profile(&p, true, false).context(SAFETY_READ_ONLY)).map(|_| false),
-                    "profile_delete" => c.delete_profile(v["id"].as_str().unwrap_or(""), true, false).context(SAFETY_READ_ONLY).map(|_| false),
+                        .and_then(|p| c.save_profile(&p, !allow_safety_edit, false).context(SAFETY_READ_ONLY)).map(|_| false),
+                    "profile_delete" => c.delete_profile(v["id"].as_str().unwrap_or(""), !allow_safety_edit, false).context(SAFETY_READ_ONLY).map(|_| false),
                     "resync" => {
                         guard(&conn.state).sent = Value::Null;
                         Ok(false)
@@ -1262,7 +1264,7 @@ mod tests {
         let (lib, _) = Library::load(std::path::Path::new("/nonexistent"));
         let project = Project::starter(&lib);
         let core: Shared = Arc::new(Mutex::new(Core::new(project, Arc::new(lib))));
-        let server = RemoteServer::start(core.clone(), eframe::egui::Context::default(), "127.0.0.1:0".parse().unwrap()).unwrap();
+        let server = RemoteServer::start(core.clone(), eframe::egui::Context::default(), "127.0.0.1:0".parse().unwrap(), false).unwrap();
         (core, server)
     }
 
@@ -1283,7 +1285,7 @@ mod tests {
     fn server_with(project: Project) -> (Shared, RemoteServer) {
         let (lib, _) = Library::load(std::path::Path::new("/nonexistent"));
         let core: Shared = Arc::new(Mutex::new(Core::new(project, Arc::new(lib))));
-        let server = RemoteServer::start(core.clone(), eframe::egui::Context::default(), "127.0.0.1:0".parse().unwrap()).unwrap();
+        let server = RemoteServer::start(core.clone(), eframe::egui::Context::default(), "127.0.0.1:0".parse().unwrap(), false).unwrap();
         (core, server)
     }
 
@@ -1462,7 +1464,7 @@ mod tests {
         let mut project = Project::starter(&lib);
         project.fixtures[0].name = "after restart".into();
         let new_core: Shared = Arc::new(Mutex::new(Core::new(project, Arc::new(lib))));
-        let _server = RemoteServer::start(new_core.clone(), eframe::egui::Context::default(), address).unwrap();
+        let _server = RemoteServer::start(new_core.clone(), eframe::egui::Context::default(), address, false).unwrap();
         assert!(wait(|| {
             frame(&mut client, &core, |_| {});
             client.connected() && lock(&core).project.fixtures[0].name == "after restart"
@@ -1479,7 +1481,7 @@ mod tests {
         let (lib, _) = Library::load(&dir);
         let project = Project::starter(&lib);
         let server_core: Shared = Arc::new(Mutex::new(Core::new(project, Arc::new(lib))));
-        let server = RemoteServer::start(server_core.clone(), eframe::egui::Context::default(), "127.0.0.1:0".parse().unwrap()).unwrap();
+        let server = RemoteServer::start(server_core.clone(), eframe::egui::Context::default(), "127.0.0.1:0".parse().unwrap(), false).unwrap();
         let (core, client) = client(&server);
         // つないだときに、サーバーのPCの機器の一覧が届く
         assert!(wait(|| client.devices().is_some()));
@@ -1503,18 +1505,42 @@ mod tests {
         client.delete_profile("test/from-client");
         assert!(wait(|| lock(&server_core).lib.get("test/from-client").is_none()));
         assert!(wait(|| lock(&core).lib.get("test/from-client").is_none()));
-        // レーザーなどの安全の設定は、クライアントからは変えられない
-        let guarded = lock(&core).lib.profiles.iter().find(|p| p.needs_arm).map(|p| (**p).clone());
-        if let Some(mut laser) = guarded {
-            client.take_errors();
-            laser.needs_arm = false;
-            client.save_profile(&laser);
-            assert!(wait(|| client.take_errors().iter().any(|e| e.contains("安全の設定"))));
-            assert!(lock(&server_core).lib.get(&laser.id).is_some_and(|p| p.needs_arm));
+        drop(client);
+        drop(server);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// クライアントから、ARMが要る機材定義を作ってから ARM を外そうとする。外せたかを返す
+    fn client_turns_off_arm(allow_safety_edit: bool) -> bool {
+        let dir = std::env::temp_dir().join(format!("dmxctl-remote-safety-{}-{allow_safety_edit}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (lib, _) = Library::load(&dir);
+        let server_core: Shared = Arc::new(Mutex::new(Core::new(Project::starter(&lib), Arc::new(lib))));
+        let server = RemoteServer::start(server_core.clone(), eframe::egui::Context::default(), "127.0.0.1:0".parse().unwrap(), allow_safety_edit).unwrap();
+        let (core, client) = client(&server);
+        let mut laser = (*lock(&core).lib.profiles[0]).clone();
+        laser.id = "test/laser".into();
+        laser.needs_arm = true;
+        // 新しく作るのは、どちらでもできる
+        client.save_profile(&laser);
+        assert!(wait(|| lock(&server_core).lib.get("test/laser").is_some_and(|p| p.needs_arm)));
+        client.take_errors();
+        laser.needs_arm = false;
+        client.save_profile(&laser);
+        let changed = wait(|| lock(&server_core).lib.get("test/laser").is_some_and(|p| !p.needs_arm));
+        if !changed {
+            assert!(client.take_errors().iter().any(|e| e.contains("--remote-allow-safety-edit")));
         }
         drop(client);
         drop(server);
         std::fs::remove_dir_all(dir).unwrap();
+        changed
+    }
+
+    #[test]
+    fn safety_settings_change_only_when_the_server_allows_it() {
+        assert!(!client_turns_off_arm(false), "safety settings are read-only from clients by default");
+        assert!(client_turns_off_arm(true), "--remote-allow-safety-edit lets clients change them");
     }
 
     #[test]

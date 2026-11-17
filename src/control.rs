@@ -20,12 +20,15 @@ pub struct Launch {
     pub autosave: bool,
     /// LANのクライアント(`dmxctl connect`)を待ち受けるアドレス(`--remote-listen`)
     pub remote_listen: Option<SocketAddr>,
+    /// クライアントから、機材定義の安全の設定(安全な値・ARMが要るか)を変えることを許す(`--remote-allow-safety-edit`)。
+    /// 画面の無いサーバーで安全の設定を変えるときに付けて起動し直す
+    pub remote_allow_safety_edit: bool,
     /// サーバーにつなぐクライアントとして起動する(`dmxctl connect HOST`)
     pub connect: Option<String>,
 }
 
 impl Default for Launch {
-    fn default() -> Self { Self { project: None, listen: None, output: true, inputs: true, autosave: true, remote_listen: None, connect: None } }
+    fn default() -> Self { Self { project: None, listen: None, output: true, inputs: true, autosave: true, remote_listen: None, remote_allow_safety_edit: false, connect: None } }
 }
 
 impl Launch {
@@ -57,6 +60,7 @@ impl Launch {
                         _ => unreachable!(),
                     }
                 }
+                "--remote-allow-safety-edit" => result.remote_allow_safety_edit = true,
                 "--autosave" => result.autosave = true,
                 "--no-autosave" => result.autosave = false,
                 "--headless"|"--kmsdrm"|"--apply-layout" if !serve => {},
@@ -67,6 +71,7 @@ impl Launch {
             i += 1;
         }
         if serve { ensure!(result.project.is_some(), "serve requires --project"); }
+        ensure!(!result.remote_allow_safety_edit || result.remote_listen.is_some(), "--remote-allow-safety-edit needs --remote-listen");
         Ok(result)
     }
 }
