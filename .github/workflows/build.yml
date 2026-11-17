@@ -4,9 +4,12 @@
 # - pull request: tests, plus Windows (cross-built from Linux with MinGW) and
 #   Linux (x86_64 / arm64) builds. Tests also run here because a PR from a fork
 #   does not show the fork's push results.
-# - push of a tag starting with "v" (e.g. v0.2.0): the builds above plus macOS,
-#   attached to a GitHub Release.
+# - push of a tag starting with "v" (e.g. v0.2.0): build macOS and attach all
+#   executables to a GitHub Release.
 #   git tag v0.2.0 && git push origin v0.2.0
+#   The Linux / Windows executables are reused from the pull request run that
+#   built exactly the same source tree (see pr-record / reuse). If there is none
+#   (main moved after the PR, or the artifacts expired), they are built again.
 # Artifacts are the executables themselves, not archives (macOS ships a zip
 # because the .app bundle is a directory).
 name: build
@@ -30,6 +33,33 @@ env:
   LINUX_DEPS: build-essential pkg-config cmake libasound2-dev libudev-dev libdrm-dev libgbm-dev libegl-dev libgles-dev libxext-dev
 
 jobs:
+  reuse:
+    # Tags only: find a pull request run that built the same source tree as the tag
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      run_id: ${{ steps.find.outputs.run_id }}
+    steps:
+      - id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tree=$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$GITHUB_SHA" --jq .tree.sha)
+          echo "source tree: $tree"
+          run_id=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=source-tree-$tree" \
+            --jq '[.artifacts[] | select(.expired | not)][0].workflow_run.id // empty')
+          if [ -n "$run_id" ]; then
+            # Every executable must still be there, otherwise build again
+            count=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts?per_page=100" \
+              --jq '[.artifacts[] | select((.expired | not) and (.name | startswith("dmxctl-")))] | length')
+            [ "$count" = 3 ] || { echo "run $run_id has $count of 3 executables; building again"; run_id=""; }
+          fi
+          echo "reusing run: ${run_id:-none}"
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+
   test:
     # Debug profile: builds faster than release, and tests don't need optimization
     if: "!startsWith(github.ref, 'refs/tags/')"
@@ -48,7 +78,9 @@ jobs:
     # Release builds for Linux. Binaries built against an older glibc run on newer
     # ones (not the other way around), so build inside Debian 12 (glibc 2.36).
     # Runs on Debian 12 / Raspberry Pi OS Bookworm / Ubuntu 24.04 and later.
-    if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/v')
+    needs: reuse
+    # !cancelled() keeps the job from being skipped when reuse is skipped (pull requests)
+    if: ${{ !cancelled() && (github.event_name == 'pull_request' || (needs.reuse.result == 'success' && needs.reuse.outputs.run_id == '')) }}
     strategy:
       matrix:
         include:
@@ -82,7 +114,9 @@ jobs:
   windows:
     # Cross-built from Linux with MinGW. .cargo/config.toml links the runtime
     # statically, so the exe needs no extra DLLs.
-    if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/v')
+    needs: reuse
+    # !cancelled() keeps the job from being skipped when reuse is skipped (pull requests)
+    if: ${{ !cancelled() && (github.event_name == 'pull_request' || (needs.reuse.result == 'success' && needs.reuse.outputs.run_id == '')) }}
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
@@ -120,22 +154,57 @@ jobs:
           path: dist/mac/DMX-Controller-mac.zip
           archive: false
 
+  pr-record:
+    # Pull requests only: once tests and builds pass, leave a marker named after the
+    # source tree, so a tag on the same tree can reuse this run's executables
+    if: github.event_name == 'pull_request'
+    needs: [test, linux, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tree=$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$GITHUB_SHA" --jq .tree.sha)
+          echo "TREE=$tree" >> "$GITHUB_ENV"
+          echo "$GITHUB_SHA" > source-commit.txt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: source-tree-${{ env.TREE }}
+          path: source-commit.txt
+
   release:
-    # Tags only: create the Release once every build has passed
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [linux, windows, mac]
+    # Tags only: create the Release once every executable is ready
+    needs: [reuse, linux, windows, mac]
+    if: >-
+      ${{ !cancelled() && startsWith(github.ref, 'refs/tags/v') && needs.reuse.result == 'success' && needs.mac.result == 'success'
+      && (needs.reuse.outputs.run_id != '' || (needs.linux.result == 'success' && needs.windows.result == 'success')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: read
     steps:
-      - uses: actions/download-artifact@v8
-        with:
-          path: dist
-          merge-multiple: true
-      # This job doesn't check out the repository, so pass --repo explicitly
-      - name: Create the release and attach artifacts
+      # Download through the REST API: artifacts uploaded with archive: false come back
+      # as the file itself (gh run download expects a zip and fails on them)
+      - name: Collect executables
         env:
           GH_TOKEN: ${{ github.token }}
+          REUSE_RUN: ${{ needs.reuse.outputs.run_id }}
         run: |
+          mkdir dist
+          fetch() {
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$1/artifacts?per_page=100" \
+              --jq '.artifacts[] | select((.expired | not) and (.name | test("^(dmxctl-|DMX-Controller-)"))) | "\(.id) \(.name)"' |
+            while read -r id name; do
+              echo "run $1: $name"
+              gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id/zip" > "dist/$name"
+            done
+          }
+          fetch "$GITHUB_RUN_ID"
+          [ -z "$REUSE_RUN" ] || fetch "$REUSE_RUN"
           ls -la dist
-          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$GITHUB_REF_NAME" --generate-notes dist/*
+          [ "$(ls dist | wc -l)" = 4 ] || { echo "expected 4 files"; exit 1; }
+      # This job doesn't check out the repository, so pass --repo explicitly
+      - name: Create the release and attach executables
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$GITHUB_REF_NAME" --generate-notes dist/*
