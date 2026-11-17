@@ -298,7 +298,7 @@ fn gui_frame_processes_commands_against_its_own_core() {
     drop(reservation);
     let ctx=eframe::egui::Context::default();
     let mut app=dmxctl::app::App::with_options(&ctx,false,control::Launch {
-        project:Some(dir.join("project.json")),listen:Some(address),output:false,inputs:false,autosave:false,
+        project:Some(dir.join("project.json")),listen:Some(address),output:false,inputs:false,autosave:false,..Default::default()
     }).unwrap();
     for command in [json!({"cmd":"set","fixture":1,"attr":"pan","value":83}),
         json!({"cmd":"edit","operations":[{"entity":"group","op":"create","data":{"name":"GUI shared edit","fixtures":[1]}}]}),
@@ -318,11 +318,11 @@ fn gui_frame_processes_commands_against_its_own_core() {
         }
         client.join().unwrap();
     }
-    assert_eq!(dmxctl::engine::lock(&app.core).project.fixtures[0].values[0],83);
-    assert_eq!(dmxctl::engine::lock(&app.core).project.groups[0].name,"GUI shared edit");
+    assert_eq!(dmxctl::engine::lock(&app.host.core).project.fixtures[0].values[0],83);
+    assert_eq!(dmxctl::engine::lock(&app.host.core).project.groups[0].name,"GUI shared edit");
     // No GUI frames or control polling: the engine must enforce the lease itself.
     std::thread::sleep(Duration::from_millis(200));
-    assert!(dmxctl::engine::lock(&app.core).rt.flash.is_none());
+    assert!(dmxctl::engine::lock(&app.host.core).rt.flash.is_none());
     app.shutdown();
     drop(app);
     std::fs::remove_dir_all(dir).unwrap();

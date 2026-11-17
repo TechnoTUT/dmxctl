@@ -152,7 +152,7 @@ fn layout_menu(ui: &mut egui::Ui, menu: &mut MenuOut, midi: &Midi, movable: usiz
 
 impl App {
     pub fn tab_map(&mut self, ui: &mut egui::Ui) {
-        let shared = self.core.clone();
+        let shared = self.host.core.clone();
         let mut guard = lock(&shared);
         let core = &mut *guard;
         let lib = core.lib.clone();
@@ -197,7 +197,7 @@ impl App {
             let ui = &mut rui;
             ui.horizontal(|ui| {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    layout_menu(ui, &mut menu, &self.midi, movable, page);
+                    layout_menu(ui, &mut menu, &self.host.midi, movable, page);
                     legend(ui);
                 });
             });
@@ -218,13 +218,13 @@ impl App {
         }
         changed |= editor.changed;
         if let Some(p) = new_page {
-            core.rt.page = p;
+            core.live(crate::live::LiveOp::SetPage { page: p });
         }
         changed |= self.apply_menu(core, &menu, page, use_pages);
         if let Some(i) = editor.remove {
             core.release_remote_controls();
             match crate::editing::gui_apply(core,&serde_json::json!([{"entity":"binding","op":"delete","index":i}])) {
-                Ok(_)=>changed=true,Err(error)=>self.notice=format!("割り当てを削除できません: {error}"),
+                Ok(_)=>changed=true,Err(error)=>self.host.notice=format!("割り当てを削除できません: {error}"),
             }
         }
         if changed {
@@ -233,8 +233,8 @@ impl App {
         drop(guard);
 
         if menu.read_faders
-            && let Err(e) = self.midi.request_faders() {
-            self.notice = format!("フェーダー位置の読み取りに失敗: {e}");
+            && let Err(e) = self.host.midi.request_faders() {
+            self.host.notice = format!("フェーダー位置の読み取りに失敗: {e}");
         }
         if menu.recommended {
             self.apply_recommended_layout();
@@ -245,7 +245,7 @@ impl App {
     fn apply_menu(&mut self, core: &mut Core, menu: &MenuOut, page: u8, use_pages: bool) -> bool {
         let mut changed = false;
         if menu.page {
-            self.notice = placed_notice("ページ切替", add_page_template(&mut core.project), "");
+            self.host.notice = placed_notice("ページ切替", add_page_template(&mut core.project), "");
             changed = true;
         }
         if menu.move_common {
@@ -255,15 +255,15 @@ impl App {
             changed = true;
         }
         if menu.pixel {
-            self.notice = placed_notice("LEDバーの模様", crate::pixel::add_pad_template(&mut core.project, use_pages.then_some(page)), "(エフェクトタブで速さや幅を変えられます)");
+            self.host.notice = placed_notice("LEDバーの模様", crate::pixel::add_pad_template(&mut core.project, use_pages.then_some(page)), "(エフェクトタブで速さや幅を変えられます)");
             changed = true;
         }
         if menu.palette {
-            self.notice = placed_notice("メイン/サブ色の操作", crate::color::add_palette_template(&mut core.project), "");
+            self.host.notice = placed_notice("メイン/サブ色の操作", crate::color::add_palette_template(&mut core.project), "");
             changed = true;
         }
         if menu.color {
-            self.notice = placed_notice("色の操作", crate::color::add_template(&mut core.project), "");
+            self.host.notice = placed_notice("色の操作", crate::color::add_template(&mut core.project), "");
             changed = true;
         }
         changed
@@ -272,8 +272,8 @@ impl App {
     /// おすすめ配置にする。置き換える前の状態は保存してバックアップに残す
     pub fn apply_recommended_layout(&mut self) {
         self.save();
-        let backup = backup_to(&self.project_path, &backup_dir(), BACKUP_KEEP);
-        let mut c = lock(&self.core);
+        let backup = backup_to(&self.host.project_path, &backup_dir(), BACKUP_KEEP);
+        let mut c = lock(&self.host.core);
         c.release_remote_controls();
         let lib = c.lib.clone();
         let r = crate::layout::apply(&mut c.project, &lib);
@@ -283,7 +283,7 @@ impl App {
         c.dirty = true;
         drop(c);
         self.map_sel = None;
-        self.notice = match backup {
+        self.host.notice = match backup {
             Some(_) => format!("{}。元の配置は「ファイル → バックアップから戻す」で戻せます", r.text()),
             None => r.text(),
         };

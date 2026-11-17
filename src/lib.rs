@@ -9,6 +9,7 @@ pub mod engine;
 #[cfg(test)]
 pub mod engine_tests;
 pub mod fixture;
+pub mod host;
 pub mod keys;
 #[cfg(target_os = "linux")]
 pub mod kmsdrm;
@@ -17,6 +18,7 @@ pub mod layout;
 pub mod layout_tests;
 pub mod led;
 pub mod link;
+pub mod live;
 pub mod look;
 #[cfg(test)]
 pub mod bpm_tests;
@@ -48,7 +50,9 @@ pub mod osc;
 pub mod output;
 pub mod pixel;
 pub mod project;
+pub mod project_patch;
 pub mod recording;
+pub mod remote;
 pub mod shot;
 pub mod theme;
 pub mod web;

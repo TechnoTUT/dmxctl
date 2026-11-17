@@ -56,13 +56,14 @@ impl App {
     }
 
     pub fn tab_profiles(&mut self, ui: &mut egui::Ui) {
-        let shared = self.core.clone();
+        let shared = self.host.core.clone();
         let mut guard = lock(&shared);
         let core = &mut *guard;
         let lib = core.lib.clone();
         let mut act: Option<Act> = None;
         let full = ui.available_size();
         let left_w = 250.0;
+        let client = self.host.is_client();
         let usage = |id: &str| core.project.fixtures.iter().filter(|f| f.profile == id).count();
 
         ui.horizontal_top(|ui| {
@@ -162,6 +163,32 @@ impl App {
                     self.pe_load(&lib, &id);
                 }
                 self.pe.msg = (false, String::new());
+            }
+            // 機材定義はサーバーのフォルダにあるので、クライアントでは保存・削除をサーバーに頼む
+            // (結果の定義は、サーバーから全クライアントに配られる。失敗したら画面の下に出る)
+            Some(Act::Save) if client => {
+                if self.pe.is_new
+                    && let Some(d) = self.pe.draft.as_mut() {
+                    d.id = lib.unique_id(&d.name);
+                }
+                if let Some(d) = self.pe.draft.clone() {
+                    let report = d.validate();
+                    if !report.errors.is_empty() {
+                        self.pe.msg = (true, format!("保存できません: {}", report.errors.join(" / ")));
+                    } else if self.host.remote_save_profile(&d) {
+                        self.pe.is_new = false;
+                        self.pe.dirty = false;
+                        self.pe.msg = (false, "サーバーに保存しました(機材にも反映されます)".into());
+                    }
+                }
+            }
+            Some(Act::Delete) if client => {
+                if let Some(d) = self.pe.draft.clone()
+                    && self.host.remote_delete_profile(&d.id) {
+                    self.pe.draft = None;
+                    self.pe.dirty = false;
+                    self.pe.msg = (false, format!("「{}」の削除をサーバーに頼みました", d.name));
+                }
             }
             Some(Act::Save) => {
                 if self.pe.is_new

@@ -1,13 +1,13 @@
-//! アプリ本体(ウィンドウ枠・タブ・保存)。各タブの中身は ui_*.rs。
+//! 画面(ウィンドウ枠・タブ)。各タブの中身は ui_*.rs。
+//! Core・出力・外部との連携・保存はホスト(`host::Host`)が持ち、画面はそれを1つ持つ。
 
-use crate::engine::{lock, Core, Engine, Shared};
+use crate::engine::lock;
 use crate::fixture::{Library, Range};
-use crate::midi::{self, Midi};
+use crate::host::Host;
+use crate::midi;
 use crate::project::*;
 use eframe::egui::{self, Align, Color32, Layout, RichText};
 use std::collections::HashSet;
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// デスクトップ環境の無い画面(KMSDRM)で動いているか。ファイルを選ぶ画面(OSのダイアログ)が出せず、
@@ -72,17 +72,8 @@ pub const RED: Color32 = crate::theme::DANGER;
 pub const WARN: Color32 = crate::theme::WARN;
 
 pub struct App {
-    pub(crate) launch: crate::control::Launch,
-    control: Option<crate::control::Host>,
-    shutdown_requested: bool,
-    shutdown_done: bool,
-    pub core: Shared,
-    engine: Engine,
-    pub midi: Midi,
+    pub host: Host,
     pub tab: Tab,
-    pub project_path: PathBuf,
-    last_save: Instant,
-    pub notice: String,
     // 各タブのUI状態
     pub add_profile: usize,
     pub scene_skip: HashSet<u32>,
@@ -93,6 +84,8 @@ pub struct App {
     pub monitor_all: bool,
     pub midi_ports: Vec<String>,
     pub midi_choice: String,
+    /// MIDIクロックの入力の候補(クロックはホストのPCで受けるので、クライアントではサーバーのPCの一覧)
+    pub clock_ports: Vec<String>,
     pub serial_ports: Vec<(String, String)>,
     pub d2xx: Result<Vec<String>, String>,
     pub new_group: String,
@@ -104,14 +97,6 @@ pub struct App {
     /// シーン保存の対象から外すカテゴリ
     pub scene_skip_cats: HashSet<String>,
     pub pe: crate::ui_profile::ProfileEd,
-    pub osc: Option<crate::osc::OscServer>,
-    /// ブラウザの操作パネル
-    pub web: Option<crate::web::WebServer>,
-    /// 操作パネルの状態(画面の表示用)
-    pub web_status: String,
-    /// NDIの受信(設定で有効にしている間だけ動かす)
-    ndi: Option<crate::ndi::NdiService>,
-    audio: Option<crate::audio::AudioService>,
     pub audio_ports: Vec<String>,
     /// OSCの受信ポートの編集中の値(「適用」で反映)
     pub osc_port_edit: u16,
@@ -125,7 +110,11 @@ pub struct App {
     pub(crate) key_mouse: Option<u8>,
     /// キーボードタブで、色の段(Shift)を出したままにする
     pub(crate) key_color_view: bool,
-    pub ctx: egui::Context,
+    /// ホストの読み直し・サービス反映の回数(変わったら、画面の編集中の値を捨てる)
+    seen_reloads: u64,
+    seen_services: u64,
+    seen_midi: u64,
+    seen_devices: u64,
     /// 診断表示(環境変数 DMXCTL_PERF=1): 描画1回あたりの時間
     perf: Option<Perf>,
     /// 確認用の画面保存(環境変数 DMXCTL_SHOT)
@@ -151,70 +140,18 @@ impl App {
         egui_ctx.data_mut(|d| d.insert_temp(no_desktop_id(), no_desktop));
         crate::theme::setup_fonts(egui_ctx);
         crate::theme::apply(egui_ctx);
-
-        let path = options.project.clone().unwrap_or_else(default_project_path);
-        let path = if path.is_absolute() {path}else{std::env::current_dir()?.join(path)};
-        let fixture_dir = if options.project.is_some() {
-            path.parent().unwrap_or(std::path::Path::new(".")).join("fixtures")
-        } else { config_dir().join("fixtures") };
-        let (lib, lib_errors) = Library::load(&fixture_dir);
-        let lib = Arc::new(lib);
-        let mut notice = lib_errors.join(" / ");
-        // 起動のたびに、前回の保存ファイルをバックアップに残す(うっかり消した割り当てなどを戻せるように)
-        if options.autosave {
-            let backups = if options.project.is_some() { path.parent().unwrap_or(std::path::Path::new(".")).join("backups") } else { backup_dir() };
-            backup_to(&path, &backups, BACKUP_KEEP);
-        }
-        let mut project = if options.project.is_some() {
-            anyhow::ensure!(lib_errors.is_empty(), "fixture errors: {}", lib_errors.join("; "));
-            let text = std::fs::read_to_string(&path)?;
-            let project: Project = serde_json::from_str(text.trim_start_matches('\u{feff}'))?;
-            crate::commands::validate(&project, &lib)?;
-            project
-        } else { match Project::load_lenient(&path) {
-            Ok((p, skipped)) if skipped.is_empty() => p,
-            // 新しい版で保存したファイル: 読めない項目だけ既定値にして読む(元のファイルは別名で残す)
-            Ok((p, skipped)) => {
-                let saved = Project::backup_broken(&path).map(|p| format!("元のファイルは {} に残しました。", p.display())).unwrap_or_default();
-                notice = format!("この版では読めない項目を既定値にしました({})。新しい版で保存したファイルかもしれません。{saved}", skipped.join(", "));
-                p
-            }
-            // 初めての起動: おすすめのMIDI配置で始める
-            Err(_) if !path.exists() => {
-                let mut p = Project::starter(&lib);
-                crate::layout::apply(&mut p, &lib);
-                p
-            }
-            Err(e) => {
-                let saved = Project::backup_broken(&path).map(|p| format!(" 元のファイルは {} に退避しました。", p.display())).unwrap_or_default();
-                notice = format!("プロジェクトを読めませんでした({e})。初期状態で起動します。{saved}");
-                Project::starter(&lib)
-            }
-        }};
-        // 全体光量を右端のフェーダーに初期割り当て(既存のプロジェクトにも、一度だけ)
-        if project.seed_master_binding() == Some(false) {
-            notice = format!("{notice} 右端のフェーダーは別の用途で使われているため、全体光量は未割り当てです(MIDIタブで割り当てられます)");
-        }
-        let midi_choice = project.midi_input.clone();
-        let mut initial_core=Core::new(project,lib);
-        initial_core.rt.project_path=Some(path.clone());
-        let core: Shared = Arc::new(Mutex::new(initial_core));
-        // 初回のoutput_gen(0)でエンジンが出力を組み立てる
-        let control = options.listen.map(|address|crate::control::Host::start(address,egui_ctx.clone())).transpose()?;
-        let engine = Engine::spawn_with_output(core.clone(), options.output);
-
+        let host = Host::start(egui_ctx, options.clone())?;
+        let osc_port_edit = lock(&host.core).project.osc_port;
         let mut app = App {
-            launch: options.clone(),
-            control,
-            shutdown_requested: false,
-            shutdown_done: false,
-            core,
-            engine,
-            midi: Midi::default(),
+            midi_choice: host.initial_midi.clone(),
+            osc_port_edit,
+            seen_reloads: host.reloads,
+            seen_services: host.services_applied,
+            seen_midi: host.midi_synced,
+            seen_devices: 0,
+            clock_ports: Vec::new(),
+            host,
             tab: Tab::Map,
-            project_path: path,
-            last_save: Instant::now(),
-            notice,
             add_profile: 0,
             scene_skip: HashSet::new(),
             scene_name: String::new(),
@@ -222,7 +159,6 @@ impl App {
             monitor_universe: 0,
             monitor_all: false,
             midi_ports: if options.inputs { midi::list_ports() } else { Vec::new() },
-            midi_choice,
             serial_ports: if options.output { crate::opendmx::list_serial_ports() } else { Vec::new() },
             d2xx: Ok(Vec::new()),
             new_group: String::new(),
@@ -231,20 +167,13 @@ impl App {
             cat_hidden: HashSet::new(),
             scene_skip_cats: HashSet::new(),
             pe: Default::default(),
-            osc: None,
-            web: None,
-            web_status: String::new(),
-            ndi: None,
-            audio: None,
             audio_ports: if options.inputs { crate::audio::input_devices() } else { Vec::new() },
-            osc_port_edit: 9000,
             pos_name: String::new(),
             pos_fade: 0.5,
             color_edit: crate::color::ColorTarget::Scope,
             key_mouse: None,
             // 開発・確認用: DMXCTL_KEY_COLOR=1 で、キーボードタブを色の段で開く
             key_color_view: std::env::var_os("DMXCTL_KEY_COLOR").is_some(),
-            ctx: egui_ctx.clone(),
             perf: std::env::var_os("DMXCTL_PERF").map(|_| Perf { frames: 0, ui_time: Duration::ZERO, frame_cpu: 0.0, since: Instant::now(), text: String::new() }),
             shot: crate::shot::Shot::from_env(),
         };
@@ -253,154 +182,47 @@ impl App {
             && let Some((t, _)) = TABS.iter().find(|(_, label)| *label == name) {
             app.tab = *t;
         }
+        app.clock_ports = app.midi_ports.clone();
         if let Some(u) = std::env::var("DMXCTL_UNIVERSE").ok().and_then(|v| v.parse::<usize>().ok()) {
             app.monitor_universe = u.clamp(1, NUM_UNIVERSES) - 1;
         }
-        if let Some(p) = std::env::var("DMXCTL_PAGE").ok().and_then(|v| v.parse::<u8>().ok()) {
-            lock(&app.core).rt.page = p.clamp(1, PAGES) - 1;
-        }
-        // 前回のMIDI機器、なければAPC mini が見つかれば自動接続。
-        // 環境変数 DMXCTL_NO_MIDI=1 なら自動接続しない(本番のアプリが使っているコントローラーを、2つ目のアプリが奪わないように)
-        let auto_midi = options.inputs && std::env::var_os("DMXCTL_NO_MIDI").is_none();
-        if !auto_midi {
-            app.midi_choice.clear();
-        } else if (app.midi_choice.is_empty() || !app.midi_ports.contains(&app.midi_choice))
-            && let Some(p) = crate::apcmini::find_port(&app.midi_ports) {
-            app.midi_choice = p;
-        }
-        if !app.midi_choice.is_empty() && app.midi_ports.contains(&app.midi_choice) {
-            let name = app.midi_choice.clone();
-            match app.midi.connect(&app.core, egui_ctx.clone(), &name) {
-                Ok(()) => lock(&app.core).project.midi_input = name,
-                Err(e) => app.notice = e,
-            }
-        }
-        app.apply_services();
         Ok(app)
     }
 
-    /// 設定に合わせて、Ableton Link・OSC受信・MIDIクロック用の入力を開始/停止する
+    /// ホストで起きたこと(自動操作からの読み直し・設定の反映)に、画面の編集中の値を合わせる
+    fn follow_host(&mut self) {
+        if self.seen_reloads != self.host.reloads {
+            self.seen_reloads = self.host.reloads;
+            self.map_sel = None;
+            self.pe = Default::default();
+        }
+        if self.seen_midi != self.host.midi_synced {
+            self.seen_midi = self.host.midi_synced;
+            self.midi_choice = lock(&self.host.core).project.midi_input.clone();
+        }
+        // クライアント: 出力・音声・MIDIクロックの機器は、サーバーのPCのものから選ぶ
+        if let Some((count, d)) = self.host.server_devices()
+            && count != self.seen_devices {
+            self.seen_devices = count;
+            self.serial_ports = d.serial;
+            self.d2xx = d.d2xx;
+            self.audio_ports = d.audio;
+            self.clock_ports = d.midi;
+        }
+        if self.seen_services != self.host.services_applied {
+            self.seen_services = self.host.services_applied;
+            self.osc_port_edit = lock(&self.host.core).project.osc_port;
+        }
+    }
+
+    /// 設定を反映する(ホストへ)
     pub fn apply_services(&mut self) {
-        if !self.launch.inputs {
-            self.osc = None;
-            self.web = None;
-            self.ndi = None;
-            self.audio = None;
-            self.midi.disconnect_clock();
-            self.midi.disconnect();
-            lock(&self.core).rt.link = None;
-            return;
-        }
-        let (osc_on, port, src, clock_port, ndi_on, audio_port, web_want) = {
-            let mut c = lock(&self.core);
-            c.ensure_link();
-            (
-                c.project.osc_enabled,
-                c.project.osc_port,
-                c.project.tempo_source,
-                c.project.clock_input.clone(),
-                c.project.ndi.enabled,
-                c.project.audio_input.clone(),
-                c.project.web_enabled.then_some(c.project.web_port),
-            )
-        };
-        // ブラウザの操作パネル
-        if self.web.as_ref().map(|w| w.port) != web_want {
-            self.web = None;
-            self.web_status = match web_want {
-                Some(port) => match crate::web::WebServer::start(self.core.clone(), Some(self.ctx.clone()), port) {
-                    Ok(w) => {
-                        self.web = Some(w);
-                        crate::web::url(port)
-                    }
-                    Err(e) => {
-                        self.notice = format!("操作パネル: {e}");
-                        e
-                    }
-                },
-                None => String::new(),
-            };
-        }
-        if ndi_on != self.ndi.is_some() {
-            self.ndi = ndi_on.then(|| crate::ndi::NdiService::start(self.core.clone(), Some(self.ctx.clone())));
-        }
-        self.osc_port_edit = port;
-        let want = osc_on.then_some(port);
-        if self.osc.as_ref().map(|s| s.port) != want {
-            self.osc = None;
-            match want {
-                Some(port) => match crate::osc::OscServer::start(self.core.clone(), Some(self.ctx.clone()), port) {
-                    Ok(s) => self.osc = Some(s),
-                    Err(e) => {
-                        self.notice = format!("OSC: {e}");
-                        lock(&self.core).rt.osc_status = e;
-                    }
-                },
-                None => lock(&self.core).rt.osc_status = "停止中".into(),
-            }
-        }
-        // 音声からのBPM検出(テンポの元が「音声」のときだけ入力を開く)
-        let want_audio = (src == TempoSource::Audio).then(|| audio_port.clone());
-        if self.audio.as_ref().map(|a| &a.device) != want_audio.as_ref() {
-            self.audio = None;
-            match want_audio {
-                Some(dev) => self.audio = Some(crate::audio::AudioService::start(self.core.clone(), &dev)),
-                None => lock(&self.core).rt.audio_status = "停止中".into(),
-            }
-        }
-        // MIDIクロックを、メインの入力とは別のポートから受け取る
-        let want_clock = (src == TempoSource::MidiClock && !clock_port.is_empty() && self.midi.connected.as_deref() != Some(clock_port.as_str())).then_some(clock_port);
-        if self.midi.clock_connected != want_clock {
-            self.midi.disconnect_clock();
-            if let Some(name) = want_clock
-                && let Err(e) = self.midi.connect_clock(&self.core, &name) {
-                self.notice = format!("MIDIクロック: {e}");
-            }
-        }
+        self.host.apply_services();
+        self.follow_host();
     }
 
     pub fn save(&mut self) {
-        if let Err(error) = self.save_checked() {
-            self.notice = format!("保存に失敗しました: {error}");
-        }
-    }
-
-    /// GUIの保存・自動保存・終了時の保存。厳しい検証(editing::validate)はかけない:
-    /// GUIの編集で検証に通らない状態(機材を消したあとの参照など)になっても、作業内容を失わないように。
-    /// リモートの "save" は、呼ぶ前に検証する
-    pub(crate) fn save_checked(&mut self) -> anyhow::Result<()> {
-        let project = {
-            let mut c = lock(&self.core);
-            c.project.ensure_binding_ids();
-            c.dirty = false;
-            c.project.clone()
-        };
-        // 失敗しても次の自動保存まで待つ(毎フレーム保存し直さない)
-        self.last_save = Instant::now();
-        if let Err(e) = project.save(&self.project_path) {
-            lock(&self.core).dirty = true;
-            return Err(e);
-        }
-        Ok(())
-    }
-
-    fn load_from(&mut self, path: PathBuf) {
-        match self.reload_checked(Some(&path), false, false) {
-            Ok(_) => self.notice = format!("読み込みました: {}", path.display()),
-            Err(error) => self.notice = format!("読み込みに失敗しました: {error}"),
-        }
-    }
-
-    fn autosave(&mut self) {
-        if !self.launch.autosave { return; }
-        if self.last_save.elapsed() > Duration::from_secs(5) {
-            let dirty = lock(&self.core).dirty;
-            if dirty {
-                self.save();
-            } else {
-                self.last_save = Instant::now();
-            }
-        }
+        self.host.save();
     }
 
     fn top_bar(&mut self, ui: &mut egui::Ui) {
@@ -422,11 +244,15 @@ impl App {
             }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = 8.0;
-                ui.menu_button("ファイル ▼", |ui| {
+                let menu = ui.menu_button("ファイル ▼", |ui| {
                     if ui.button("保存").on_hover_text(if cfg!(target_os = "macos") { "⌘S" } else { "Ctrl+S" }).clicked() {
                         self.save();
-                        self.notice = "保存しました".into();
+                        self.host.notice = if self.host.is_client() { "保存をサーバーに頼みました".into() } else { "保存しました".into() };
                         ui.close();
+                    }
+                    if self.host.is_client() {
+                        self.file_menu_client(ui);
+                        return;
                     }
                     if no_desktop(ui.ctx()) {
                         self.file_menu_no_desktop(ui);
@@ -435,25 +261,29 @@ impl App {
                     if ui.button("別名で保存…").clicked() {
                         ui.close();
                         if let Some(p) = rfd::FileDialog::new().add_filter("プロジェクト", &["json"]).set_file_name("show.json").save_file() {
-                            self.project_path = p;
+                            self.host.project_path = p;
                             self.save();
                         }
                     }
                     if ui.button("開く…").clicked() {
                         ui.close();
                         if let Some(p) = rfd::FileDialog::new().add_filter("プロジェクト", &["json"]).pick_file() {
-                            self.load_from(p);
+                            self.host.load_from(p);
                         }
                     }
                     ui.separator();
                     if ui.button("バックアップから戻す…").on_hover_text("起動のたび・別のファイルを開く前に、自動でバックアップを残しています(最新20個)。選んだものに戻します(戻す前の状態もバックアップされます)").clicked() {
                         ui.close();
                         if let Some(p) = rfd::FileDialog::new().add_filter("プロジェクト", &["json"]).set_directory(backup_dir()).pick_file() {
-                            self.load_from(p);
+                            self.host.load_from(p);
                         }
                     }
                 });
-                if lock(&self.core).dirty {
+                // クライアント: メニューを開いたら、サーバーのファイルの一覧を取り直す
+                if menu.response.clicked() {
+                    self.host.request_server_files();
+                }
+                if lock(&self.host.core).dirty {
                     ui.label(RichText::new("● 未保存").small().color(theme::WARN)).on_hover_text("変更は5秒ごとに自動で保存されます");
                 }
             });
@@ -465,30 +295,36 @@ impl App {
 
     fn status_bar(&mut self, ui: &mut egui::Ui) {
         use crate::theme;
-        let (midi, last, outs, blt) = {
-            let c = lock(&self.core);
-            (c.rt.midi_status.clone(), c.rt.last_midi.clone(), c.rt.output_status.clone(), c.project.auto.enabled.then(|| c.blt_state()))
+        let (midi, last, outs, blt, remote_emergency) = {
+            let c = lock(&self.host.core);
+            (c.rt.midi_status.clone(), c.rt.last_midi.clone(), c.rt.output_status.clone(), c.project.auto.enabled.then(|| c.blt_state()), c.rt.remote_emergency)
         };
         ui.add_space(3.0);
         ui.horizontal(|ui| {
-            if crate::engine::EMERGENCY.load(std::sync::atomic::Ordering::SeqCst) {
+            if crate::engine::EMERGENCY.load(std::sync::atomic::Ordering::SeqCst) || remote_emergency {
                 theme::dot(ui, theme::DANGER);
                 ui.label(RichText::new("安全停止中(アプリを再起動してください)").small().color(theme::DANGER));
                 ui.separator();
             }
-            let connected = self.midi.connected.is_some();
+            let connected = self.host.midi.connected.is_some();
             theme::dot(ui, if connected { theme::OK } else { theme::TEXT_FAINT });
             ui.label(RichText::new(format!("MIDI {midi}")).small().color(theme::TEXT_DIM));
             if !last.is_empty() {
                 ui.label(RichText::new(format!("最後の入力: {last}")).small().color(theme::TEXT_FAINT));
             }
             ui.separator();
+            // サーバーにつないでいるとき: 接続の状態(出力の状態はサーバーのもの)
+            if let Some((connected, status)) = self.host.client_status() {
+                theme::dot(ui, if connected { theme::OK } else { theme::WARN });
+                ui.label(RichText::new(format!("サーバー: {status}")).small().color(if connected { theme::TEXT_DIM } else { theme::WARN }));
+                ui.separator();
+            }
             // 出力はまとめて1行に(詳しくはマウスを乗せると出る)
             let on: Vec<(usize, &String)> = outs.iter().enumerate().filter(|(_, s)| s.as_str() != "無効").collect();
             let bad = on.iter().filter(|(_, s)| output_has_error(s)).count();
             let color = if outs.is_empty() || bad > 0 { theme::WARN } else if on.is_empty() { theme::TEXT_FAINT } else { theme::OK };
             theme::dot(ui, color);
-            let text = if !self.launch.output {
+            let text = if !self.host.output_enabled() {
                 "出力: シミュレーション(実機送信なし)".to_string()
             } else if outs.is_empty() {
                 "出力: 未設定(「出力」タブで追加)".to_string()
@@ -519,12 +355,12 @@ impl App {
                 ui.separator();
                 ui.label(RichText::new(&p.text).small().color(theme::TEXT_FAINT));
             }
-            if !self.notice.is_empty() {
+            if !self.host.notice.is_empty() {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if ui.small_button("×").on_hover_text("消す").clicked() {
-                        self.notice.clear();
+                        self.host.notice.clear();
                     }
-                    ui.add(egui::Label::new(RichText::new(&self.notice).small().color(theme::WARN)).truncate()).on_hover_text(&self.notice);
+                    ui.add(egui::Label::new(RichText::new(&self.host.notice).small().color(theme::WARN)).truncate()).on_hover_text(&self.host.notice);
                 });
             }
         });
@@ -571,29 +407,6 @@ fn tab_button(ui: &mut egui::Ui, selected: bool, label: &str) -> egui::Response 
 }
 
 impl App {
-    fn control_tick(&mut self) {
-        if let Some(mut host) = self.control.take() {
-            self.shutdown_requested |= host.poll(self);
-            self.control = Some(host);
-        }
-    }
-
-    /// Runs the same App and Engine as the GUI, without forcing BLT/auto settings.
-    pub fn serve(options: crate::control::Launch) -> anyhow::Result<()> {
-        let ctx = egui::Context::default();
-        let mut app = Self::with_options(&ctx, true, options)?;
-        let address = app.control.as_ref().map(|host|host.address);
-        println!("{}",serde_json::json!({"ready":true,"listen":address,"project":app.project_path,
-            "output_enabled":app.launch.output,"inputs_enabled":app.launch.inputs,"autosave":app.launch.autosave}));
-        while !app.shutdown_requested {
-            app.control_tick();
-            app.autosave();
-            if !app.shutdown_requested { std::thread::sleep(crate::engine::TICK); }
-        }
-        app.shutdown();
-        Ok(())
-    }
-
     fn ui_timed(&mut self, ui: &mut egui::Ui) {
         let t_frame = Instant::now();
         self.ui_body(ui);
@@ -632,7 +445,7 @@ impl App {
         let events = ui.input(|i| i.events.clone());
         let mut save = false;
         {
-            let mut c = lock(&self.core);
+            let mut c = lock(&self.host.core);
             for ev in events {
                 let egui::Event::Key { key, physical_key, pressed, repeat, modifiers } = ev else { continue };
                 // 日本語入力中でも効くよう、キーの位置で判定する
@@ -643,7 +456,7 @@ impl App {
                     if let Some(code) = crate::keys::from_key(key) {
                         for k in [code, code + crate::keys::SHIFT] {
                             if c.rt.keys_down.contains(&k) {
-                                c.handle_key(k, false);
+                                c.live(crate::live::LiveOp::Key { number: k, pressed: false });
                             }
                         }
                     }
@@ -653,18 +466,18 @@ impl App {
                     continue;
                 }
                 match key {
-                    egui::Key::Escape => c.rt.blackout = !c.rt.blackout,
+                    egui::Key::Escape => c.live(crate::live::LiveOp::ToggleBlackout),
                     egui::Key::S if modifiers.command => save = true,
                     // デスクトップ環境の無い画面には閉じるボタンが無いので、Ctrl+Qで終了
                     egui::Key::Q if modifiers.command && no_desktop(ui.ctx()) => ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close),
                     _ if typing || modifiers.command || modifiers.alt || modifiers.ctrl => {}
-                    egui::Key::Space => c.tap(),
-                    egui::Key::Enter => c.resync(),
-                    egui::Key::ArrowLeft => c.rt.page = (c.rt.page + PAGES - 1) % PAGES,
-                    egui::Key::ArrowRight => c.rt.page = (c.rt.page + 1) % PAGES,
+                    egui::Key::Space => c.live(crate::live::LiveOp::Tap),
+                    egui::Key::Enter => c.live(crate::live::LiveOp::Resync),
+                    egui::Key::ArrowLeft => c.live(crate::live::LiveOp::StepPage { delta: -1 }),
+                    egui::Key::ArrowRight => c.live(crate::live::LiveOp::StepPage { delta: 1 }),
                     k => {
                         if let Some(code) = crate::keys::from_key(k) {
-                            c.handle_key(if modifiers.shift { code + crate::keys::SHIFT } else { code }, true);
+                            c.live(crate::live::LiveOp::Key { number: if modifiers.shift { code + crate::keys::SHIFT } else { code }, pressed: true });
                         }
                     }
                 }
@@ -672,13 +485,69 @@ impl App {
             // キーを押したまま他のウィンドウへ移ると離したことが届かないので、押しているキーを全部離す
             if !focused {
                 for code in c.rt.keys_down.clone() {
-                    c.handle_key(code, false);
+                    c.live(crate::live::LiveOp::Key { number: code, pressed: false });
                 }
             }
         }
         if save {
             self.save();
-            self.notice = "保存しました".into();
+            self.host.notice = if self.host.is_client() { "保存をサーバーに頼みました".into() } else { "保存しました".into() };
+        }
+    }
+
+    /// サーバーにつないでいるときのファイルメニュー(保存の後ろ)。ファイルはサーバーが読み込む
+    /// (ローカルの「開く」と同じく、中身を読み込むだけで保存先は変えない。読み込む前の状態はサーバーのバックアップに残る)
+    fn file_menu_client(&mut self, ui: &mut egui::Ui) {
+        let files = self.host.server_files();
+        let mut open: Option<String> = None;
+        ui.separator();
+        let list = |ui: &mut egui::Ui, items: &[String], current: &str, empty: &str, open: &mut Option<String>| {
+            if items.is_empty() {
+                ui.label(empty);
+            }
+            egui::ScrollArea::vertical().max_height(400.0).show(ui, |ui| {
+                for path in items {
+                    let name = std::path::Path::new(path).file_name().and_then(|n| n.to_str()).unwrap_or(path);
+                    let label = if path == current { format!("{name}(今の保存先)") } else { name.to_string() };
+                    if ui.button(label).on_hover_text(path).clicked() {
+                        *open = Some(path.clone());
+                        ui.close();
+                    }
+                }
+            });
+        };
+        let current = files.as_ref().map(|f| f.current.clone()).unwrap_or_default();
+        ui.menu_button("サーバーのファイルを開く", |ui| match &files {
+            Some(f) => list(ui, &f.projects, &current, "プロジェクトのフォルダに .json がありません", &mut open),
+            None => { ui.label("一覧を取得中…"); }
+        })
+        .response
+        .on_hover_text("サーバーのプロジェクトのフォルダにあるファイルを、サーバーで読み込みます(保存先は変わりません)");
+        ui.menu_button("サーバーのバックアップから戻す", |ui| match &files {
+            Some(f) => list(ui, &f.backups, &current, "バックアップはまだありません", &mut open),
+            None => { ui.label("一覧を取得中…"); }
+        })
+        .response
+        .on_hover_text("サーバーが起動のたび・別のファイルを開く前に残しているバックアップに戻します(戻す前の状態もバックアップされます)");
+        if !no_desktop(ui.ctx())
+            && ui.button("このPCのファイルを開く…").on_hover_text("このPCのファイルの中身をサーバーへ送って、サーバーで読み込みます(保存先は変わりません)").clicked() {
+            ui.close();
+            if let Some(p) = rfd::FileDialog::new().add_filter("プロジェクト", &["json"]).pick_file() {
+                self.host.open_local_file(&p);
+            }
+        }
+        if ui.button("一覧を更新").clicked() {
+            self.host.request_server_files();
+        }
+        if let Some(path) = open {
+            self.host.open_server_file(&path);
+        }
+        if no_desktop(ui.ctx()) {
+            ui.separator();
+            if ui.button("終了").on_hover_text("Ctrl+Q").clicked() {
+                ui.close();
+                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+            }
         }
     }
 
@@ -687,7 +556,7 @@ impl App {
     fn file_menu_no_desktop(&mut self, ui: &mut egui::Ui) {
         ui.separator();
         ui.menu_button("バックアップから戻す", |ui| {
-            let stem = self.project_path.file_stem().and_then(|s| s.to_str()).unwrap_or("project").to_string();
+            let stem = self.host.project_path.file_stem().and_then(|s| s.to_str()).unwrap_or("project").to_string();
             let backups = list_backups(&backup_dir(), &stem);
             if backups.is_empty() {
                 ui.label("バックアップはまだありません");
@@ -697,7 +566,7 @@ impl App {
                     let name = p.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_string();
                     if ui.button(name).clicked() {
                         ui.close();
-                        self.load_from(p);
+                        self.host.load_from(p);
                     }
                 }
             });
@@ -717,11 +586,11 @@ impl App {
         // 前面でないとき(映像ソフトを前に出しているとき)は、グラフィックPCと同居するためCPUを節約して4fpsに減らす。
         // 何も動いていなければ、操作時とMIDI入力時、それと拍の表示が変わる次の拍の頭だけ描く
         let (busy, to_beat, animated) = {
-            let c = lock(&self.core);
+            let c = lock(&self.host.core);
             let p = &c.project;
             // 色や値がひとりでに変わっているか(マップの「今の色」を追従させるため)
             let animated = p.effects.iter().any(|e| e.enabled) || p.pixel_fx.iter().any(|e| e.enabled) || p.chases.iter().any(|e| e.enabled) || p.palette.auto;
-            (self.tab == Tab::Monitor || !c.rt.fades.is_empty() || c.fading(), (1.0 - c.beat_now().rem_euclid(1.0)) * 60.0 / p.bpm.max(1.0) as f64, animated)
+            (self.tab == Tab::Monitor || !c.rt.fades.is_empty() || c.rt.remote_fades > 0 || c.fading(), (1.0 - c.beat_now().rem_euclid(1.0)) * 60.0 / p.bpm.max(1.0) as f64, animated)
         };
         let focused = in_front(ui);
         // 拍の表示は、前面でなくても次の拍の頭で更新する(拍を飛ばさない)
@@ -735,12 +604,8 @@ impl App {
         ui.ctx().request_repaint_after(if busy { if focused { SMOOTH } else { Duration::from_millis(250) } } else { idle });
         // 押しているキーを離すのは、本当にフォーカスを失ったとき(KMSDRMで別の端末へ切り替えたときなど。in_front はKMSDRMではいつも前面)
         self.shortcuts(ui, ui.input(|i| i.focused));
-        self.autosave();
-        // NDIの受信は、設定(パッド・画面)でONにしている間だけ動かす
-        let ndi_on = lock(&self.core).project.ndi.enabled;
-        if self.launch.inputs && ndi_on != self.ndi.is_some() {
-            self.ndi = ndi_on.then(|| crate::ndi::NdiService::start(self.core.clone(), Some(self.ctx.clone())));
-        }
+        self.host.autosave();
+        self.host.sync_ndi(true);
 
         egui::Panel::top("top").show(ui, |ui| self.top_bar(ui));
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
@@ -766,17 +631,20 @@ impl App {
 impl App {
     /// 1フレームぶんの画面。cpu_usage は前のフレームのCPU時間(秒。分からなければNone)
     pub fn frame(&mut self, ui: &mut egui::Ui, cpu_usage: Option<f32>) {
-        self.control_tick();
-        if self.shutdown_requested {
+        self.host.control_tick();
+        self.follow_host();
+        if self.host.shutdown_requested {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
         }
         if let (Some(p), Some(cpu)) = (self.perf.as_mut(), cpu_usage) {
             p.frame_cpu += cpu;
         }
-        let before=lock(&self.core).history_snapshot();
+        self.host.before_frame();
+        let before=lock(&self.host.core).history_snapshot();
         self.ui_timed(ui);
+        self.host.after_frame();
         if before.is_some() {
-            let after=lock(&self.core).history_snapshot();
+            let after=lock(&self.host.core).history_snapshot();
             crate::recording::HistorySnapshot::observe(before,after,"gui_frame");
         }
         if let Some(s) = self.shot.as_mut() {
@@ -784,97 +652,9 @@ impl App {
         }
     }
 
-    /// 画面を出さずに動かす(`dmxctl headless`)。モニターの無いPCで、Beat Link Triggerと一緒に置いてオートで動かす用。
-    /// OSC受信・テンポの元(Ableton Link)・オートを必ずONにする。終了は SIGTERM / Ctrl+C(安全な値を送ってから終わる)
-    pub fn run_headless() -> ! {
-        Self::run_headless_with_options(crate::control::Launch::default())
-    }
-
-    pub fn run_headless_with_options(options: crate::control::Launch) -> ! {
-        let ctx = egui::Context::default();
-        let mut app = App::with_options(&ctx, true, options).unwrap_or_else(|error| {
-            eprintln!("{error}");
-            std::process::exit(1);
-        });
-        let port = {
-            let mut c = lock(&app.core);
-            c.project.osc_enabled = true;
-            c.project.web_enabled = true;
-            c.project.tempo_source = TempoSource::Link;
-            c.project.auto.enabled = true;
-            c.dirty = true;
-            c.project.osc_port
-        };
-        app.apply_services();
-        if !app.notice.is_empty() {
-            eprintln!("{}", app.notice);
-        }
-        println!("dmxctl: 画面なしで起動しました(設定: {} / OSC受信ポート {port} / テンポ: Ableton Link / オート: ON)", app.project_path.display());
-        if app.web.is_some() {
-            println!("操作パネル: {}  (同じネットワークのスマホ・PCのブラウザで開く)", app.web_status);
-        }
-        let mut last = String::new();
-        let mut beat_report = Instant::now();
-        let mut blt_report: Option<Instant> = None;
-        loop {
-            std::thread::sleep(Duration::from_millis(250));
-            app.control_tick();
-            if app.shutdown_requested { app.shutdown(); std::process::exit(0); }
-            app.autosave();
-            let (ndi_on, state, bpm, peers, osc, blt) = {
-                let c = lock(&app.core);
-                let state = if c.manual_active() {
-                    "手動優先(MIDI・キーボードで操作中)".to_string()
-                } else if c.auto_online() {
-                    format!("曲の情報を受信中(フレーズ: {} / 見た目: {})", if c.rt.phrase.is_empty() { "-" } else { &c.rt.phrase }, if c.rt.auto_key.is_empty() { "-" } else { &c.rt.auto_key })
-                } else {
-                    "待機(薄い水色)".to_string()
-                };
-                (c.project.ndi.enabled, state, c.project.bpm, c.rt.link_peers, c.rt.osc_status.clone(), c.blt_state())
-            };
-            // BLTが見つからないときは、見つからなくなったときと、その後10分ごとに知らせる
-            let missing = matches!(blt, crate::engine::BltState::Missing(_));
-            if missing && blt_report.is_none_or(|t: Instant| t.elapsed() > Duration::from_secs(600)) {
-                eprintln!("{}", blt.message());
-                blt_report = Some(Instant::now());
-            } else if !missing && blt_report.is_some() {
-                println!("Beat Link Trigger が見つかりました");
-                blt_report = None;
-            }
-            if app.launch.inputs && ndi_on != app.ndi.is_some() {
-                app.ndi = ndi_on.then(|| crate::ndi::NdiService::start(app.core.clone(), None));
-            }
-            // 状態が変わったときと、1分ごとに知らせる(journalctl で見られる)
-            if state != last || beat_report.elapsed() > Duration::from_secs(60) {
-                println!("{state} / BPM {bpm:.1} / Link {peers}台 / OSC {osc}");
-                last = state;
-                beat_report = Instant::now();
-            }
-        }
-    }
-
-    /// 終了時は先にブラックアウトを数フレーム送ってから止める(レーザーを出しっぱなしにしない)
+    /// 終了(ホストが安全な値を送ってから止める)
     pub fn shutdown(&mut self) {
-        if self.shutdown_done { return; }
-        self.shutdown_done = true;
-        {
-            let mut c = lock(&self.core);
-            c.rt.blackout = true;
-            if self.launch.inputs { c.project.midi_input = self.midi.connected.clone().unwrap_or_default(); }
-        }
-        std::thread::sleep(Duration::from_millis(200));
-        self.osc = None;
-        self.web = None;
-        self.ndi = None;
-        lock(&self.core).rt.link = None;
-        self.midi.disconnect_clock();
-        self.midi.disconnect();
-        self.engine.stop();
-        if let Some(mut host) = self.control.take() {
-            // A recording may not be active; keep the normal shutdown path quiet.
-            let _ = host.finish_recording(self);
-        }
-        if self.launch.autosave { self.save(); }
+        self.host.shutdown();
     }
 }
 
@@ -884,7 +664,7 @@ impl eframe::App for App {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        self.shutdown();
+        self.host.shutdown();
     }
 }
 

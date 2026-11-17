@@ -24,9 +24,9 @@ impl App {
 
             // 全体光量
             caption(ui, "MASTER");
-            let mut pct = lock(&self.core).rt.master * 100.0;
+            let mut pct = lock(&self.host.core).rt.master * 100.0;
             if ui.add(egui::Slider::new(&mut pct, 0.0..=100.0).fixed_decimals(0).suffix("%")).on_hover_text("全体光量(すべての機材の明るさに掛かります)").changed() {
-                lock(&self.core).rt.master = pct / 100.0;
+                lock(&self.host.core).live(crate::live::LiveOp::SetMaster { level: pct / 100.0 });
             }
             ui.add_space(6.0);
             ui.separator();
@@ -34,7 +34,7 @@ impl App {
 
             // 暗転フェード
             let (dim, target, secs) = {
-                let c = lock(&self.core);
+                let c = lock(&self.host.core);
                 (c.rt.dim, c.rt.dim_target, c.project.fade_secs)
             };
             let text = if target < 0.5 {
@@ -49,11 +49,11 @@ impl App {
                 btn = btn.fill(theme::mix(theme::WIDGET, theme::WARN, 0.55));
             }
             if ui.add(btn).on_hover_text("全体の明るさを、右の秒数をかけて0にします(暗転しきるとレーザーも止まります)。もう一度押すと、同じ秒数で戻ります(D)").clicked() {
-                lock(&self.core).toggle_fade(secs);
+                lock(&self.host.core).live(crate::live::LiveOp::ToggleFade { secs });
             }
             let mut s = secs;
             if ui.add(egui::DragValue::new(&mut s).range(0.0..=60.0).speed(0.05).suffix(" 秒")).on_hover_text("暗転・復帰にかける時間").changed() {
-                let mut c = lock(&self.core);
+                let mut c = lock(&self.host.core);
                 c.project.fade_secs = s;
                 c.dirty = true;
             }
@@ -63,25 +63,25 @@ impl App {
 
             // 色の操作先: 全体(全機材) ⇄ 個別(選んだ機材だけ)
             let (global, selected, fixtures) = {
-                let c = lock(&self.core);
+                let c = lock(&self.host.core);
                 (c.rt.color_global, c.rt.selected.clone(), c.project.fixtures.iter().map(|f| (f.id, f.name.clone())).collect::<Vec<_>>())
             };
             let (label, color) = if global { ("色: 全体", theme::TEXT) } else { ("色: 個別", theme::WARN) };
             if ui.add(egui::Button::new(RichText::new(label).color(color))).on_hover_text("色の操作を、全機材(全体)にかけるか、選んだ機材だけ(個別)にかけるかを切り替えます").clicked() {
-                lock(&self.core).rt.color_global = !global;
+                lock(&self.host.core).live(crate::live::LiveOp::SetColorGlobal { on: !global });
             }
             if !global {
                 ui.menu_button(format!("選択中 {}台 ▾", selected.len()), |ui| {
                     for (id, name) in fixtures {
                         if ui.selectable_label(selected.contains(&id), name).clicked() {
-                            lock(&self.core).toggle_selected(id);
+                            lock(&self.host.core).live(crate::live::LiveOp::ToggleSelected { fixture: id });
                         }
                     }
                 });
             }
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let bo = lock(&self.core).rt.blackout;
+                let bo = lock(&self.host.core).rt.blackout;
                 let (text, fill, stroke) = if bo {
                     ("BLACKOUT中 ・ 解除", theme::DANGER, theme::DANGER)
                 } else {
@@ -89,7 +89,7 @@ impl App {
                 };
                 let btn = egui::Button::new(RichText::new(text).font(theme::bold(13.0)).color(Color32::WHITE)).fill(fill).stroke(egui::Stroke::new(1.0, stroke)).min_size(vec2(118.0, 28.0));
                 if ui.add(btn).on_hover_text("すべての機材を消します(Esc)").clicked() {
-                    lock(&self.core).rt.blackout = !bo;
+                    lock(&self.host.core).live(crate::live::LiveOp::SetBlackout { on: !bo });
                 }
                 let help: String = crate::app::SHORTCUTS.iter().map(|(k, d)| format!("{k}: {d}")).collect::<Vec<_>>().join("\n");
                 theme::help(ui, &format!("キーボードショートカット(文字の入力中は Esc と保存だけ)\n\n{help}"));
@@ -98,7 +98,7 @@ impl App {
     }
 
     pub fn tab_sequence(&mut self, ui: &mut egui::Ui) {
-        let shared = self.core.clone();
+        let shared = self.host.core.clone();
         let mut guard = lock(&shared);
         let core = &mut *guard;
         let scenes: Vec<String> = core.project.scenes.iter().map(|s| s.name.clone()).collect();
@@ -114,7 +114,7 @@ impl App {
             ui.label("テンポの元");
             for s in TempoSource::ALL {
                 if ui.radio(core.project.tempo_source == s, s.label()).clicked() && core.project.tempo_source != s {
-                    core.set_tempo_source(s);
+                    core.live(crate::live::LiveOp::SetTempoSource { source: s });
                     services = true;
                 }
             }
@@ -140,7 +140,12 @@ impl App {
                         }
                     });
                     if ui.button("一覧を更新").clicked() {
-                        self.audio_ports = crate::audio::input_devices();
+                        // 音声はホストのPCで開く(クライアントでは、サーバーの一覧を頼み直す)
+                        if self.host.is_client() {
+                            self.host.request_devices();
+                        } else {
+                            self.audio_ports = crate::audio::input_devices();
+                        }
                     }
                     if services {
                         changed = true;
@@ -157,7 +162,7 @@ impl App {
             }
             TempoSource::Link => {
                 let peers = core.rt.link_peers;
-                let (text, color) = if core.rt.link.is_none() {
+                let (text, color) = if core.rt.link.is_none() && !core.rt.remote_link {
                     ("Linkを開始できませんでした".to_string(), WARN)
                 } else if peers == 0 {
                     ("接続中のアプリ: 0(相手のLinkをONにしてください)".to_string(), WARN)
@@ -181,7 +186,7 @@ impl App {
                             core.project.clock_input.clear();
                             services = true;
                         }
-                        for p in &self.midi_ports {
+                        for p in &self.clock_ports {
                             if ui.selectable_label(core.project.clock_input == *p, p).clicked() {
                                 core.project.clock_input = p.clone();
                                 services = true;
@@ -212,19 +217,19 @@ impl App {
             let mut bpm = core.project.bpm;
             ui.label("BPM");
             if ui.add(egui::DragValue::new(&mut bpm).range(BPM_MIN..=BPM_MAX).speed(0.2).fixed_decimals(1)).changed() {
-                core.set_bpm(bpm);
+                core.live(crate::live::LiveOp::SetBpm { bpm });
             }
             if ui.button("TAP").clicked() {
-                core.tap();
+                core.live(crate::live::LiveOp::Tap);
             }
             if ui.button("頭出し").clicked() {
-                core.resync();
+                core.live(crate::live::LiveOp::Resync);
             }
             if ui.button("÷2").clicked() {
-                core.set_bpm(core.project.bpm / 2.0);
+                { let bpm = core.project.bpm / 2.0; core.live(crate::live::LiveOp::SetBpm { bpm }); }
             }
             if ui.button("×2").clicked() {
-                core.set_bpm(core.project.bpm * 2.0);
+                { let bpm = core.project.bpm * 2.0; core.live(crate::live::LiveOp::SetBpm { bpm }); }
             }
             let beat = core.beat_now();
             ui.label(RichText::new(format!("{}小節 {}拍目", beat.floor() as i64 / BEATS_PER_BAR + 1, (beat.floor() as i64).rem_euclid(BEATS_PER_BAR) + 1)).weak());

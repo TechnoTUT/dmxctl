@@ -102,7 +102,7 @@ pub fn run(args: Vec<String>) -> anyhow::Result<()> {
     if args[0] == "serve" {
         let launch = crate::control::Launch::parse(&args[1..],true)?;
         engine::install_safety_hooks();
-        return crate::app::App::serve(launch);
+        return crate::host::Host::serve(launch);
     }
     if args[0] == "ctl" { return crate::control::client(&args[1..]); }
     let args = Args::parse(args)?;

@@ -191,6 +191,14 @@ pub struct Runtime {
     pub keys_down: Vec<u8>,
     /// キーボードの数字の段に出す、LEDバーの模様のセット
     pub key_page: u8,
+    /// サーバーにつないだクライアント(`dmxctl connect`)では、操作をサーバーへ送る口。
+    /// このときの Core はサーバーの写しで、出力ループも外部との連携も動かさない
+    pub remote: Option<crate::remote::Link>,
+    /// クライアントでの表示用: サーバーで実行中のフェードの数・Ableton Linkが動いているか
+    pub remote_fades: usize,
+    pub remote_link: bool,
+    /// クライアントでの表示用: サーバーが安全停止中か(このプロセスの EMERGENCY とは別)
+    pub remote_emergency: bool,
 }
 
 impl Runtime {
@@ -230,6 +238,10 @@ impl Runtime {
             physical_output_enabled: false,
             project_path: None,
             remote_holds: HashMap::new(),
+            remote: None,
+            remote_fades: 0,
+            remote_link: false,
+            remote_emergency: false,
             flash_deadline: None,
             virtual_now: None,
             recorder: None,
@@ -783,7 +795,11 @@ pub fn emergency_stop(exit: bool) {
 
 /// 画面のスレッドのpanicで安全停止する(出力スレッドが安全なフレームを送る時間を待ってから終了へ進む)。
 /// Ctrl+C・終了のシグナルでも、安全なフレームを送ってから終了する
+/// install_safety_hooks を呼んだか(終了のシグナルを受けるのは、実際のアプリのプロセスだけ)
+pub static SAFETY_HOOKS: AtomicBool = AtomicBool::new(false);
+
 pub fn install_safety_hooks() {
+    SAFETY_HOOKS.store(true, Ordering::SeqCst);
     let default = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         default(info);

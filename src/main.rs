@@ -12,6 +12,10 @@ dmxctl apply-layout
     保存してあるプロジェクトを、おすすめのMIDI配置にする(先にバックアップを残す)
 dmxctl kmsdrm
     デスクトップ環境の無いLinuxで、画面に直接(KMS/DRM)出す(Linuxだけ)
+dmxctl connect HOST[:PORT]
+    サーバー(別のPCの dmxctl)につなぎ、画面とMIDIコントローラーだけを手元で動かす(ポートの既定は 9300)
+    サーバーは --remote-listen ADDR を付けて起動する(例: dmxctl headless --remote-listen 192.168.1.10)
+    クライアントから機材定義の安全の設定も変えるなら、サーバーに --remote-allow-safety-edit も付ける
 dmxctl serve|ctl|inspect|simulate|run|watch|log|diff ...
     自動操作・検証用のCLI(JSONで返す)。詳しくは下
 
@@ -19,7 +23,7 @@ dmxctl serve|ctl|inspect|simulate|run|watch|log|diff ...
 ";
 
 /// 最初の引数で決まる動かし方
-enum Mode { Gui, Headless, ApplyLayout, Kmsdrm, Cli, Help }
+enum Mode { Gui, Headless, ApplyLayout, Kmsdrm, Connect, Cli, Help }
 
 impl Mode {
     fn of(args: &[String]) -> (Self, &[String]) {
@@ -29,6 +33,7 @@ impl Mode {
             Some("headless") => (Self::Headless, rest),
             Some("apply-layout") => (Self::ApplyLayout, rest),
             Some("kmsdrm") => (Self::Kmsdrm, rest),
+            Some("connect") => (Self::Connect, rest),
             Some(command) if dmxctl::cli::COMMANDS.contains(&command) => (Self::Cli, args),
             // 以前の書き方(フラグ・環境変数)。systemd のサービスなど、インストール済みのものが使っている
             _ if args.iter().any(|a| a == "--apply-layout") => (Self::ApplyLayout, args),
@@ -64,22 +69,34 @@ fn main() -> eframe::Result {
             }
             return Ok(());
         }
-        Mode::Gui | Mode::Headless | Mode::Kmsdrm => {}
+        Mode::Gui | Mode::Headless | Mode::Kmsdrm | Mode::Connect => {}
     }
-    let launch = dmxctl::control::Launch::parse(rest, false).unwrap_or_else(|error| {
+    // connect は最初の引数が接続先
+    let (target, rest) = match mode {
+        Mode::Connect => match rest.split_first() {
+            Some((t, r)) if !t.starts_with("--") => (Some(t.clone()), r),
+            _ => {
+                eprintln!("接続先を指定してください: dmxctl connect HOST[:PORT]");
+                std::process::exit(1);
+            }
+        },
+        _ => (None, rest),
+    };
+    let mut launch = dmxctl::control::Launch::parse(rest, false).unwrap_or_else(|error| {
         eprintln!("{error}");
         std::process::exit(1);
     });
+    launch.connect = target;
     // 落ちたとき・終了のシグナルを受けたときに、安全な値(レーザーOFF・明るさ0)を送ってから終わる
     engine::install_safety_hooks();
     // 画面を出さずに動かす(モニターの無いPCで、Beat Link Triggerなどと一緒にオートで動かす)
     if matches!(mode, Mode::Headless) {
-        app::App::run_headless_with_options(launch);
+        dmxctl::host::Host::run_headless(launch);
     }
     // デスクトップ環境の無いLinux(または kmsdrm / DMXCTL_KMSDRM=1)では、画面に直接(KMS/DRM)出す
     #[cfg(target_os = "linux")]
     if kmsdrm::wanted(matches!(mode, Mode::Kmsdrm)) {
-        if let Err(e) = kmsdrm::run() {
+        if let Err(e) = kmsdrm::run(launch.clone()) {
             eprintln!("{e}");
             std::process::exit(1);
         }

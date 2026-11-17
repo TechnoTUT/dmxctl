@@ -605,6 +605,23 @@ impl Library {
         (lib, errors)
     }
 
+    /// サーバーから受け取った機材定義で作る(クライアントの写し用。ファイルには保存しない)
+    pub fn from_profiles(profiles: Vec<Profile>, builtin: Vec<String>) -> Self {
+        let mut lib = Library::default();
+        for p in profiles {
+            lib.add(p);
+        }
+        lib.builtin_ids = builtin.into_iter().collect();
+        lib
+    }
+
+    /// 内蔵の定義のidの一覧(クライアントへ送る)
+    pub fn builtin_ids(&self) -> Vec<String> {
+        let mut ids: Vec<String> = self.builtin_ids.iter().cloned().collect();
+        ids.sort();
+        ids
+    }
+
     pub(crate) fn add(&mut self, p: Profile) {
         self.profiles.retain(|x| x.id != p.id);
         let p = Arc::new(p);

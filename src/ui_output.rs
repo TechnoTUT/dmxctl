@@ -8,10 +8,10 @@ use eframe::egui::{self, Align2, Color32, FontId, RichText, Sense};
 
 impl App {
     pub fn tab_output(&mut self, ui: &mut egui::Ui) {
-        if !self.launch.output {
+        if !self.host.output_enabled() {
             ui.colored_label(WARN, "シミュレーション中です。出力先の設定を変更しても、実機には送信しません。");
         }
-        let shared = self.core.clone();
+        let shared = self.host.core.clone();
         let mut guard = lock(&shared);
         let core = &mut *guard;
         let mut apply = false;
@@ -140,11 +140,18 @@ impl App {
         }
         drop(guard);
 
-        if add_serial || refresh_serial {
-            self.serial_ports = opendmx::list_serial_ports();
-        }
-        if add_d2xx || refresh_d2xx {
-            self.d2xx = opendmx::list_d2xx();
+        if self.host.is_client() {
+            // 出力はサーバーのPCで開くので、サーバーの一覧を頼み直す
+            if refresh_serial || refresh_d2xx {
+                self.host.request_devices();
+            }
+        } else {
+            if add_serial || refresh_serial {
+                self.serial_ports = opendmx::list_serial_ports();
+            }
+            if add_d2xx || refresh_d2xx {
+                self.d2xx = opendmx::list_d2xx();
+            }
         }
         if add_serial {
             let port = self.serial_ports.first().map(|p| p.0.clone()).unwrap_or_default();
@@ -164,7 +171,7 @@ impl App {
         let u = self.monitor_universe;
         // チャンネルごとに、どの機材のどのチャンネルか
         let (frame, used, slots, in_use) = {
-            let c = lock(&self.core);
+            let c = lock(&self.host.core);
             let mut slots: Vec<Option<Slot>> = vec![None; 512];
             for (k, f) in c.project.fixtures.iter().enumerate().filter(|(_, f)| f.universe == u && f.address > 0) {
                 let Some(m) = c.lib.mode(&f.profile, f.mode) else { continue };

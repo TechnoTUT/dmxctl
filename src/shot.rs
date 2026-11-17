@@ -8,16 +8,19 @@ use std::path::{Path, PathBuf};
 pub struct Shot {
     path: PathBuf,
     frames: u32,
+    wait: u32,
     requested: bool,
 }
 
-/// 撮影を頼むまでに待つフレーム数(フォントの読み込みや初回の配置が落ち着くまで)
+/// 撮影を頼むまでに待つフレーム数(フォントの読み込みや初回の配置が落ち着くまで)。
+/// DMXCTL_SHOT_FRAMES=フレーム数 で延ばせる(撮る前に、操作を入れたいとき)
 const WAIT_FRAMES: u32 = 20;
 
 impl Shot {
     pub fn from_env() -> Option<Shot> {
         let path = std::env::var_os("DMXCTL_SHOT").filter(|v| !v.is_empty())?;
-        Some(Shot { path: PathBuf::from(path), frames: 0, requested: false })
+        let wait = std::env::var("DMXCTL_SHOT_FRAMES").ok().and_then(|v| v.parse().ok()).unwrap_or(WAIT_FRAMES);
+        Some(Shot { path: PathBuf::from(path), frames: 0, wait, requested: false })
     }
 
     /// 毎フレーム呼ぶ。撮れたら保存してウィンドウを閉じる
@@ -36,7 +39,7 @@ impl Shot {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             return;
         }
-        if !self.requested && self.frames >= WAIT_FRAMES {
+        if !self.requested && self.frames >= self.wait {
             ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
             self.requested = true;
         }

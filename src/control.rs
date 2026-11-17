@@ -1,6 +1,6 @@
-//! Local control channel. Requests are executed by the owning App, so GUI and
+//! Local control channel. Requests are executed by the owning Host, so GUI and
 //! headless mode share state, service management, saving and shutdown.
-use crate::{app::App, commands, engine, recording::Recording};
+use crate::{commands, engine, host::Host, recording::Recording};
 use anyhow::{Context, ensure, bail};
 use serde_json::{Value, json};
 use std::{io::{BufRead, BufReader, Read, Write}, net::{SocketAddr, TcpListener, TcpStream},
@@ -18,10 +18,17 @@ pub struct Launch {
     pub output: bool,
     pub inputs: bool,
     pub autosave: bool,
+    /// LANのクライアント(`dmxctl connect`)を待ち受けるアドレス(`--remote-listen`)
+    pub remote_listen: Option<SocketAddr>,
+    /// クライアントから、機材定義の安全の設定(安全な値・ARMが要るか)を変えることを許す(`--remote-allow-safety-edit`)。
+    /// 画面の無いサーバーで安全の設定を変えるときに付けて起動し直す
+    pub remote_allow_safety_edit: bool,
+    /// サーバーにつなぐクライアントとして起動する(`dmxctl connect HOST`)
+    pub connect: Option<String>,
 }
 
 impl Default for Launch {
-    fn default() -> Self { Self { project: None, listen: None, output: true, inputs: true, autosave: true } }
+    fn default() -> Self { Self { project: None, listen: None, output: true, inputs: true, autosave: true, remote_listen: None, remote_allow_safety_edit: false, connect: None } }
 }
 
 impl Launch {
@@ -35,6 +42,13 @@ impl Launch {
             let arg = &args[i];
             match arg.as_str() {
                 "--control" => { if result.listen.is_none() { result.listen = Some(DEFAULT_ADDRESS.parse()?); } }
+                "--remote-listen" => {
+                    // 認証をしないので、待ち受けるアドレスは必ず書いてもらう(既定で LAN 全体に開かない)
+                    i += 1;
+                    let value = args.get(i).filter(|v| !v.starts_with("--"))
+                        .context("--remote-listen needs an address (e.g. --remote-listen 192.168.1.10, or 0.0.0.0 to accept from anywhere)")?;
+                    result.remote_listen = Some(crate::remote::parse_listen(value)?);
+                }
                 "--project"|"--listen"|"--output"|"--inputs" => {
                     i += 1;
                     let value = args.get(i).context("startup option needs a value")?;
@@ -46,6 +60,7 @@ impl Launch {
                         _ => unreachable!(),
                     }
                 }
+                "--remote-allow-safety-edit" => result.remote_allow_safety_edit = true,
                 "--autosave" => result.autosave = true,
                 "--no-autosave" => result.autosave = false,
                 "--headless"|"--kmsdrm"|"--apply-layout" if !serve => {},
@@ -56,6 +71,7 @@ impl Launch {
             i += 1;
         }
         if serve { ensure!(result.project.is_some(), "serve requires --project"); }
+        ensure!(!result.remote_allow_safety_edit || result.remote_listen.is_some(), "--remote-allow-safety-edit needs --remote-listen");
         Ok(result)
     }
 }
@@ -68,7 +84,7 @@ fn local_address(value: &str) -> anyhow::Result<SocketAddr> {
 
 struct Request { value: Value, reply: mpsc::Sender<Value>, deadline:Instant }
 
-pub(crate) struct Host {
+pub(crate) struct Server {
     pub address: SocketAddr,
     stop: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
@@ -76,7 +92,7 @@ pub(crate) struct Host {
     recording: Option<Recording>,
 }
 
-impl Host {
+impl Server {
     pub fn start(address: SocketAddr, ctx: eframe::egui::Context) -> anyhow::Result<Self> {
         ensure!(address.ip().is_loopback(), "control server must bind to loopback");
         let listener = TcpListener::bind(address).context("cannot start control server")?;
@@ -124,7 +140,7 @@ impl Host {
         Ok(Self { address, stop, thread:Some(thread), requests, recording:None })
     }
 
-    pub fn poll(&mut self, app: &mut App) -> bool {
+    pub fn poll(&mut self, app: &mut Host) -> bool {
         let mut shutdown = false;
         for _ in 0..16 {
             let Ok(request) = self.requests.try_recv() else { break; };
@@ -153,7 +169,7 @@ impl Host {
         shutdown
     }
 
-    fn execute(&mut self, app: &mut App, request: &Value) -> anyhow::Result<Value> {
+    fn execute(&mut self, app: &mut Host, request: &Value) -> anyhow::Result<Value> {
         match request["op"].as_str().context("op is required")? {
             "status" => {
                 let mut core = engine::lock(&app.core);
@@ -281,7 +297,7 @@ impl Host {
         }
     }
 
-    pub fn finish_recording(&mut self, app: &App) -> anyhow::Result<()> {
+    pub fn finish_recording(&mut self, app: &Host) -> anyhow::Result<()> {
         let recording = self.recording.take().context("no active recording")?;
         {
             let mut core = engine::lock(&app.core);
@@ -293,7 +309,7 @@ impl Host {
     }
 }
 
-impl Drop for Host {
+impl Drop for Server {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
         if let Some(thread) = self.thread.take() { let _ = thread.join(); }

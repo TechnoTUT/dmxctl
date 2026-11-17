@@ -45,7 +45,7 @@ fn scale(w: u32, h: u32) -> f32 {
     ((fit_min * 20.0).floor() / 20.0).clamp(0.5, 1.0)
 }
 
-pub fn run() -> Result<(), String> {
+pub fn run(launch: crate::control::Launch) -> Result<(), String> {
     // 終了のシグナル(Ctrl+C など)は engine::install_safety_hooks で受ける(SDLには取らせない)
     sdl2::hint::set("SDL_NO_SIGNAL_HANDLERS", "1");
     // 指の入力は touch.rs でマウスの操作に直すので、SDLにはマウスの操作を作らせない(タッチパネルで1回触ると2回押したことになる)
@@ -103,12 +103,11 @@ pub fn run() -> Result<(), String> {
     }
     // ここから先で失敗して戻ると app.shutdown()(ブラックアウト・保存)を通らないので、失敗しうるものは先に用意する
     let mut pump = sdl.event_pump()?;
-    let launch = crate::control::Launch::parse(&std::env::args().skip(1).collect::<Vec<_>>(),false).map_err(|error|error.to_string())?;
     let mut app = App::with_options(&ctx, true, launch).map_err(|error|error.to_string())?;
     if !can_read_input() {
         let msg = "キーボード・マウスを読めません(/dev/input の権限が無い)。`sudo usermod -aG input $USER` のあとログインし直してください。終了は Ctrl+C(起動した端末で)";
         eprintln!("{msg}");
-        app.notice = msg.into();
+        app.host.notice = msg.into();
     }
 
     video.text_input().start();

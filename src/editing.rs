@@ -347,10 +347,11 @@ pub fn redact(value:&Value)->Value {
     }
 }
 
-impl crate::app::App {
+impl crate::host::Host {
+    /// プロジェクトのMIDI機器(midi_input)に、つないでいる機器を合わせる
     pub(crate) fn sync_midi_choice(&mut self)->anyhow::Result<()> {
         let name=crate::engine::lock(&self.core).project.midi_input.clone();
-        self.midi_choice=name.clone();
+        self.midi_synced+=1;
         if !self.launch.inputs {return Ok(());}
         if self.midi.connected.as_deref()==Some(name.as_str()) {return Ok(());}
         self.midi.disconnect();
@@ -374,6 +375,13 @@ impl crate::app::App {
     pub(crate) fn reload_checked(&mut self,path:Option<&std::path::Path>,remote:bool,dry_run:bool)->anyhow::Result<Value> {
         let path=path.unwrap_or(&self.project_path).to_path_buf();
         let text=std::fs::read_to_string(&path)?;
+        self.reload_text(&text,&path.display().to_string(),remote,dry_run)
+    }
+
+    /// プロジェクトの中身(JSON)を読み込む。保存先(project_path)は変えない。読み込む前の状態はバックアップに残す。
+    /// `source` は結果に出す読み込み元(ファイルの場所や名前)
+    pub(crate) fn reload_text(&mut self,text:&str,source:&str,remote:bool,dry_run:bool)->anyhow::Result<Value> {
+        let path=source;
         let mut project:Project=serde_json::from_str(text.trim_start_matches('\u{feff}'))?;
         let previous={
             let core=crate::engine::lock(&self.core);
@@ -403,7 +411,7 @@ impl crate::app::App {
         }
         let midi_error=if old_midi!=new_midi {self.sync_midi_choice().err().map(|e|e.to_string())}else{None};
         self.apply_services();
-        self.map_sel=None;self.pe=Default::default();
+        self.reloads+=1;
         Ok(json!({"applied":true,"source":path,"backup":backup,"project":self.project_path,"midi_error":midi_error}))
     }
 }

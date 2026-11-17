@@ -26,11 +26,12 @@ pub fn category_color(name: &str) -> Color32 {
 
 impl App {
     pub fn tab_control(&mut self, ui: &mut egui::Ui) {
-        let shared = self.core.clone();
+        let shared = self.host.core.clone();
         let mut guard = lock(&shared);
         let core = &mut *guard;
         let lib = core.lib.clone();
         let mut touched: Vec<(u32, usize)> = Vec::new();
+        let mut arm: Option<(u32, bool)> = None;
 
         if core.project.fixtures.is_empty() {
             ui.label("機材がありません。「パッチ」タブで追加してください。");
@@ -90,14 +91,14 @@ impl App {
                         btn = btn.stroke(egui::Stroke::new(2.0, Color32::from_rgb(255, 210, 60)));
                     }
                     if ui.add(btn).clicked() {
-                        core.apply_named_color(c, target);
+                        core.live(crate::live::LiveOp::NamedColor { color: c, target });
                     }
                 }
                 // HSVのH(0〜360度)。MIDIフェーダーで動かしたときも、このスライダーが追従する
                 let mut deg = current.map(crate::color::hue_of).unwrap_or(core.rt.hue);
                 ui.label("H");
                 if ui.add(Slider::new(&mut deg, 0.0..=360.0).fixed_decimals(0).suffix("°")).on_hover_text("色相(HSVのH)。0=赤 / 120=緑 / 240=青 / 360=赤に戻る").changed() {
-                    core.apply_hue(deg, target);
+                    core.live(crate::live::LiveOp::Hue { degrees: deg, target });
                 }
                 let (swatch, _) = ui.allocate_exact_size(egui::vec2(24.0, 18.0), egui::Sense::hover());
                 ui.painter().rect_filled(swatch, 3.0, rgb32(current.unwrap_or_else(|| crate::color::hsv(deg, 1.0, 1.0))));
@@ -149,7 +150,7 @@ impl App {
                 }
             });
             if let Some(n) = recall {
-                core.recall_position(&n);
+                core.live(crate::live::LiveOp::RecallPosition { name: n });
             }
             if let Some(i) = overwrite {
                 let (name, fade) = (core.project.positions[i].name.clone(), core.project.positions[i].fade);
@@ -198,10 +199,13 @@ impl App {
                     let a = (fx.address as usize - 1).min(512);
                     f[a..(a + mode.channels.len()).min(512)].to_vec()
                 });
-                fixture_panel(ui, fx, profile, mode, hidden, views.get(&fx.id), out.as_deref(), &mut touched);
+                fixture_panel(ui, fx, profile, mode, hidden, views.get(&fx.id), out.as_deref(), &mut touched, &mut arm);
             }
         });
 
+        if let Some((fixture, on)) = arm {
+            core.live(crate::live::LiveOp::SetArm { fixture, on });
+        }
         if !touched.is_empty() {
             // 手動で触ったチャンネルは実行中のフェードを止める
             core.rt.fades.retain(|f| !touched.contains(&(f.fixture, f.ch)));
@@ -225,16 +229,16 @@ impl App {
                 ui.label(name);
                 let mut rgb = if slot == ColorRole::Main { core.project.palette.main } else { core.project.palette.sub };
                 if ui.color_edit_button_rgb(&mut rgb).on_hover_text("クリックで色を自由に選べます").changed() {
-                    core.set_palette_color(slot, rgb);
+                    core.live(crate::live::LiveOp::SetPaletteColor { slot, rgb });
                 }
             }
             let text = if swapped { "⇄ 入れ替え中" } else { "⇄ 入れ替え" };
             if ui.selectable_label(core.rt.color_swapped, text).on_hover_text("メインの機材にサブ色、サブの機材にメイン色を出します(もう一度で戻る)").clicked() {
-                core.swap_palette();
+                core.live(crate::live::LiveOp::SwapPalette);
             }
             let mut auto = core.project.palette.auto;
             if ui.checkbox(&mut auto, "拍で自動入れ替え").changed() {
-                core.set_palette_auto(auto);
+                core.live(crate::live::LiveOp::SetPaletteAuto { on: auto });
             }
             let mut beats = core.project.palette.auto_beats;
             if ui.add(egui::DragValue::new(&mut beats).range(0.25..=64.0).speed(0.05).suffix(" 拍ごと")).changed() {
@@ -284,13 +288,13 @@ impl App {
             }
         }));
         for (id, r) in set {
-            core.set_color_role(id, r);
+            core.live(crate::live::LiveOp::SetColorRole { fixture: id, role: r });
         }
     }
 }
 
 #[allow(clippy::too_many_arguments)]
-fn fixture_panel(ui: &mut egui::Ui, fx: &mut FixtureInstance, profile: &Profile, mode: &Mode, hidden: &HashSet<String>, view: Option<&PairView>, out: Option<&[u8]>, touched: &mut Vec<(u32, usize)>) {
+fn fixture_panel(ui: &mut egui::Ui, fx: &mut FixtureInstance, profile: &Profile, mode: &Mode, hidden: &HashSet<String>, view: Option<&PairView>, out: Option<&[u8]>, touched: &mut Vec<(u32, usize)>, arm: &mut Option<(u32, bool)>) {
     let title = format!("{}   {} / {}   U{} @{}", fx.name, profile.name, mode.name, fx.universe + 1, fx.address);
     egui::CollapsingHeader::new(RichText::new(title).strong()).id_salt(fx.id).default_open(false).show(ui, |ui| {
         if profile.needs_arm {
@@ -301,7 +305,7 @@ fn fixture_panel(ui: &mut egui::Ui, fx: &mut FixtureInstance, profile: &Profile,
                     ("SAFE  出力停止中 (クリックでARM)", Color32::from_rgb(45, 110, 60))
                 };
                 if ui.add(egui::Button::new(RichText::new(text).strong().color(Color32::WHITE)).fill(fill)).clicked() {
-                    fx.armed = !fx.armed;
+                    *arm = Some((fx.id, !fx.armed));
                 }
                 ui.label(RichText::new("Class 3B: 人・動物・反射物に向けない / 床から3m以上").color(WARN).small());
             });
