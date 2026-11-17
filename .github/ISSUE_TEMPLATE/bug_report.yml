@@ -1,0 +1,85 @@
+name: 不具合の報告
+description: 動かない・おかしな動きをしたときに知らせる
+title: "[不具合] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        見つけた不具合を教えてくれてありがとうございます。下の項目を埋めてください。
+        わかる範囲で大丈夫です。わからない項目は「わからない」と書いてください。
+
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: 安全に関わる不具合か
+      description: レーザーや人に向く照明の値が、想定と違う動きをした場合はこちらにチェックしてください。
+      options:
+        - label: レーザーや人に向く照明の値が、想定と違う動きをした
+          required: false
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: 何が起きたか
+      description: 困ったことを、一文か二文で書いてください。
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 再現の手順
+      description: 同じことを起こすための操作を、順番に書いてください。
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 本当はどうなるはずだったか
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: 使っているOS
+      options:
+        - Windows
+        - Mac
+        - Linux
+        - その他
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: dmxctl の版
+      description: 「v0.2.0」のような版の名前か、ビルドした日付を書いてください。
+    validations:
+      required: true
+
+  - type: textarea
+    id: devices
+    attributes:
+      label: 使っている機材と接続
+      description: USB-DMX の種類、Art-Net、NDI、MIDI・キーボードなどを書いてください。
+      placeholder: 例: FT232R の USB-DMX / Art-Net / MIDI コントローラー
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: ログやスクリーンショット
+      description: 画面の写真や、ターミナルに出た文字を貼ってください。個人を特定できる情報は消してください。
+
+  - type: textarea
+    id: other
+    attributes:
+      label: そのほか
+      description: 気づいたことや、試してうまくいったことがあれば書いてください。
