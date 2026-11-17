@@ -10,7 +10,7 @@ pub mod engine;
 pub mod engine_tests;
 pub mod fixture;
 pub mod keys;
-#[cfg(all(target_os = "linux", feature = "kmsdrm"))]
+#[cfg(target_os = "linux")]
 pub mod kmsdrm;
 pub mod layout;
 #[cfg(test)]

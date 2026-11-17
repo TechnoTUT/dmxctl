@@ -1,7 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use dmxctl::{app, engine, layout};
-#[cfg(all(target_os = "linux", feature = "kmsdrm"))]
+#[cfg(target_os = "linux")]
 use dmxctl::kmsdrm;
 
 const USAGE: &str = "dmxctl [--project FILE] [--control] [--listen IP:PORT] [--output none|live] [--inputs none|configured] [--no-autosave]
@@ -11,7 +11,7 @@ dmxctl headless [同じオプション]
 dmxctl apply-layout
     保存してあるプロジェクトを、おすすめのMIDI配置にする(先にバックアップを残す)
 dmxctl kmsdrm
-    デスクトップ環境の無いLinuxで、画面に直接(KMS/DRM)出す(kmsdrm機能入りのビルドだけ)
+    デスクトップ環境の無いLinuxで、画面に直接(KMS/DRM)出す(Linuxだけ)
 dmxctl serve|ctl|inspect|simulate|run|watch|log|diff ...
     自動操作・検証用のCLI(JSONで返す)。詳しくは下
 
@@ -77,7 +77,7 @@ fn main() -> eframe::Result {
         app::App::run_headless_with_options(launch);
     }
     // デスクトップ環境の無いLinux(または kmsdrm / DMXCTL_KMSDRM=1)では、画面に直接(KMS/DRM)出す
-    #[cfg(all(target_os = "linux", feature = "kmsdrm"))]
+    #[cfg(target_os = "linux")]
     if kmsdrm::wanted(matches!(mode, Mode::Kmsdrm)) {
         if let Err(e) = kmsdrm::run() {
             eprintln!("{e}");
@@ -85,15 +85,10 @@ fn main() -> eframe::Result {
         }
         return Ok(());
     }
-    #[cfg(not(all(target_os = "linux", feature = "kmsdrm")))]
+    #[cfg(not(target_os = "linux"))]
     if matches!(mode, Mode::Kmsdrm) {
-        eprintln!("このビルドには kmsdrm 機能が入っていません。dmxctl-kmsdrm を使ってください(./scripts/build-linux.sh で作れます)");
+        eprintln!("kmsdrm は Linux だけで使えます");
         std::process::exit(1);
-    }
-    // kmsdrm機能なしで作ったものを、デスクトップ環境の無いLinuxで起動したとき(下のeframeは分かりにくいエラーで終わる)
-    #[cfg(all(target_os = "linux", not(feature = "kmsdrm")))]
-    if std::env::var_os("DISPLAY").is_none() && std::env::var_os("WAYLAND_DISPLAY").is_none() {
-        eprintln!("デスクトップ環境(X11 / Wayland)が見つかりません。画面に直接出すには、同梱の dmxctl-kmsdrm を使ってください(./scripts/build-linux.sh で作れます)");
     }
     // 開発・確認用: DMXCTL_SIZE=幅x高さ でウィンドウの大きさを指定
     let size = std::env::var("DMXCTL_SIZE").ok().and_then(|s| {

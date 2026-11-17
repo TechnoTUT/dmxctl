@@ -79,9 +79,9 @@ jobs:
           submodules: true
       - uses: Swatinem/rust-cache@v2
       - name: 開発用ライブラリを入れる
-        run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libasound2-dev libudev-dev libsdl2-dev
+        run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config cmake libasound2-dev libudev-dev libdrm-dev libgbm-dev libegl-dev libgles-dev
       - name: テスト
-        run: cargo test --features kmsdrm
+        run: cargo test
 
   linux-build:
     # 配布用のLinux版(PR とタグのときだけ)。Ubuntu 26.04 の上で Debian 13 のコンテナを動かし、その中で作る。
@@ -92,7 +92,7 @@ jobs:
     container: debian:13
     steps:
       - name: 開発用ライブラリを入れる
-        run: apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git build-essential pkg-config libasound2-dev libudev-dev libsdl2-dev
+        run: apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git build-essential pkg-config cmake libasound2-dev libudev-dev libdrm-dev libgbm-dev libegl-dev libgles-dev
       - uses: actions/checkout@v7
         with:
           submodules: true
@@ -100,11 +100,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Linux版をビルド
         run: chmod +x scripts/build-linux.sh && ./scripts/build-linux.sh
-      - name: デスクトップ用(dmxctl)が SDL2 を要らないことを確かめる
+      - name: dmxctl が libSDL2 を要らない(内蔵している)ことを確かめる
         run: |
           ldd dist/linux/dmxctl
           if ldd dist/linux/dmxctl | grep -q libSDL2; then echo "dmxctl が libSDL2 を必要としています"; exit 1; fi
-          ldd dist/linux/dmxctl-kmsdrm | grep libSDL2
       - name: 常駐版(x86_64)をまとめる
         run: ./scripts/package-linux-headless.sh x86_64
       - uses: actions/upload-artifact@v7
@@ -122,7 +121,7 @@ jobs:
     container: debian:12
     steps:
       - name: 開発用ライブラリを入れる
-        run: apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git build-essential pkg-config libasound2-dev libudev-dev
+        run: apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git build-essential pkg-config cmake libasound2-dev libudev-dev libdrm-dev libgbm-dev libegl-dev libgles-dev
       - uses: actions/checkout@v7
         with:
           submodules: true
