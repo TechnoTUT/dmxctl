@@ -8,7 +8,7 @@
 FROM docker.io/library/rust:1-trixie AS build
 
 # SDL2 と Ableton Link に要るもの。SDL2 は内蔵のソースからビルドし、Link は C++ で書かれている。
-# 一覧は docs/development.md の Linux と同じ
+# Linux で dmxctl をビルドするときに要るものと同じ一覧
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       build-essential pkg-config cmake \
