@@ -550,7 +550,8 @@ fn serve_conn(stream: TcpStream, core: &Shared, ctx: &eframe::egui::Context, eve
                             s.sent = Value::Null;
                         }
                         s.edits += 1;
-                        r.map(|a| a.services)
+                        // 当てる場所が無いのも、ほかのクライアントが一覧に追加・削除をした行き違い
+                        r.map(|a| a.services).map_err(|e| if e.is::<project_patch::Conflict>() { e } else { anyhow::anyhow!("{}({e})", project_patch::Conflict) })
                     }
                     // 機材定義はサーバーのフォルダに保存する(変わった定義は、次の状態で全クライアントに配られる)
                     "profile_save" => serde_json::from_value::<Profile>(v["profile"].clone()).map_err(anyhow::Error::from)
@@ -1253,6 +1254,18 @@ mod tests {
         (core, server)
     }
 
+    /// 手元の写しがサーバーと同じになるまでフレームを回す
+    fn converges(client: &mut Client, core: &Shared, server_core: &Shared) -> bool {
+        wait(|| {
+            frame(client, core, |_| {});
+            let mut server = serde_json::to_value(&lock(server_core).project).unwrap();
+            let mut local = serde_json::to_value(&lock(core).project).unwrap();
+            server["midi_input"] = Value::Null;
+            local["midi_input"] = Value::Null;
+            server == local
+        })
+    }
+
     #[test]
     fn held_pads_and_keys_are_released_when_a_client_drops() {
         use crate::project::{Action, Binding, MidiTrigger, PadMode, TriggerKind};
@@ -1278,6 +1291,46 @@ mod tests {
             let c = lock(&server_core);
             c.rt.flash.is_none() && !c.rt.notes_down[40] && c.rt.keys_down.is_empty()
         }), "the server must release what the dropped client was holding");
+    }
+
+    #[test]
+    fn an_edit_on_a_shifted_list_does_not_hit_another_item() {
+        let (server_core, server) = server();
+        let (core_a, mut a) = client(&server);
+        let (core_b, mut b) = client(&server);
+        let n = lock(&server_core).project.fixtures.len();
+        let old_second = lock(&server_core).project.fixtures[1].name.clone();
+        assert_ne!(old_second, lock(&server_core).project.fixtures[0].name);
+        // B は、A が先頭の機材を消す前の写しで、先頭の機材の名前を変える
+        b.before_frame(&core_b);
+        frame(&mut a, &core_a, |c| { c.project.fixtures.remove(0); });
+        assert!(wait(|| lock(&server_core).project.fixtures.len() == n - 1));
+        lock(&core_b).project.fixtures[0].name = "B edit".into();
+        b.after_frame(&core_b);
+        // B の編集は、詰めたあとの別の機材に当たらずに取り消され、B の写しはサーバーにそろう
+        assert!(converges(&mut b, &core_b, &server_core));
+        assert!(lock(&server_core).project.fixtures.iter().all(|f| f.name != "B edit"));
+        assert_eq!(lock(&server_core).project.fixtures[0].name, old_second);
+        assert!(b.take_errors().iter().any(|e| e.contains("重なった")));
+    }
+
+    #[test]
+    fn deleting_from_a_stale_list_does_not_drop_another_edit() {
+        let (server_core, server) = server();
+        let (core_a, mut a) = client(&server);
+        let (core_b, mut b) = client(&server);
+        let n = lock(&server_core).project.fixtures.len();
+        // A は、B が名前を変える前の写しで機材を消す
+        a.before_frame(&core_a);
+        frame(&mut b, &core_b, |c| c.project.fixtures[n - 1].name = "B edit".into());
+        assert!(wait(|| lock(&server_core).project.fixtures[n - 1].name == "B edit"));
+        lock(&core_a).project.fixtures.remove(0);
+        a.after_frame(&core_a);
+        // A の削除は B の名前の変更を消さずに取り消され、A の写しはサーバーにそろう
+        assert!(converges(&mut a, &core_a, &server_core));
+        assert_eq!(lock(&server_core).project.fixtures.len(), n);
+        assert_eq!(lock(&server_core).project.fixtures[n - 1].name, "B edit");
+        assert!(a.take_errors().iter().any(|e| e.contains("重なった")));
     }
 
     #[test]
