@@ -37,6 +37,7 @@ pub enum LiveOp {
     SetPaletteColor { slot: ColorRole, rgb: [f32; 3] },
     SetPaletteAuto { on: bool },
     SetEffect { name: String, on: bool },
+    SetPixelFx { name: String, on: bool },
     SetBarCount { count: usize },
     /// シーンを今の値で取り直す
     RefreshScene { index: usize },
@@ -91,6 +92,7 @@ impl Core {
             LiveOp::SetPaletteColor { slot, rgb } => self.set_palette_color(slot, rgb),
             LiveOp::SetPaletteAuto { on } => self.set_palette_auto(on),
             LiveOp::SetEffect { name, on } => self.set_effect(&name, on),
+            LiveOp::SetPixelFx { name, on } => self.set_pixel_fx(&name, on),
             LiveOp::SetBarCount { count } => self.set_bar_count(count),
             LiveOp::RefreshScene { index } => {
                 if index < self.project.scenes.len() {

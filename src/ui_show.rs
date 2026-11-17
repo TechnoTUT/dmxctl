@@ -491,7 +491,7 @@ impl App {
             }
         }
         if let Some(name) = turned_on {
-            core.set_pixel_fx(&name, true);
+            core.live(crate::live::LiveOp::SetPixelFx { name: name.clone(), on: true });
         }
         if let Some(i) = remove {
             core.project.pixel_fx.remove(i);
