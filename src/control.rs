@@ -1,6 +1,6 @@
-//! Local control channel. Requests are executed by the owning App, so GUI and
+//! Local control channel. Requests are executed by the owning Host, so GUI and
 //! headless mode share state, service management, saving and shutdown.
-use crate::{app::App, commands, engine, recording::Recording};
+use crate::{commands, engine, host::Host, recording::Recording};
 use anyhow::{Context, ensure, bail};
 use serde_json::{Value, json};
 use std::{io::{BufRead, BufReader, Read, Write}, net::{SocketAddr, TcpListener, TcpStream},
@@ -68,7 +68,7 @@ fn local_address(value: &str) -> anyhow::Result<SocketAddr> {
 
 struct Request { value: Value, reply: mpsc::Sender<Value>, deadline:Instant }
 
-pub(crate) struct Host {
+pub(crate) struct Server {
     pub address: SocketAddr,
     stop: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
@@ -76,7 +76,7 @@ pub(crate) struct Host {
     recording: Option<Recording>,
 }
 
-impl Host {
+impl Server {
     pub fn start(address: SocketAddr, ctx: eframe::egui::Context) -> anyhow::Result<Self> {
         ensure!(address.ip().is_loopback(), "control server must bind to loopback");
         let listener = TcpListener::bind(address).context("cannot start control server")?;
@@ -124,7 +124,7 @@ impl Host {
         Ok(Self { address, stop, thread:Some(thread), requests, recording:None })
     }
 
-    pub fn poll(&mut self, app: &mut App) -> bool {
+    pub fn poll(&mut self, app: &mut Host) -> bool {
         let mut shutdown = false;
         for _ in 0..16 {
             let Ok(request) = self.requests.try_recv() else { break; };
@@ -153,7 +153,7 @@ impl Host {
         shutdown
     }
 
-    fn execute(&mut self, app: &mut App, request: &Value) -> anyhow::Result<Value> {
+    fn execute(&mut self, app: &mut Host, request: &Value) -> anyhow::Result<Value> {
         match request["op"].as_str().context("op is required")? {
             "status" => {
                 let mut core = engine::lock(&app.core);
@@ -281,7 +281,7 @@ impl Host {
         }
     }
 
-    pub fn finish_recording(&mut self, app: &App) -> anyhow::Result<()> {
+    pub fn finish_recording(&mut self, app: &Host) -> anyhow::Result<()> {
         let recording = self.recording.take().context("no active recording")?;
         {
             let mut core = engine::lock(&app.core);
@@ -293,7 +293,7 @@ impl Host {
     }
 }
 
-impl Drop for Host {
+impl Drop for Server {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
         if let Some(thread) = self.thread.take() { let _ = thread.join(); }

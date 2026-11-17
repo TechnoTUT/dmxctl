@@ -14,7 +14,7 @@ impl App {
         self.osc_row(ui);
         ui.separator();
 
-        let shared = self.core.clone();
+        let shared = self.host.core.clone();
         let mut guard = lock(&shared);
         let core = &mut *guard;
         let lib = core.lib.clone();
@@ -51,7 +51,7 @@ impl App {
         if let Some(i) = remove {
             core.release_remote_controls();
             match crate::editing::gui_apply(core,&serde_json::json!([{"entity":"binding","op":"delete","index":i}])) {
-                Ok(_)=>changed=true,Err(error)=>self.notice=format!("割り当てを削除できません: {error}"),
+                Ok(_)=>changed=true,Err(error)=>self.host.notice=format!("割り当てを削除できません: {error}"),
             }
         }
         if changed {
@@ -61,7 +61,7 @@ impl App {
 
     fn osc_row(&mut self, ui: &mut egui::Ui) {
         let (mut on, port, status, last, mut smooth, phrase, osc_rgb, mut depth, level) = {
-            let c = lock(&self.core);
+            let c = lock(&self.host.core);
             (
                 c.project.osc_enabled,
                 c.project.osc_port,
@@ -77,13 +77,13 @@ impl App {
         let mut apply = false;
         ui.horizontal_wrapped(|ui| {
             if ui.checkbox(&mut on, "OSCを受信").on_hover_text("TouchDesignerなどからOSC(UDP)で操作します").changed() {
-                lock(&self.core).project.osc_enabled = on;
+                lock(&self.host.core).project.osc_enabled = on;
                 apply = true;
             }
             ui.label("ポート");
             ui.add(egui::DragValue::new(&mut self.osc_port_edit).range(1024..=65535));
             if self.osc_port_edit != port && ui.button("適用").clicked() {
-                lock(&self.core).project.osc_port = self.osc_port_edit;
+                lock(&self.host.core).project.osc_port = self.osc_port_edit;
                 apply = true;
             }
             ui.label(RichText::new(format!("状態: {status}")).weak());
@@ -95,7 +95,7 @@ impl App {
         ui.horizontal_wrapped(|ui| {
             ui.label("RGBで受けた色へ近づける速さ");
             if ui.add(egui::Slider::new(&mut smooth, 0.0..=5.0).suffix(" 秒").fixed_decimals(1)).on_hover_text("/dmx/main/rgb・/dmx/sub/rgb で受けた色へ、この時間をかけてなめらかに近づけます(0ですぐ)").changed() {
-                let mut c = lock(&self.core);
+                let mut c = lock(&self.host.core);
                 c.project.osc_rgb_secs = smooth;
                 c.dirty = true;
             }
@@ -107,7 +107,7 @@ impl App {
                 }
             }
             if osc_rgb.iter().any(Option::is_some) && ui.small_button("RGBをやめる").on_hover_text("パレットの色に戻します").clicked() {
-                lock(&self.core).rt.osc_rgb = [None, None];
+                lock(&self.host.core).rt.osc_rgb = [None, None];
             }
             if !phrase.is_empty() {
                 ui.label(RichText::new(format!("フレーズ: {phrase}")).weak());
@@ -117,14 +117,14 @@ impl App {
         ui.horizontal_wrapped(|ui| {
             ui.label("OSCの明るさ(/dmx/level)の効き具合");
             if ui.add(egui::Slider::new(&mut depth, 0.0..=1.0).custom_formatter(|v, _| format!("{:.0}%", v * 100.0))).on_hover_text("受けた明るさが0のとき、全体光量をどこまで下げるか(100%で真っ暗、0%で効かない)").changed() {
-                let mut c = lock(&self.core);
+                let mut c = lock(&self.host.core);
                 c.project.osc_level_depth = depth;
                 c.dirty = true;
             }
             if let Some(l) = level {
                 ui.add(egui::ProgressBar::new(l.clamp(0.0, 1.0)).desired_width(80.0).text(format!("{:.0}%", l * 100.0)));
                 if ui.small_button("明るさをやめる").clicked() {
-                    lock(&self.core).rt.osc_level = None;
+                    lock(&self.host.core).rt.osc_level = None;
                 }
             }
         });
@@ -147,7 +147,7 @@ impl App {
             });
         });
         if apply {
-            lock(&self.core).dirty = true;
+            lock(&self.host.core).dirty = true;
             self.apply_services();
         }
     }
@@ -155,7 +155,7 @@ impl App {
     /// ブラウザ(スマホなど)の操作パネル
     fn web_row(&mut self, ui: &mut egui::Ui) {
         let (mut on, mut port, mut pin) = {
-            let c = lock(&self.core);
+            let c = lock(&self.host.core);
             (c.project.web_enabled, c.project.web_port, c.project.web_pin.clone())
         };
         let before = (on, port, pin.clone());
@@ -166,15 +166,15 @@ impl App {
             ui.label("合言葉");
             ui.add(egui::TextEdit::singleline(&mut pin).password(true).desired_width(90.0).hint_text("なし"))
                 .on_hover_text("決めると、操作パネルを開いたときに入力を求めます。空なら、同じネットワークの誰でも操作できます");
-            if on && self.web.is_some() {
-                ui.hyperlink_to(&self.web_status, &self.web_status);
-            } else if on && !self.web_status.is_empty() {
-                ui.label(RichText::new(&self.web_status).color(crate::theme::WARN));
+            if on && self.host.web.is_some() {
+                ui.hyperlink_to(&self.host.web_status, &self.host.web_status);
+            } else if on && !self.host.web_status.is_empty() {
+                ui.label(RichText::new(&self.host.web_status).color(crate::theme::WARN));
             }
         });
         if (on, port, pin.clone()) != before {
             {
-                let mut c = lock(&self.core);
+                let mut c = lock(&self.host.core);
                 c.project.web_enabled = on;
                 c.project.web_port = port;
                 c.project.web_pin = pin;
@@ -197,35 +197,35 @@ impl App {
             if ui.button("更新").clicked() {
                 self.midi_ports = midi::list_ports();
             }
-            let connected = self.midi.connected.is_some();
+            let connected = self.host.midi.connected.is_some();
             if connected {
                 if ui.button("切断").clicked() {
-                    self.midi.disconnect();
-                    let mut c = lock(&self.core);
+                    self.host.midi.disconnect();
+                    let mut c = lock(&self.host.core);
                     c.rt.midi_status = "未接続".into();
                     c.project.midi_input.clear();
                     c.dirty = true;
                 }
             } else if ui.add_enabled(!self.midi_choice.is_empty(), egui::Button::new("接続")).clicked() {
                 let name = self.midi_choice.clone();
-                match self.midi.connect(&self.core, ctx.clone(), &name) {
+                match self.host.midi.connect(&self.host.core, ctx.clone(), &name) {
                     Ok(()) => {
-                        let mut c = lock(&self.core);
+                        let mut c = lock(&self.host.core);
                         c.project.midi_input = name;
                         c.dirty = true;
                         drop(c);
-                        self.notice.clear();
+                        self.host.notice.clear();
                         // MIDIクロックの入力がメインと同じポートなら、専用の入力は閉じる
                         self.apply_services();
                     }
-                    Err(e) => self.notice = format!("MIDI接続に失敗: {e}"),
+                    Err(e) => self.host.notice = format!("MIDI接続に失敗: {e}"),
                 }
             }
         });
         // パッドのLED(APC mini mk2)
         ui.horizontal(|ui| {
             let (mut on, mut idle, status) = {
-                let c = lock(&self.core);
+                let c = lock(&self.host.core);
                 (c.project.led_enabled, c.project.led_idle, c.rt.led_status.clone())
             };
             let mut changed = false;
@@ -237,16 +237,16 @@ impl App {
                     changed |= ui.selectable_value(&mut idle, i as u8, *n).changed();
                 }
             });
-            let mut true_color = lock(&self.core).project.led_true_color;
+            let mut true_color = lock(&self.host.core).project.led_true_color;
             if ui.checkbox(&mut true_color, "色のパッドは実際の色で").on_hover_text("色の指定・メイン/サブ色・機材の選択のパッドを、フルカラー(SysEx)で実際の色に光らせます。OFFなら128色のパレットから近い色").changed() {
-                let mut c = lock(&self.core);
+                let mut c = lock(&self.host.core);
                 c.project.led_true_color = true_color;
                 c.dirty = true;
             }
-            let note = if self.midi.led_active() { format!("LED: {status}") } else { "(APC mini mk2 に接続すると有効)".to_string() };
+            let note = if self.host.midi.led_active() { format!("LED: {status}") } else { "(APC mini mk2 に接続すると有効)".to_string() };
             ui.label(RichText::new(note).weak());
             if changed {
-                let mut c = lock(&self.core);
+                let mut c = lock(&self.host.core);
                 c.project.led_enabled = on;
                 c.project.led_idle = idle;
                 c.dirty = true;

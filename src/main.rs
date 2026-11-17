@@ -74,7 +74,7 @@ fn main() -> eframe::Result {
     engine::install_safety_hooks();
     // 画面を出さずに動かす(モニターの無いPCで、Beat Link Triggerなどと一緒にオートで動かす)
     if matches!(mode, Mode::Headless) {
-        app::App::run_headless_with_options(launch);
+        dmxctl::host::Host::run_headless(launch);
     }
     // デスクトップ環境の無いLinux(または kmsdrm / DMXCTL_KMSDRM=1)では、画面に直接(KMS/DRM)出す
     #[cfg(target_os = "linux")]

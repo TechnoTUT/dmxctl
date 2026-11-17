@@ -20,7 +20,7 @@ enum SceneOp {
 
 impl App {
     pub fn tab_scenes(&mut self, ui: &mut egui::Ui) {
-        let shared = self.core.clone();
+        let shared = self.host.core.clone();
         let mut guard = lock(&shared);
         let core = &mut *guard;
         let mut op: Option<SceneOp> = None;
@@ -70,7 +70,7 @@ impl App {
             match crate::editing::gui_apply(core,&serde_json::json!([{"entity":"scene","op":"capture",
                 "data":{"name":name,"fade":self.scene_fade,"fixtures":ids,"skip_categories":self.scene_skip_cats}}])) {
                 Ok(_)=>{self.scene_name.clear();changed=true;}
-                Err(error)=>self.notice=format!("シーンを保存できません: {error}"),
+                Err(error)=>self.host.notice=format!("シーンを保存できません: {error}"),
             }
         }
         ui.separator();
@@ -106,7 +106,7 @@ impl App {
             }
             Some(SceneOp::Delete(i)) => {
                 match crate::editing::gui_apply(core,&serde_json::json!([{"entity":"scene","op":"delete","index":i}])) {
-                    Ok(_)=>changed=true,Err(error)=>self.notice=format!("シーンを削除できません: {error}"),
+                    Ok(_)=>changed=true,Err(error)=>self.host.notice=format!("シーンを削除できません: {error}"),
                 }
             }
             None => {}
@@ -117,7 +117,7 @@ impl App {
     }
 
     pub fn tab_effects(&mut self, ui: &mut egui::Ui) {
-        let shared = self.core.clone();
+        let shared = self.host.core.clone();
         let mut guard = lock(&shared);
         let core = &mut *guard;
         let lib = core.lib.clone();

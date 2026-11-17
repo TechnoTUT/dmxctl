@@ -9,6 +9,7 @@ pub mod engine;
 #[cfg(test)]
 pub mod engine_tests;
 pub mod fixture;
+pub mod host;
 pub mod keys;
 #[cfg(target_os = "linux")]
 pub mod kmsdrm;

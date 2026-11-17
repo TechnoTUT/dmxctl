@@ -39,7 +39,7 @@ impl crate::app::App {
     /// オート: Beat Link Triggerなどから曲の情報が届いている間は自動で動かし、届かなければ待機の色で光らせる
     fn auto_row(&mut self, ui: &mut egui::Ui) {
         let (mut cfg, online, manual, energy, blt) = {
-            let c = lock(&self.core);
+            let c = lock(&self.host.core);
             (c.project.auto.clone(), c.auto_online(), c.manual_remaining(), c.rt.energy, c.blt_state())
         };
         // BLTが見つからないときは、いちばん上に目立つように
@@ -60,7 +60,7 @@ impl crate::app::App {
                 if let Some(rest) = manual {
                     ui.label(RichText::new(format!("✋ 手動優先(あと{rest:.0}秒)")).color(crate::theme::WARN));
                     if ui.small_button("オートに戻す").clicked() {
-                        lock(&self.core).rt.manual_last = None;
+                        lock(&self.host.core).rt.manual_last = None;
                     }
                 } else {
                     ui.label(RichText::new(if online { "● 曲の情報を受信中" } else { "○ 待機中" }).color(if online { crate::theme::ACCENT } else { crate::theme::TEXT_DIM }));
@@ -84,7 +84,7 @@ impl crate::app::App {
             ui.add(egui::DragValue::new(&mut cfg.manual_secs).range(0.0..=3600.0).suffix(" 秒")).on_hover_text("MIDIコントローラー・キーボードで操作したら、この秒数はオートが照明を変えません(0で手動優先なし)。画面のクリックは数えません");
         });
         if cfg != before {
-            let mut c = lock(&self.core);
+            let mut c = lock(&self.host.core);
             c.project.auto = cfg;
             c.dirty = true;
         }
@@ -92,7 +92,7 @@ impl crate::app::App {
 
     /// フレーズごとの見た目のプリセット
     fn preset_editor(&mut self, ui: &mut egui::Ui) {
-        let shared = self.core.clone();
+        let shared = self.host.core.clone();
         let mut guard = lock(&shared);
         let core = &mut *guard;
         let mut changed = false;

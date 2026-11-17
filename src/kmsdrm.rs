@@ -108,7 +108,7 @@ pub fn run() -> Result<(), String> {
     if !can_read_input() {
         let msg = "キーボード・マウスを読めません(/dev/input の権限が無い)。`sudo usermod -aG input $USER` のあとログインし直してください。終了は Ctrl+C(起動した端末で)";
         eprintln!("{msg}");
-        app.notice = msg.into();
+        app.host.notice = msg.into();
     }
 
     video.text_input().start();

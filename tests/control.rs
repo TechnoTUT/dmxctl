@@ -318,11 +318,11 @@ fn gui_frame_processes_commands_against_its_own_core() {
         }
         client.join().unwrap();
     }
-    assert_eq!(dmxctl::engine::lock(&app.core).project.fixtures[0].values[0],83);
-    assert_eq!(dmxctl::engine::lock(&app.core).project.groups[0].name,"GUI shared edit");
+    assert_eq!(dmxctl::engine::lock(&app.host.core).project.fixtures[0].values[0],83);
+    assert_eq!(dmxctl::engine::lock(&app.host.core).project.groups[0].name,"GUI shared edit");
     // No GUI frames or control polling: the engine must enforce the lease itself.
     std::thread::sleep(Duration::from_millis(200));
-    assert!(dmxctl::engine::lock(&app.core).rt.flash.is_none());
+    assert!(dmxctl::engine::lock(&app.host.core).rt.flash.is_none());
     app.shutdown();
     drop(app);
     std::fs::remove_dir_all(dir).unwrap();

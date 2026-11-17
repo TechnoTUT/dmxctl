@@ -56,7 +56,7 @@ impl App {
     }
 
     pub fn tab_profiles(&mut self, ui: &mut egui::Ui) {
-        let shared = self.core.clone();
+        let shared = self.host.core.clone();
         let mut guard = lock(&shared);
         let core = &mut *guard;
         let lib = core.lib.clone();

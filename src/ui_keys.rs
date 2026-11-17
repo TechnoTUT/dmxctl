@@ -14,7 +14,7 @@ const STAGGER: [f32; 4] = [0.0, 0.5, 0.75, 1.25];
 
 impl crate::app::App {
     pub fn tab_keys(&mut self, ui: &mut egui::Ui) {
-        let shared = self.core.clone();
+        let shared = self.host.core.clone();
         let mut guard = lock(&shared);
         let core = &mut *guard;
 

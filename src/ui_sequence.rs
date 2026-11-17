@@ -24,9 +24,9 @@ impl App {
 
             // 全体光量
             caption(ui, "MASTER");
-            let mut pct = lock(&self.core).rt.master * 100.0;
+            let mut pct = lock(&self.host.core).rt.master * 100.0;
             if ui.add(egui::Slider::new(&mut pct, 0.0..=100.0).fixed_decimals(0).suffix("%")).on_hover_text("全体光量(すべての機材の明るさに掛かります)").changed() {
-                lock(&self.core).rt.master = pct / 100.0;
+                lock(&self.host.core).rt.master = pct / 100.0;
             }
             ui.add_space(6.0);
             ui.separator();
@@ -34,7 +34,7 @@ impl App {
 
             // 暗転フェード
             let (dim, target, secs) = {
-                let c = lock(&self.core);
+                let c = lock(&self.host.core);
                 (c.rt.dim, c.rt.dim_target, c.project.fade_secs)
             };
             let text = if target < 0.5 {
@@ -49,11 +49,11 @@ impl App {
                 btn = btn.fill(theme::mix(theme::WIDGET, theme::WARN, 0.55));
             }
             if ui.add(btn).on_hover_text("全体の明るさを、右の秒数をかけて0にします(暗転しきるとレーザーも止まります)。もう一度押すと、同じ秒数で戻ります(D)").clicked() {
-                lock(&self.core).toggle_fade(secs);
+                lock(&self.host.core).toggle_fade(secs);
             }
             let mut s = secs;
             if ui.add(egui::DragValue::new(&mut s).range(0.0..=60.0).speed(0.05).suffix(" 秒")).on_hover_text("暗転・復帰にかける時間").changed() {
-                let mut c = lock(&self.core);
+                let mut c = lock(&self.host.core);
                 c.project.fade_secs = s;
                 c.dirty = true;
             }
@@ -63,25 +63,25 @@ impl App {
 
             // 色の操作先: 全体(全機材) ⇄ 個別(選んだ機材だけ)
             let (global, selected, fixtures) = {
-                let c = lock(&self.core);
+                let c = lock(&self.host.core);
                 (c.rt.color_global, c.rt.selected.clone(), c.project.fixtures.iter().map(|f| (f.id, f.name.clone())).collect::<Vec<_>>())
             };
             let (label, color) = if global { ("色: 全体", theme::TEXT) } else { ("色: 個別", theme::WARN) };
             if ui.add(egui::Button::new(RichText::new(label).color(color))).on_hover_text("色の操作を、全機材(全体)にかけるか、選んだ機材だけ(個別)にかけるかを切り替えます").clicked() {
-                lock(&self.core).rt.color_global = !global;
+                lock(&self.host.core).rt.color_global = !global;
             }
             if !global {
                 ui.menu_button(format!("選択中 {}台 ▾", selected.len()), |ui| {
                     for (id, name) in fixtures {
                         if ui.selectable_label(selected.contains(&id), name).clicked() {
-                            lock(&self.core).toggle_selected(id);
+                            lock(&self.host.core).toggle_selected(id);
                         }
                     }
                 });
             }
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let bo = lock(&self.core).rt.blackout;
+                let bo = lock(&self.host.core).rt.blackout;
                 let (text, fill, stroke) = if bo {
                     ("BLACKOUT中 ・ 解除", theme::DANGER, theme::DANGER)
                 } else {
@@ -89,7 +89,7 @@ impl App {
                 };
                 let btn = egui::Button::new(RichText::new(text).font(theme::bold(13.0)).color(Color32::WHITE)).fill(fill).stroke(egui::Stroke::new(1.0, stroke)).min_size(vec2(118.0, 28.0));
                 if ui.add(btn).on_hover_text("すべての機材を消します(Esc)").clicked() {
-                    lock(&self.core).rt.blackout = !bo;
+                    lock(&self.host.core).rt.blackout = !bo;
                 }
                 let help: String = crate::app::SHORTCUTS.iter().map(|(k, d)| format!("{k}: {d}")).collect::<Vec<_>>().join("\n");
                 theme::help(ui, &format!("キーボードショートカット(文字の入力中は Esc と保存だけ)\n\n{help}"));
@@ -98,7 +98,7 @@ impl App {
     }
 
     pub fn tab_sequence(&mut self, ui: &mut egui::Ui) {
-        let shared = self.core.clone();
+        let shared = self.host.core.clone();
         let mut guard = lock(&shared);
         let core = &mut *guard;
         let scenes: Vec<String> = core.project.scenes.iter().map(|s| s.name.clone()).collect();
