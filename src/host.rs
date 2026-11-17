@@ -191,6 +191,32 @@ impl Host {
         Ok(host)
     }
 
+    /// サーバーのPCの機器の一覧を頼み直す(クライアントのとき)
+    pub fn request_devices(&self) {
+        if let Some(c) = &self.client {
+            c.request_devices();
+        }
+    }
+
+    /// サーバーのPCの機器の一覧と、受け取った回数(クライアントのとき)
+    pub fn server_devices(&self) -> Option<(u64, crate::remote::Devices)> {
+        self.client.as_ref().and_then(|c| c.devices())
+    }
+
+    /// 機材定義の保存・削除をサーバーに頼む(クライアントのとき。頼んだらtrue)
+    pub fn remote_save_profile(&self, profile: &crate::fixture::Profile) -> bool {
+        self.client.as_ref().map(|c| c.save_profile(profile)).is_some()
+    }
+
+    pub fn remote_delete_profile(&self, id: &str) -> bool {
+        self.client.as_ref().map(|c| c.delete_profile(id)).is_some()
+    }
+
+    /// 実機に出力しているか(クライアントでは、サーバーが出しているか)
+    pub fn output_enabled(&self) -> bool {
+        if self.client.is_some() { lock(&self.core).rt.physical_output_enabled } else { self.launch.output }
+    }
+
     /// サーバーにつないだクライアントか
     pub fn is_client(&self) -> bool {
         self.client.is_some()

@@ -164,9 +164,31 @@ impl App {
                 }
                 self.pe.msg = (false, String::new());
             }
-            // 機材定義はサーバーのフォルダにあるので、クライアントからは保存・削除しない
-            Some(Act::Save | Act::Delete) if client => {
-                self.pe.msg = (true, "サーバーにつないでいる間は、機材定義を保存・削除できません(サーバーの画面で編集してください)".into());
+            // 機材定義はサーバーのフォルダにあるので、クライアントでは保存・削除をサーバーに頼む
+            // (結果の定義は、サーバーから全クライアントに配られる。失敗したら画面の下に出る)
+            Some(Act::Save) if client => {
+                if self.pe.is_new
+                    && let Some(d) = self.pe.draft.as_mut() {
+                    d.id = lib.unique_id(&d.name);
+                }
+                if let Some(d) = self.pe.draft.clone() {
+                    let report = d.validate();
+                    if !report.errors.is_empty() {
+                        self.pe.msg = (true, format!("保存できません: {}", report.errors.join(" / ")));
+                    } else if self.host.remote_save_profile(&d) {
+                        self.pe.is_new = false;
+                        self.pe.dirty = false;
+                        self.pe.msg = (false, "サーバーに保存しました(機材にも反映されます)".into());
+                    }
+                }
+            }
+            Some(Act::Delete) if client => {
+                if let Some(d) = self.pe.draft.clone()
+                    && self.host.remote_delete_profile(&d.id) {
+                    self.pe.draft = None;
+                    self.pe.dirty = false;
+                    self.pe.msg = (false, format!("「{}」の削除をサーバーに頼みました", d.name));
+                }
             }
             Some(Act::Save) => {
                 if self.pe.is_new

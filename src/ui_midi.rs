@@ -196,6 +196,9 @@ impl App {
             });
             if ui.button("更新").clicked() {
                 self.midi_ports = midi::list_ports();
+                if !self.host.is_client() {
+                    self.clock_ports = self.midi_ports.clone();
+                }
             }
             let connected = self.host.midi.connected.is_some();
             if connected {

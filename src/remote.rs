@@ -156,6 +156,7 @@ fn rt_state(c: &Core) -> Value {
         "live_sub": rt.live_sub,
         "keys_down": rt.keys_down,
         "fades": rt.fades.len(),
+        "physical_output": rt.physical_output_enabled,
         "auto_age": age(rt.auto_last),
         "blt_age": age(Some(rt.blt_seen)),
         "manual_age": age(rt.manual_last),
@@ -244,6 +245,8 @@ fn apply_rt_state(c: &mut Core, d: &Value) {
     rt.live_sub = val(d, "live_sub", None);
     rt.keys_down = val(d, "keys_down", Vec::new());
     rt.remote_fades = val(d, "fades", 0);
+    // 実機に出しているか(サーバーの起動のしかた)。画面の「シミュレーション中」の表示に使う
+    rt.physical_output_enabled = val(d, "physical_output", false);
     rt.auto_last = from_age(&d["auto_age"]);
     rt.blt_seen = from_age(&d["blt_age"]).unwrap_or_else(Instant::now);
     rt.manual_last = from_age(&d["manual_age"]);
@@ -268,6 +271,22 @@ fn frames_json(frames: &[[u8; 512]], universes: impl Iterator<Item = usize>) -> 
 
 fn library_json(lib: &Library) -> (Value, Value) {
     (json!(lib.profiles.iter().map(|p| p.as_ref()).collect::<Vec<_>>()), json!(lib.builtin_ids()))
+}
+
+/// サーバーのPCの機器の一覧(出力のシリアルポート・D2XX・音声入力・MIDIクロックの入力を選ぶのに使う。
+/// これらはサーバーで開くので、クライアントのPCの一覧ではなく、こちらを出す)
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Devices {
+    pub serial: Vec<(String, String)>,
+    pub d2xx: Result<Vec<String>, String>,
+    pub audio: Vec<String>,
+    pub midi: Vec<String>,
+}
+
+impl Devices {
+    fn list() -> Self {
+        Devices { serial: crate::opendmx::list_serial_ports(), d2xx: crate::opendmx::list_d2xx(), audio: crate::audio::input_devices(), midi: crate::midi::list_ports() }
+    }
 }
 
 // ------------------------------------------------------------------ サーバー
@@ -417,6 +436,13 @@ fn serve_conn(stream: TcpStream, core: &Shared, ctx: &eframe::egui::Context, eve
             }
             let v: Value = serde_json::from_slice(&buf)?;
             let seq = v["seq"].as_u64().unwrap_or(0);
+            // 機器の一覧は時間がかかることがあるので、Core を持たずに作る
+            if v["t"] == "devices" {
+                let devices = Devices::list();
+                let _ = conn.tx.try_send(json!({"t":"devices","devices":devices}).to_string());
+                guard(&conn.state).ack = seq;
+                continue;
+            }
             let outcome: anyhow::Result<bool> = {
                 let mut c = lock(core);
                 let r = match v["t"].as_str().unwrap_or("") {
@@ -437,6 +463,10 @@ fn serve_conn(stream: TcpStream, core: &Shared, ctx: &eframe::egui::Context, eve
                         s.edits += 1;
                         r.map(|a| a.services)
                     }
+                    // 機材定義はサーバーのフォルダに保存する(変わった定義は、次の状態で全クライアントに配られる)
+                    "profile_save" => serde_json::from_value::<Profile>(v["profile"].clone()).map_err(anyhow::Error::from)
+                        .and_then(|p| c.save_profile(&p, false, false)).map(|_| false),
+                    "profile_delete" => c.delete_profile(v["id"].as_str().unwrap_or(""), false, false).map(|_| false),
                     "resync" => {
                         guard(&conn.state).sent = Value::Null;
                         Ok(false)
@@ -591,6 +621,9 @@ struct ClientSync {
     /// 最後に届いた状態の処理済みの番号と、ARMの状態
     ack: u64,
     armed: Value,
+    /// サーバーのPCの機器の一覧と、受け取った回数
+    devices: Option<Devices>,
+    devices_count: u64,
     connected: bool,
     status: String,
     errors: Vec<String>,
@@ -676,6 +709,8 @@ impl Client {
             learn_seq: 0,
             ack: 0,
             armed,
+            devices: None,
+            devices_count: 0,
             connected: true,
             status: format!("接続中: {target}"),
             errors: Vec::new(),
@@ -708,6 +743,7 @@ impl Client {
         // 送る口は先に開いておく(スレッドが動き出す前に送ったものも落とさない)
         let (tx, rx) = mpsc::channel::<String>();
         *guard(&self.link.inner.tx) = Some(tx);
+        self.request_devices();
         let (link, sync, stop, target, ctx) = (self.link.clone(), self.sync.clone(), self.stop.clone(), self.target.clone(), self.ctx.clone());
         self.supervisor = Some(
             std::thread::Builder::new()
@@ -722,6 +758,7 @@ impl Client {
                                     let (tx, rx) = mpsc::channel::<String>();
                                     apply_welcome(&core, &sync, &v);
                                     *guard(&link.inner.tx) = Some(tx);
+                                    link.send(json!({"t":"devices"}));
                                     (w, r, rx)
                                 }
                                 Err(e) => {
@@ -810,6 +847,26 @@ impl Client {
     /// サーバーで保存する
     pub fn save(&self) {
         self.link.send(json!({"t":"save"}));
+    }
+
+    /// サーバーのPCの機器の一覧を頼む(届いたら `devices` で読める)
+    pub fn request_devices(&self) {
+        self.link.send(json!({"t":"devices"}));
+    }
+
+    /// サーバーのPCの機器の一覧と、受け取った回数(変わったかどうかを見る)
+    pub fn devices(&self) -> Option<(u64, Devices)> {
+        let s = guard(&self.sync);
+        s.devices.clone().map(|d| (s.devices_count, d))
+    }
+
+    /// 機材定義をサーバーのフォルダに保存する / 消す
+    pub fn save_profile(&self, profile: &Profile) {
+        self.link.send(json!({"t":"profile_save","profile":profile}));
+    }
+
+    pub fn delete_profile(&self, id: &str) {
+        self.link.send(json!({"t":"profile_delete","id":id}));
     }
 
     pub fn connected(&self) -> bool {
@@ -951,6 +1008,14 @@ fn run_connection(
         match v["t"].as_str() {
             Some("state") => {
                 apply_state(core, sync, link, &v);
+                ctx.request_repaint();
+            }
+            Some("devices") => {
+                if let Ok(d) = serde_json::from_value::<Devices>(v["devices"].clone()) {
+                    let mut s = guard(sync);
+                    s.devices = Some(d);
+                    s.devices_count += 1;
+                }
                 ctx.request_repaint();
             }
             Some("error") => {
@@ -1097,6 +1162,36 @@ mod tests {
         // つなぎ直したあとの操作も届く
         lock(&core).live(LiveOp::SetBlackout { on: true });
         assert!(wait(|| lock(&new_core).rt.blackout));
+    }
+
+    #[test]
+    fn device_lists_and_profiles_go_through_the_server() {
+        let dir = std::env::temp_dir().join(format!("dmxctl-remote-profiles-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (lib, _) = Library::load(&dir);
+        let project = Project::starter(&lib);
+        let server_core: Shared = Arc::new(Mutex::new(Core::new(project, Arc::new(lib))));
+        let server = RemoteServer::start(server_core.clone(), eframe::egui::Context::default(), "127.0.0.1:0".parse().unwrap()).unwrap();
+        let (core, client) = client(&server);
+        // つないだときに、サーバーのPCの機器の一覧が届く
+        assert!(wait(|| client.devices().is_some()));
+        let (count, _) = client.devices().unwrap();
+        client.request_devices();
+        assert!(wait(|| client.devices().is_some_and(|(n, _)| n > count)));
+        // クライアントで保存した機材定義は、サーバーのフォルダに入り、クライアントにも配られる
+        let mut profile = (*lock(&core).lib.profiles[0]).clone();
+        profile.id = "test/from-client".into();
+        profile.name = "From client".into();
+        client.save_profile(&profile);
+        assert!(wait(|| lock(&server_core).lib.get("test/from-client").is_some()));
+        assert!(wait(|| lock(&core).lib.get("test/from-client").is_some()));
+        assert!(std::fs::read_dir(&dir).unwrap().count() > 0, "saved into the server's folder");
+        client.delete_profile("test/from-client");
+        assert!(wait(|| lock(&server_core).lib.get("test/from-client").is_none()));
+        assert!(wait(|| lock(&core).lib.get("test/from-client").is_none()));
+        drop(client);
+        drop(server);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

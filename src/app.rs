@@ -84,6 +84,8 @@ pub struct App {
     pub monitor_all: bool,
     pub midi_ports: Vec<String>,
     pub midi_choice: String,
+    /// MIDIクロックの入力の候補(クロックはホストのPCで受けるので、クライアントではサーバーのPCの一覧)
+    pub clock_ports: Vec<String>,
     pub serial_ports: Vec<(String, String)>,
     pub d2xx: Result<Vec<String>, String>,
     pub new_group: String,
@@ -112,6 +114,7 @@ pub struct App {
     seen_reloads: u64,
     seen_services: u64,
     seen_midi: u64,
+    seen_devices: u64,
     /// 診断表示(環境変数 DMXCTL_PERF=1): 描画1回あたりの時間
     perf: Option<Perf>,
     /// 確認用の画面保存(環境変数 DMXCTL_SHOT)
@@ -145,6 +148,8 @@ impl App {
             seen_reloads: host.reloads,
             seen_services: host.services_applied,
             seen_midi: host.midi_synced,
+            seen_devices: 0,
+            clock_ports: Vec::new(),
             host,
             tab: Tab::Map,
             add_profile: 0,
@@ -177,6 +182,7 @@ impl App {
             && let Some((t, _)) = TABS.iter().find(|(_, label)| *label == name) {
             app.tab = *t;
         }
+        app.clock_ports = app.midi_ports.clone();
         if let Some(u) = std::env::var("DMXCTL_UNIVERSE").ok().and_then(|v| v.parse::<usize>().ok()) {
             app.monitor_universe = u.clamp(1, NUM_UNIVERSES) - 1;
         }
@@ -193,6 +199,15 @@ impl App {
         if self.seen_midi != self.host.midi_synced {
             self.seen_midi = self.host.midi_synced;
             self.midi_choice = lock(&self.host.core).project.midi_input.clone();
+        }
+        // クライアント: 出力・音声・MIDIクロックの機器は、サーバーのPCのものから選ぶ
+        if let Some((count, d)) = self.host.server_devices()
+            && count != self.seen_devices {
+            self.seen_devices = count;
+            self.serial_ports = d.serial;
+            self.d2xx = d.d2xx;
+            self.audio_ports = d.audio;
+            self.clock_ports = d.midi;
         }
         if self.seen_services != self.host.services_applied {
             self.seen_services = self.host.services_applied;
@@ -301,7 +316,7 @@ impl App {
             let bad = on.iter().filter(|(_, s)| output_has_error(s)).count();
             let color = if outs.is_empty() || bad > 0 { theme::WARN } else if on.is_empty() { theme::TEXT_FAINT } else { theme::OK };
             theme::dot(ui, color);
-            let text = if !self.host.launch.output && !self.host.is_client() {
+            let text = if !self.host.output_enabled() {
                 "出力: シミュレーション(実機送信なし)".to_string()
             } else if outs.is_empty() {
                 "出力: 未設定(「出力」タブで追加)".to_string()

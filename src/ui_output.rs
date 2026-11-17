@@ -8,7 +8,7 @@ use eframe::egui::{self, Align2, Color32, FontId, RichText, Sense};
 
 impl App {
     pub fn tab_output(&mut self, ui: &mut egui::Ui) {
-        if !self.host.launch.output {
+        if !self.host.output_enabled() {
             ui.colored_label(WARN, "シミュレーション中です。出力先の設定を変更しても、実機には送信しません。");
         }
         let shared = self.host.core.clone();
@@ -140,11 +140,18 @@ impl App {
         }
         drop(guard);
 
-        if add_serial || refresh_serial {
-            self.serial_ports = opendmx::list_serial_ports();
-        }
-        if add_d2xx || refresh_d2xx {
-            self.d2xx = opendmx::list_d2xx();
+        if self.host.is_client() {
+            // 出力はサーバーのPCで開くので、サーバーの一覧を頼み直す
+            if refresh_serial || refresh_d2xx {
+                self.host.request_devices();
+            }
+        } else {
+            if add_serial || refresh_serial {
+                self.serial_ports = opendmx::list_serial_ports();
+            }
+            if add_d2xx || refresh_d2xx {
+                self.d2xx = opendmx::list_d2xx();
+            }
         }
         if add_serial {
             let port = self.serial_ports.first().map(|p| p.0.clone()).unwrap_or_default();

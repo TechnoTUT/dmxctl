@@ -140,7 +140,12 @@ impl App {
                         }
                     });
                     if ui.button("一覧を更新").clicked() {
-                        self.audio_ports = crate::audio::input_devices();
+                        // 音声はホストのPCで開く(クライアントでは、サーバーの一覧を頼み直す)
+                        if self.host.is_client() {
+                            self.host.request_devices();
+                        } else {
+                            self.audio_ports = crate::audio::input_devices();
+                        }
                     }
                     if services {
                         changed = true;
@@ -181,7 +186,7 @@ impl App {
                             core.project.clock_input.clear();
                             services = true;
                         }
-                        for p in &self.midi_ports {
+                        for p in &self.clock_ports {
                             if ui.selectable_label(core.project.clock_input == *p, p).clicked() {
                                 core.project.clock_input = p.clone();
                                 services = true;
