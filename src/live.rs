@@ -58,6 +58,9 @@ pub enum LiveOp {
     SetMaster { level: f32 },
     /// 色を全体で変えるか、選んだ機材だけか
     SetColorGlobal { on: bool },
+    /// MIDI/OSCのラーン(次に届いた入力を、この番号の割り当てに覚えさせる)。
+    /// 画面はラーンの状態を直接書き換えるので、クライアントでは1フレームの後で変化をこの操作にして送る
+    SetLearn { midi: Option<usize>, osc: Option<usize> },
     /// OSCで受けた色・明るさを捨てて、画面の値に戻す
     ClearOscColor,
     ClearOscLevel,
@@ -75,6 +78,11 @@ impl LiveOp {
 impl Core {
     /// 画面からの操作を実行する
     pub fn live(&mut self, op: LiveOp) {
+        // クライアントでは、手元の写しを変えずにサーバーへ送る(結果はサーバーから届く状態で反映される)
+        if let Some(link) = &self.rt.remote {
+            link.live(&op);
+            return;
+        }
         match op {
             LiveOp::SetAttr { sel, attr, value } => self.set_attr(&sel, &attr, value),
             LiveOp::Midi { kind, channel, number, value } => self.handle_midi(MidiMsg { kind, channel: channel & 0x0F, number: number & 0x7F, value: value & 0x7F }),
@@ -115,6 +123,10 @@ impl Core {
             }
             LiveOp::SetMaster { level } => self.rt.master = level.clamp(0.0, 1.0),
             LiveOp::SetColorGlobal { on } => self.rt.color_global = on,
+            LiveOp::SetLearn { midi, osc } => {
+                self.rt.learn = midi.filter(|&i| i < self.project.bindings.len());
+                self.rt.osc_learn = osc.filter(|&i| i < self.project.bindings.len());
+            }
             LiveOp::ClearOscColor => self.rt.osc_rgb = [None, None],
             LiveOp::ClearOscLevel => self.rt.osc_level = None,
             LiveOp::ClearManual => self.rt.manual_last = None,

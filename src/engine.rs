@@ -191,6 +191,12 @@ pub struct Runtime {
     pub keys_down: Vec<u8>,
     /// キーボードの数字の段に出す、LEDバーの模様のセット
     pub key_page: u8,
+    /// サーバーにつないだクライアント(`dmxctl connect`)では、操作をサーバーへ送る口。
+    /// このときの Core はサーバーの写しで、出力ループも外部との連携も動かさない
+    pub remote: Option<crate::remote::Link>,
+    /// クライアントでの表示用: サーバーで実行中のフェードの数・Ableton Linkが動いているか
+    pub remote_fades: usize,
+    pub remote_link: bool,
 }
 
 impl Runtime {
@@ -230,6 +236,9 @@ impl Runtime {
             physical_output_enabled: false,
             project_path: None,
             remote_holds: HashMap::new(),
+            remote: None,
+            remote_fades: 0,
+            remote_link: false,
             flash_deadline: None,
             virtual_now: None,
             recorder: None,

@@ -52,6 +52,7 @@ pub mod pixel;
 pub mod project;
 pub mod project_patch;
 pub mod recording;
+pub mod remote;
 pub mod shot;
 pub mod theme;
 pub mod web;
