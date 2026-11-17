@@ -4,7 +4,7 @@ dmxctl を開発する人と AI エージェント向けのルールです。ビ
 
 ## 確かめ方
 
-- コミットの前に `cargo test --release` を通す
+- コミットの前に `cargo test --release` を通す。ドキュメント (docs/*) は対象外。
 - 他のOS向けのコードを変えたときは、`DMXCTL_CHECK_ONLY=1 cargo check --target …` で型チェックする。この場合 C++ はビルドしない
 - 画面の見た目は `DMXCTL_SHOT=保存先.png DMXCTL_TAB=タブ名` で撮って確かめる
 - 動作は CLI の `dmxctl serve` / `ctl` / `simulate` で最終DMX値を検証できる。使い方は [docs/cli.md](docs/cli.md)
@@ -36,7 +36,7 @@ dmxctl を開発する人と AI エージェント向けのルールです。ビ
 
 ## 書き方
 
-- 画面の文字・ドキュメント・コードのコメントは日本語で、やさしい言葉で書く
+- 画面の文字・ドキュメント・コードのコメントは日本語で、分かりやすい言葉で書く
 - 括弧書きの補足はできるだけ使わない。補足は文を分けるか、文の中に入れる。括弧を使ってよいのは「All-Photonics Network (APN)」のような略称の併記だけ。見出しにも括弧を入れない
 - ビルドスクリプト・CI の表示と、CLI が返す JSON・ヘルプは英語
 - 使い方が変わったら、同じ変更で `docs/` も直す。README.md は概要と Quick start だけにして、詳しいことは `docs/` に書く
