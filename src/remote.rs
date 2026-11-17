@@ -1429,14 +1429,15 @@ mod tests {
         lock(&server_core).project.fixtures[1].name = "server edit".into();
         // 同じころ、クライアントは別の値を書き換える
         frame(&mut client, &core, |c| c.project.fixtures[0].values[0] = 77);
-        for _ in 0..30 {
+        // 両方の編集が行き渡るまでフレームを回す。決まった回数だけ回すと、PCが混んでいるとき
+        // (テストを並べて動かすときなど)にサーバーへ届く前に終わってしまうので、届くまで待つ
+        let both_arrived = wait(|| {
             frame(&mut client, &core, |_| {});
             // 手元の編集は、どの時点でも戻らない
             assert_eq!(lock(&core).project.fixtures[0].values[0], 77);
-            std::thread::sleep(Duration::from_millis(20));
-        }
-        assert_eq!(lock(&core).project.fixtures[1].name, "server edit");
-        assert_eq!(lock(&server_core).project.fixtures[0].values[0], 77);
+            lock(&core).project.fixtures[1].name == "server edit" && lock(&server_core).project.fixtures[0].values[0] == 77
+        });
+        assert!(both_arrived, "the edits did not reach both sides");
     }
 
     #[test]
