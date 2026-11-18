@@ -1,6 +1,7 @@
 //! Shared application engine and automation interface.
 pub mod apcmini;
 pub mod audio;
+pub mod carabiner;
 pub mod app;
 #[cfg(test)]
 pub mod binding_tests;

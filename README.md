@@ -58,4 +58,4 @@ cargo run --release
 
 ## ライセンスについて
 
-GPLv2 以降で配布されている Ableton Link を組み込んでいるため、このアプリを他の人に配る場合は、GPL に従ってソースコードを一緒に公開する必要があります。Link のソースとライセンス文書は `third_party/link/` にあります。
+Ableton Link は GPLv2 以降なので、このアプリには入れていません。Link を使うときは、別のプログラムの [Carabiner](https://github.com/Deep-Symmetry/carabiner) にTCPでつなぎます。詳しくは [開発ガイド](docs/development.md#ライセンスについて) にあります。

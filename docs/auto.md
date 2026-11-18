@@ -61,7 +61,7 @@ CDJ / XDJ ── Pro DJ Link・LAN ── Linux PC ── USB-DMX または Art-
 
 2. 手元のPCから `ssh -L 5900:localhost:5900 ユーザー@このPC` でつなぎ、VNC ビューアで `localhost:5900` を開きます
 3. BLT で次を設定します
-   - Ableton Link: マスタープレイヤーのテンポと拍を Link に流す設定にします。BLT のバージョンによっては、Carabiner を別に入れる必要があります
+   - Ableton Link: マスタープレイヤーのテンポと拍を Link に流す設定にします。dmxctl は BLT が動かす Carabiner にそのままつながります。BLT のバージョンによっては、Carabiner を別に入れる必要があります
    - トリガーを1つ作り、Watch を Master Player にします。Global Setup と Tracked Update に、波形の色・大きさを先読みで送る式を入れます。式は [Beat Link Trigger との連携](integration.md#beat-link-trigger-との連携) にあります
    - フレーズを使うなら、Show に Phrase Trigger を作り、Started で `/dmx/phrase` を送ります
 4. BLT を終了すると設定が保存されます。端末で Ctrl+C を押し、`systemctl --user start beat-link-trigger` で元に戻します

@@ -7,9 +7,10 @@ use serde_json::{json, Value};
 use std::{collections::BTreeMap, io::{BufRead, Write}, path::{Path, PathBuf}, sync::{Arc, Mutex, mpsc}, time::{Duration, Instant}};
 
 /// `dmxctl` の最初の引数がこれなら、CLIとして動かす
-pub const COMMANDS: &[&str] = &["serve","ctl","inspect","simulate","run","watch","log","diff"];
+pub const COMMANDS: &[&str] = &["serve","ctl","inspect","simulate","run","watch","log","diff","carabiner"];
 
-pub const HELP: &str = r#"dmxctl inspect --project FILE [--fixtures DIR]
+pub const HELP: &str = r#"dmxctl carabiner install
+dmxctl inspect --project FILE [--fixtures DIR]
 dmxctl serve --project FILE [--listen 127.0.0.1:9190] [--output none|live] [--inputs none|configured] [--autosave]
 dmxctl ctl [--connect 127.0.0.1:9190] status|inspect|stop
 dmxctl ctl fixture list
@@ -103,6 +104,12 @@ pub fn run(args: Vec<String>) -> anyhow::Result<()> {
         let launch = crate::control::Launch::parse(&args[1..],true)?;
         engine::install_safety_hooks();
         return crate::host::Host::serve(launch);
+    }
+    if args[0] == "carabiner" {
+        ensure!(args.len() == 2 && args[1] == "install", "usage: dmxctl carabiner install");
+        let path = crate::carabiner::install()?;
+        println!("{}", serde_json::json!({"installed": path.display().to_string(), "version": crate::carabiner::VERSION}));
+        return Ok(());
     }
     if args[0] == "ctl" { return crate::control::client(&args[1..]); }
     let args = Args::parse(args)?;
