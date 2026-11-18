@@ -179,12 +179,13 @@ fn run(port: u16, initial_bpm: f64, shared: Arc<Mutex<Shared>>, rx: mpsc::Receiv
     // 入れてある Carabiner を、このアプリが起動したとき、その子プロセス
     let mut child: Option<std::process::Child> = None;
     let mut spawn_tries = 0;
+    let mut first = true;
     while !stop.load(Ordering::Relaxed) {
         match TcpStream::connect_timeout(&addr, Duration::from_millis(500)) {
             Ok(stream) => {
                 // つながっていない間にたまった操作は、古いので捨てる
                 while rx.try_recv().is_ok() {}
-                session(stream, initial_bpm, &shared, &rx, &stop);
+                session(stream, initial_bpm, &mut first, &shared, &rx, &stop);
                 *lock(&shared) = Shared::default();
             }
             Err(_) => {
@@ -220,14 +221,13 @@ fn run(port: u16, initial_bpm: f64, shared: Arc<Mutex<Shared>>, rx: mpsc::Receiv
 }
 
 /// 1回のつながりの間、状態を聞き続ける。切れたら戻る
-fn session(mut stream: TcpStream, initial_bpm: f64, shared: &Mutex<Shared>, rx: &mpsc::Receiver<String>, stop: &AtomicBool) {
+fn session(mut stream: TcpStream, initial_bpm: f64, first: &mut bool, shared: &Mutex<Shared>, rx: &mpsc::Receiver<String>, stop: &AtomicBool) {
     let _ = stream.set_nodelay(true);
     let _ = stream.set_read_timeout(Some(Duration::from_millis(20)));
     let _ = stream.set_write_timeout(Some(Duration::from_millis(200)));
     let mut inbox = Vec::new();
     let mut chunk = [0u8; 1024];
     let mut last_poll: Option<Instant> = None;
-    let mut first = true;
     let mut last_status = Instant::now();
     while !stop.load(Ordering::Relaxed) && last_status.elapsed() < STALE {
         while let Ok(line) = rx.try_recv() {
@@ -258,9 +258,9 @@ fn session(mut stream: TcpStream, initial_bpm: f64, shared: &Mutex<Shared>, rx: 
             snap.at = Instant::now();
             g.snap = Some(snap);
             drop(g);
-            // 最初につながったとき、仲間がいなければ、こちらのテンポで始める。いれば仲間に合わせる
-            if first {
-                first = false;
+            // 初めて状態を受け取ったときだけ初期化する。再接続では操作中のテンポを保つ
+            if *first {
+                *first = false;
                 if snap.peers == 0 && (snap.bpm - initial_bpm).abs() > 0.01 {
                     let bpm = initial_bpm.clamp(BPM_RANGE.0, BPM_RANGE.1);
                     if stream.write_all(format!("bpm {bpm:.3}\n").as_bytes()).is_err() {
@@ -306,6 +306,8 @@ pub(crate) mod fake {
         t0: Instant,
         /// 受けた force-beat-at-time の、`when` と本当の「今」の差。マイクロ秒
         forced: Vec<(f64, i64)>,
+        responding: bool,
+        connections: usize,
     }
 
     pub struct FakeCarabiner {
@@ -320,7 +322,7 @@ pub(crate) mod fake {
             let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
             let port = listener.local_addr().unwrap().port();
             let epoch = Instant::now();
-            let st = Arc::new(Mutex::new(State { bpm, peers, beat0: 37.0, t0: epoch, forced: Vec::new() }));
+            let st = Arc::new(Mutex::new(State { bpm, peers, beat0: 37.0, t0: epoch, forced: Vec::new(), responding: true, connections: 0 }));
             let st2 = st.clone();
             std::thread::spawn(move || {
                 for conn in listener.incoming() {
@@ -339,6 +341,14 @@ pub(crate) mod fake {
 
         pub fn bpm(&self) -> f64 {
             lock(&self.st).bpm
+        }
+
+        pub fn set_responding(&self, responding: bool) {
+            lock(&self.st).responding = responding;
+        }
+
+        pub fn connections(&self) -> usize {
+            lock(&self.st).connections
         }
 
         pub fn beat(&self) -> f64 {
@@ -369,12 +379,16 @@ pub(crate) mod fake {
     }
 
     fn serve(conn: TcpStream, st: Arc<Mutex<State>>, epoch: Instant) {
+        lock(&st).connections += 1;
         let mut out = conn.try_clone().unwrap();
         for line in BufReader::new(conn).lines() {
             let Ok(line) = line else { return };
             let mut w = line.split_whitespace();
             let reply = {
                 let mut s = lock(&st);
+                if !s.responding {
+                    continue;
+                }
                 match w.next() {
                     Some("status") => Some(status(&s, epoch)),
                     Some("bpm") => {
@@ -517,5 +531,23 @@ mod tests {
         std::thread::sleep(Duration::from_millis(300));
         assert_eq!(busy.bpm(), 120.0, "仲間がいるのに、テンポを書き換えた");
         assert!((l.state().unwrap().0 - 120.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn keeps_changed_tempo_after_status_timeout() {
+        let fake = FakeCarabiner::new(120.0, 0);
+        let l = Link::connect(fake.port, 120.0).unwrap();
+        assert!(wait(|| l.connected()));
+        l.set_tempo(90.0);
+        assert!(wait(|| (fake.bpm() - 90.0).abs() < 1e-3));
+        fake.set_responding(false);
+        assert!(wait(|| !l.connected()));
+        assert!(wait(|| fake.connections() >= 2));
+        fake.set_responding(true);
+        assert!(wait(|| l.connected()));
+        // 再接続直後の初期化コマンドと、その返事が処理されるまで待つ
+        std::thread::sleep(Duration::from_millis(250));
+        assert!((fake.bpm() - 90.0).abs() < 1e-3, "再接続で起動時のテンポに戻った");
+        assert!((l.state().unwrap().0 - 90.0).abs() < 1e-3);
     }
 }
