@@ -45,7 +45,7 @@ CDJ / XDJ ── Pro DJ Link・LAN ── Linux PC ── USB-DMX または Art-
 
 1. 機材・出力・シーンなどの設定は画面のあるPCで作成し、`~/.config/dmxctl/` をこのPCへコピーします。同じPCにモニターをつないで作ってもかまいません。フレーズごとの動きは **オート** タブのプリセットで決めておきます。シーン・エフェクトも選べます
 2. [Releases](https://github.com/TechnoTUT/dmxctl/releases) から `dmxctl-linux-x86_64` を落とします。Raspberry Pi などは `dmxctl-linux-arm64` です。このリポジトリも `git clone` しておきます。Debian 12・64bit の Raspberry Pi OS Bookworm・Ubuntu 24.04 以降で動きます
-3. BLT の公式の `.deb` を `sudo apt install ./beat-link-trigger_*.deb` で入れます。入った場所が `/opt/beat-link-trigger/bin/Beat Link Trigger` でなければ、`~/dmxctl/blt.env` に `BLT_CMD="起動コマンドの場所"` と書きます
+3. Beat Link Trigger (BLT) を入れます。BLT の [Releases](https://github.com/Deep-Symmetry/beat-link-trigger/releases) から `beat-link-trigger-*.jar` を落として、`~/dmxctl/beat-link-trigger.jar` という名前で置きます。BLT を動かすには Java 21 以上が要ります。Ubuntu 24.04 なら `sudo apt install openjdk-21-jre-headless` で入ります。jar を別の場所に置くときは、`~/dmxctl/blt.env` に `BLT_JAR="jarの場所"` と書きます
 4. リポジトリのフォルダで、落としたファイルの場所を付けて `./scripts/linux/install-headless.sh ~/Downloads/dmxctl-linux-arm64` を実行します。これで、電源を入れたら dmxctl と BLT がユーザーのサービスとして動くようになります。`--no-blt` を付けると dmxctl だけです。USB-DMX 用のグループに追加されたときは、一度再起動してください。ソースから使うときは、`./scripts/build-linux.sh` のあと、場所を付けずに `./scripts/linux/install-headless.sh` を実行します
 
 **BLT の設定**
