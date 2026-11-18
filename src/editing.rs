@@ -202,48 +202,93 @@ fn apply_with_policy(core:&mut Core,operations:&Value,dry_run:bool,remote:bool)-
 /// 画面から機材を消す。その機材を指す割り当てやエフェクトも一緒に片付けてから検証し、まとめて反映する。
 /// 一緒に消したものの名前を返す
 pub(crate) fn gui_delete_fixture(core:&mut Core,id:u32)->anyhow::Result<Vec<String>> {
-    ensure_idle(core)?;
-    let mut project=core.project.clone();
-    let removed=remove_fixture(&mut project,id)?;
-    validate(&project,&core.lib)?;
-    commit(core,project);
-    Ok(removed)
+    gui_change(core,|project|remove_fixture(project,id))
 }
 
-/// 割り当ての対象が、消す機材そのものか
-fn targets_fixture(action:&Action,id:u32)->bool {
+/// 画面からグループを消す。そのグループを指す割り当てやエフェクトも一緒に片付ける。
+/// 一緒に消したものの名前を返す
+pub(crate) fn gui_delete_group(core:&mut Core,name:&str)->anyhow::Result<Vec<String>> {
+    gui_change(core,|project|{
+        let index=project.groups.iter().position(|g|g.name==name).context("unknown group")?;
+        project.groups.remove(index);
+        Ok(remove_targeting(project,&Selector::Group(name.to_string()),None))
+    })
+}
+
+/// 画面からグループの名前を変える。そのグループを指す割り当てとエフェクトも新しい名前に書き換えるので、何も消えない
+pub(crate) fn gui_rename_group(core:&mut Core,old:&str,new:&str)->anyhow::Result<()> {
+    let new=new.trim();
+    ensure!(!new.is_empty(),"group name is empty");
+    gui_change(core,|project|{
+        let group=project.groups.iter_mut().find(|g|g.name==old).context("unknown group")?;
+        group.name=new.to_string();
+        let (from,to)=(Selector::Group(old.to_string()),Selector::Group(new.to_string()));
+        for sel in project.effects.iter_mut().map(|e|&mut e.sel).chain(project.pixel_fx.iter_mut().map(|e|&mut e.sel))
+            .chain(project.bindings.iter_mut().filter_map(|b|action_selector(&mut b.action))) {
+            if *sel==from {*sel=to.clone();}
+        }
+        Ok(())
+    }).map(|_|())
+}
+
+/// プロジェクトのコピーを書き換え、検証してからまとめて反映する
+fn gui_change<T>(core:&mut Core,change:impl FnOnce(&mut Project)->anyhow::Result<T>)->anyhow::Result<T> {
+    ensure_idle(core)?;
+    let mut project=core.project.clone();
+    let result=change(&mut project)?;
+    validate(&project,&core.lib)?;
+    commit(core,project);
+    Ok(result)
+}
+
+/// 割り当てが機材の選び方を持っていれば、それを返す
+fn action_selector(action:&mut Action)->Option<&mut Selector> {
     match action {
-        Action::SetValue{sel,..}|Action::Level{sel}|Action::Mute{sel,..}|Action::Role{sel,..}|Action::Arm{sel,..}=>*sel==Selector::Fixture(id),
-        Action::Select{fixture,..}=>*fixture==id,
+        Action::SetValue{sel,..}|Action::Level{sel}|Action::Mute{sel,..}|Action::Role{sel,..}|Action::Arm{sel,..}=>Some(sel),
+        _=>None,
+    }
+}
+
+/// 割り当ての対象が、消すものそのものか。fixture は「選択」の割り当てが指す機材
+fn targets(action:&Action,gone:&Selector,fixture:Option<u32>)->bool {
+    match action {
+        Action::SetValue{sel,..}|Action::Level{sel}|Action::Mute{sel,..}|Action::Role{sel,..}|Action::Arm{sel,..}=>sel==gone,
+        Action::Select{fixture:id,..}=>fixture==Some(*id),
         _=>false,
     }
 }
 
-/// 機材と、その機材への参照をプロジェクトから取り除く。
-/// 機材だけを対象にしたエフェクトと割り当ては残しても動かないので消し、消したエフェクトを使う割り当てとオートの演出からも外す
+/// 機材と、その機材への参照をプロジェクトから取り除く
 fn remove_fixture(project:&mut Project,id:u32)->anyhow::Result<Vec<String>> {
     let index=project.fixture_index(id).context("unknown fixture")?;
     project.fixtures.remove(index);
     for g in &mut project.groups {g.fixtures.retain(|x|*x!=id);}
     project.pairs.retain(|p|p.leader!=id && p.follower!=id);
     for s in project.scenes.iter_mut().chain(project.positions.iter_mut()) {s.values.retain(|v|v.fixture!=id);}
+    Ok(remove_targeting(project,&Selector::Fixture(id),Some(id)))
+}
+
+/// 消した機材やグループだけを対象にしたエフェクトと割り当ては、残しても動かないので消す。
+/// 消したエフェクトを使う割り当てとオートの演出からも外す。消したものの名前を返す
+fn remove_targeting(project:&mut Project,gone:&Selector,fixture:Option<u32>)->Vec<String> {
     let mut removed=Vec::new();
     let mut effect_names=Vec::new();
-    project.effects.retain(|e|{let keep=e.sel!=Selector::Fixture(id);if !keep {effect_names.push(e.name.clone());}keep});
-    project.pixel_fx.retain(|e|{let keep=e.sel!=Selector::Fixture(id);if !keep {effect_names.push(e.name.clone());}keep});
+    project.effects.retain(|e|{let keep=e.sel!=*gone;if !keep {effect_names.push(e.name.clone());}keep});
+    project.pixel_fx.retain(|e|{let keep=e.sel!=*gone;if !keep {effect_names.push(e.name.clone());}keep});
     // 同じ名前のエフェクトが残っていれば、名前での参照はそのまま使える
     effect_names.retain(|name|!project.effects.iter().any(|e|&e.name==name) && !project.pixel_fx.iter().any(|e|&e.name==name));
-    effect_names.dedup();
+    let mut seen=HashSet::new();
+    effect_names.retain(|name|seen.insert(name.clone()));
     removed.extend(effect_names.iter().map(|name|format!("エフェクト「{name}」")));
     project.bindings.retain(|b|{
-        let keep=!targets_fixture(&b.action,id) && !matches!(&b.action,Action::Effect{name,..} if effect_names.contains(name));
+        let keep=!targets(&b.action,gone,fixture) && !matches!(&b.action,Action::Effect{name,..} if effect_names.contains(name));
         if !keep {removed.push(format!("割り当て「{}」",b.name));}
         keep
     });
     for preset in &mut project.auto.presets {
         for look in preset.looks.values_mut() {look.effects.retain(|e|!effect_names.contains(e));}
     }
-    Ok(removed)
+    removed
 }
 
 pub fn safety_unchanged(old:&Project,new:&Project,lib:&Library)->anyhow::Result<()> {
@@ -647,11 +692,54 @@ mod tests {
         let (lib,_)=Library::load(Path::new("none"));
         let project:Project=serde_json::from_str(include_str!("../config/project.json")).unwrap();
         let mut c=Core::new(project,Arc::new(lib));
-        assert!(c.project.bindings.iter().any(|b|targets_fixture(&b.action,1)));
+        assert!(c.project.bindings.iter().any(|b|targets(&b.action,&Selector::Fixture(1),Some(1))));
         let removed=gui_delete_fixture(&mut c,1).unwrap();
         assert!(removed.iter().any(|r|r.contains("パッド56")));
         crate::editing::gui_apply(&mut c,&json!([{"entity":"fixture","op":"create","data":{"profile":"stage-evolution/minispot30"}}])).unwrap();
         crate::editing::gui_apply(&mut c,&json!([{"entity":"group","op":"create","data":{"name":"G"}}])).unwrap();
+    }
+    #[test]
+    fn gui_group_delete_clears_references_so_later_edits_still_work() {
+        let mut c=core();
+        gui_apply(&mut c,&json!([
+            {"entity":"group","op":"create","data":{"name":"G","fixtures":[1]}},
+            {"entity":"group","op":"create","data":{"name":"Keep","fixtures":[2]}},
+            {"entity":"effect","op":"create","data":{"name":"GFx","sel":{"Group":"G"},"attr":"dimmer"}},
+            {"entity":"pixel","op":"create","data":{"name":"GPx","sel":{"Group":"G"}}},
+            {"entity":"binding","op":"create","data":{"name":"GLevel","action":{"Level":{"sel":{"Group":"G"}}}}},
+            {"entity":"binding","op":"create","data":{"name":"GFxPad","action":{"Effect":{"name":"GFx","mode":"Toggle"}}}},
+            {"entity":"binding","op":"create","data":{"name":"KeepLevel","action":{"Level":{"sel":{"Group":"Keep"}}}}}
+        ])).unwrap();
+        let removed=gui_delete_group(&mut c,"G").unwrap();
+        assert_eq!(c.project.groups.iter().map(|g|g.name.as_str()).collect::<Vec<_>>(),vec!["Keep"]);
+        assert!(c.project.effects.is_empty() && c.project.pixel_fx.is_empty());
+        let names:Vec<_>=c.project.bindings.iter().map(|b|b.name.as_str()).collect();
+        assert!(names.contains(&"KeepLevel") && !names.contains(&"GLevel") && !names.contains(&"GFxPad"));
+        assert!(removed.iter().any(|r|r.contains("GFx")) && removed.iter().any(|r|r.contains("GLevel")));
+        assert_eq!(c.project.fixtures.len(),2,"deleting a group must not delete its fixtures");
+        gui_apply(&mut c,&json!([{"entity":"group","op":"create","data":{"name":"After"}}])).unwrap();
+    }
+    #[test]
+    fn gui_group_rename_rewrites_references_and_rejects_bad_names() {
+        let mut c=core();
+        gui_apply(&mut c,&json!([
+            {"entity":"group","op":"create","data":{"name":"G","fixtures":[1]}},
+            {"entity":"group","op":"create","data":{"name":"Other"}},
+            {"entity":"effect","op":"create","data":{"name":"E","sel":{"Group":"G"},"attr":"dimmer"}},
+            {"entity":"pixel","op":"create","data":{"name":"P","sel":{"Group":"G"}}},
+            {"entity":"binding","op":"create","data":{"name":"B","action":{"Mute":{"sel":{"Group":"G"},"mode":"Toggle"}}}}
+        ])).unwrap();
+        let before=state(&c);
+        assert!(gui_rename_group(&mut c,"G","Other").is_err());
+        assert!(gui_rename_group(&mut c,"G","  ").is_err());
+        assert_eq!(state(&c),before);
+        gui_rename_group(&mut c,"G"," G2 ").unwrap();
+        let to=Selector::Group("G2".into());
+        assert_eq!(c.project.groups[0].name,"G2");
+        assert_eq!(c.project.effects[0].sel,to);assert_eq!(c.project.pixel_fx[0].sel,to);
+        let b=c.project.bindings.iter_mut().find(|b|b.name=="B").unwrap();
+        assert_eq!(action_selector(&mut b.action).cloned(),Some(to));
+        gui_apply(&mut c,&json!([{"entity":"fixture","op":"create","data":{"profile":"stage-evolution/minispot30"}}])).unwrap();
     }
     #[test]
     fn safety_and_binding_identity_cannot_be_replaced_by_edits() {

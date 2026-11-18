@@ -89,6 +89,8 @@ pub struct App {
     pub serial_ports: Vec<(String, String)>,
     pub d2xx: Result<Vec<String>, String>,
     pub new_group: String,
+    /// パッチタブで名前を書き換え中のグループの番号と、入力中の名前。確定するまでプロジェクトには反映しない
+    pub group_rename: Option<(usize, String)>,
     pub map_sel: Option<crate::apcmini::Ctl>,
     /// レーザータブで、動いてよい範囲を編集中のレーザー
     pub laser_edit: Option<u32>,
@@ -162,6 +164,7 @@ impl App {
             serial_ports: if options.output { crate::opendmx::list_serial_ports() } else { Vec::new() },
             d2xx: Ok(Vec::new()),
             new_group: String::new(),
+            group_rename: None,
             map_sel: None,
             laser_edit: None,
             cat_hidden: HashSet::new(),
