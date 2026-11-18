@@ -22,7 +22,3 @@ spec:
     protocol: UDP
     port: 9000
     targetPort: osc
-  - name: remote
-    protocol: TCP
-    port: 9300
-    targetPort: remote

@@ -53,6 +53,6 @@ EXPOSE 8080/tcp 9000/udp
 
 # 既定は安全側: 実機に出さず、自動保存も入力もしない。
 # 本番では Kubernetes の args で、--output live・--inputs configured・--autosave を明示して上書きする。
-# 制御の窓口は、このコンテナの中の loopback だけで開く。外からは、PIN 付きの操作パネルと OSC だけが届く
+# 制御の窓口は、このコンテナの中の loopback だけで開く。外からは、操作パネルと OSC だけが届く。操作パネルを使うときは project.json の web_pin に PIN を付ける
 ENTRYPOINT ["/usr/local/bin/dmxctl"]
 CMD ["serve", "--project", "/data/project.json", "--listen", "127.0.0.1:9190"]

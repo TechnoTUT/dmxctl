@@ -62,17 +62,14 @@ spec:
         # 実機へ Art-Net を送るのは、確かめてから。最初は none のままにして、ctl で値を見る。
         # 本番で光を出すときは live に書き換える
         - --output
-        - live
+        - none
         # OSC と操作パネルを受けるのは project.json で有効にしたものだけ
         - --inputs
         - configured
         # 設定の変更を 5 秒ごとに保存する
         - --autosave
-        # dmxctl connect のクライアントから設定できるように、LAN に待ち受ける。認証は無いので、LAN の外には出さない
-        - --remote-listen
-        - 0.0.0.0:9300
-        # クライアントから、安全の設定も変えられるようにする
-        - --remote-allow-safety-edit
+        # dmxctl connect のクライアントの待ち受けは、認証が無いので既定では開かない。
+        # 使うときの足し方は docs/container.md の「別のPCから操作する」
         ports:
         - name: web
           containerPort: 8080
@@ -80,9 +77,6 @@ spec:
         - name: osc
           containerPort: 9000
           protocol: UDP
-        - name: remote
-          containerPort: 9300
-          protocol: TCP
         # 制御の窓口はこのコンテナの loopback だけ。ctl は kubectl exec で使う
         livenessProbe:
           exec:

@@ -112,6 +112,19 @@ kubectl -n dmxctl exec deploy/dmxctl -- dmxctl ctl status
 
 `--output live` にすると、設定の出力先へ Art-Net を送ります。最初は `none` のまま、`ctl` で最終の DMX 値を確かめることをおすすめします。
 
+## 別のPCから操作する
+
+`dmxctl connect` のクライアントから操作するときは、待ち受けを足します。待ち受けには認証が無く、つないだ人は設定の読み込み・保存やレーザーの ARM までできます。そのため既定では開いていません。照明用の LAN の中だけで使ってください。
+
+`deployment.yaml` の `args` に次を足し、`ports` に `containerPort: 9300` を、`service.yaml` の `ports` に 9300 を足します。
+
+```yaml
+        - --remote-listen
+        - 0.0.0.0:9300
+```
+
+`--remote-allow-safety-edit` を足すと、クライアントからレーザーなどの安全の設定、つまり安全な値と ARM が要るかどうかも変えられます。安全の設定を変えるときだけ一時的に足し、終わったら外してください。
+
 ## 安全のための決まり
 
 - **ARM は起動のたびに解除されます。** 保存もされず、CLI からは ARM にできません。
@@ -127,7 +140,7 @@ kubectl -n dmxctl exec deploy/dmxctl -- dmxctl ctl status
 | Service の 80 → Pod の 8080 | TCP | 操作パネル。番号は `project.json` の `web_port` |
 | 9000 | UDP | OSC の受信。番号は `project.json` の `osc_port` |
 | 9190 | TCP | 制御の窓口。コンテナの中だけ。`ctl` の既定の接続先 |
-| 9300 | TCP | `dmxctl connect` のクライアントの待ち受け。認証は無いので、LAN の外には出さない |
+| 9300 | TCP | `dmxctl connect` のクライアントの待ち受け。既定では開かない。開くときの足し方は「別のPCから操作する」 |
 | 6454 | UDP | Art-Net の送信先。照明機材や Art-Net ノードへ向けて出す |
 
 ## 更新する
