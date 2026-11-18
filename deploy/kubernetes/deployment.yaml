@@ -36,7 +36,14 @@ spec:
       - name: seed
         image: registry.svc.technotut.net/dmxctl:0.1.0
         imagePullPolicy: IfNotPresent
-        command: ["sh", "-c", "test -f /data/project.json || cp /seed/project.json /data/project.json"]
+        command:
+        - sh
+        - -ec
+        - |
+          if [ ! -f /data/project.json ]; then
+            cp /seed/project.json /data/project.json.seed
+            mv /data/project.json.seed /data/project.json
+          fi
         securityContext:
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true
