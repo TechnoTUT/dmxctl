@@ -70,7 +70,7 @@ body:
     attributes:
       label: 使っている機材と接続
       description: USB-DMX の種類、Art-Net、NDI、MIDI・キーボードなどを書いてください。
-      placeholder: 例: FT232R の USB-DMX / Art-Net / MIDI コントローラー
+      placeholder: "例: FT232R の USB-DMX / Art-Net / MIDI コントローラー"
 
   - type: textarea
     id: logs
