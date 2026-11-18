@@ -8,7 +8,7 @@ Release の `DMX-Controller-mac.zip` は、Apple Silicon と Intel の両方で�
 
 - 設定の保存場所は `~/Library/Application Support/dmxctl/` です。中身は Windows の `%APPDATA%\dmxctl\` と同じなので、`project.json` をコピーすればそのまま使えます
 - 保存のショートカットは ⌘S です。ほかのキーは同じです
-- FT232系の USB-DMX は、Mac標準のドライバで `/dev/cu.usbserial-…` として見え、「出力」タブのCOMポートの一覧に出ます。D2XX を使う場合は FTDI の `libftd2xx.dylib` を入れてください
+- FT232系の USB-DMX は、Mac標準のドライバで `/dev/cu.usbserial-…` として見え、「出力」タブのCOMポートの一覧に出ます。D2XX を使う場合は、[FTDI の配布元](https://ftdichip.com/drivers/d2xx-drivers/) から `libftd2xx.dylib` を取り、`/usr/local/lib/` か、設定フォルダに置いてください。このアプリには同梱していません
 - 簡易署名のアプリなので、ダウンロードしたものを初めて開くときは「開発元を確認できません」と出ます。Finderでアプリを右クリック →「開く」で開けます。macOS 15 以降で開けないときは、「システム設定」→「プライバシーとセキュリティ」の「このまま開く」を押します
 - 初めて Art-Net・OSC を使うとき、「ローカルネットワーク上のデバイスの検索と接続」の許可を求められます。許可してください
 
@@ -103,6 +103,6 @@ X11 や Wayland のデスクトップ環境が無いPCでは、`dmxctl` を **�
 FT232系の USB-DMX は、BREAK→スタートコード→スロットという DMX のフレームを、PC側が作って送り続ける方式です。つなぎ方は2通りあります。
 
 - **COMポート**: FTDIドライバが作る仮想COMポートに、250000bps 8N2 と BREAK で送ります。まずこちらを試してください
-- **D2XX**: FTDIのライブラリを実行時に読み込んで、直接制御します。ライブラリは、Windows では FTDIドライバに同梱の `ftd2xx.dll`、Mac ではアプリに同梱の `libftd2xx.dylib`、Linux では `libftd2xx.so` です。ライブラリが無くてもアプリ自体は起動します
+- **D2XX**: FTDIのライブラリを実行時に読み込んで、直接制御します。ライブラリは、Windows では FTDIドライバに同梱の `ftd2xx.dll`、Mac では自分で入れた `libftd2xx.dylib`、Linux では `libftd2xx.so` です。ライブラリが無くてもアプリ自体は起動します
 
 抜き差しや電源断で切れても、自動でつなぎ直します。

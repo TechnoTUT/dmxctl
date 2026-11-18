@@ -1,0 +1,119 @@
+# dmxctl serve の本体。出力は1つだけ動かす。同じ Art-Net を2つから送ると、値が交互に届くため。
+# 書き込むのは設定の /data/project.json だけなので、PVC も 1 つの Pod からしか使わない。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dmxctl
+  labels:
+    app: dmxctl
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: dmxctl
+  template:
+    metadata:
+      labels:
+        app: dmxctl
+      # 照明の VLAN lbar の 192.168.11.0/24 へ、ブロードキャストや PRO DJ LINK も含めて直接出したいときは、
+      # Infra に VLAN 30 のブリッジと NAD を足してから、次の行の注釈を外す。詳しくは docs/container.md
+      # annotations:
+      #   k8s.v1.cni.cncf.io/networks: kube-public/vlan30-bridge@lbar
+    spec:
+      # SIGTERM を受けたら、レーザーOFF・明るさ0の安全な値を送ってから止まる。その約0.3秒を待てるように、長めにする
+      terminationGracePeriodSeconds: 10
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+      # 初回だけ、Secret の dmxctl-seed の設定を PVC に入れる。PVC にすでに設定があれば何もしない(GUI の変更を消さないため)
+      - name: seed
+        image: registry.svc.technotut.net/dmxctl:0.1.0
+        imagePullPolicy: IfNotPresent
+        command: ["sh", "-c", "test -f /data/project.json || cp /seed/project.json /data/project.json"]
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        - name: seed
+          mountPath: /seed
+          readOnly: true
+      containers:
+      - name: dmxctl
+        # docs/container.md の手順でビルドして置いたイメージ。バージョンを上げるときはここを書き換える
+        image: registry.svc.technotut.net/dmxctl:0.1.0
+        imagePullPolicy: IfNotPresent
+        args:
+        - serve
+        - --project
+        - /data/project.json
+        - --listen
+        - 127.0.0.1:9190
+        # 実機へ Art-Net を送るのは、確かめてから。最初は none のままにして、ctl で値を見る。
+        # 本番で光を出すときは live に書き換える
+        - --output
+        - none
+        # OSC と操作パネルを受けるのは project.json で有効にしたものだけ
+        - --inputs
+        - configured
+        # 設定の変更を 5 秒ごとに保存する
+        - --autosave
+        # dmxctl connect のクライアントの待ち受けは、認証が無いので既定では開かない。
+        # 使うときの足し方は docs/container.md の「別のPCから操作する」
+        ports:
+        - name: web
+          containerPort: 8080
+          protocol: TCP
+        - name: osc
+          containerPort: 9000
+          protocol: UDP
+        # 制御の窓口はこのコンテナの loopback だけ。ctl は kubectl exec で使う
+        livenessProbe:
+          exec:
+            command: ["dmxctl", "ctl", "status"]
+          initialDelaySeconds: 15
+          periodSeconds: 30
+          timeoutSeconds: 5
+        readinessProbe:
+          exec:
+            command: ["dmxctl", "ctl", "status"]
+          periodSeconds: 10
+          timeoutSeconds: 5
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            memory: 512Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: dmxctl-data
+      # 初回の設定。作り方は docs/container.md。無ければ、PVC に設定がある場合だけ動く
+      - name: seed
+        secret:
+          secretName: dmxctl-seed
+          optional: true
+      - name: tmp
+        emptyDir: {}
+      restartPolicy: Always

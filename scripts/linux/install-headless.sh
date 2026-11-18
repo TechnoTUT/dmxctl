@@ -4,7 +4,7 @@
 #     --no-blt     dmxctl だけ(BLT は別のPCで動かすとき)
 #     dmxctlの場所 Release から落とした dmxctl-linux-x86_64 / dmxctl-linux-arm64 など。
 #                  省略すると ./scripts/build-linux.sh で作った dist/linux/dmxctl を使う
-# Beat Link Trigger は公式の .deb(https://github.com/Deep-Symmetry/beat-link-trigger/releases)を先に入れておく
+# Beat Link Trigger は公式の jar(https://github.com/Deep-Symmetry/beat-link-trigger/releases)を ~/dmxctl/beat-link-trigger.jar に置いておく。Java 21 以上も要る
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 WITH_BLT=1
@@ -25,6 +25,15 @@ fi
 if ! id -nG | grep -qw dialout; then
   echo "USB-DMX を使えるよう、dialout グループに入れます(sudo)"
   sudo usermod -aG dialout "$USER"
+fi
+# blt.env に BLT_CMD を書いて、以前の .deb などの BLT を使うときは、jar と java は要らない
+if [ "$WITH_BLT" = 1 ] && ! grep -qs '^BLT_CMD=' "$HOME/dmxctl/blt.env"; then
+  if ! grep -qs '^BLT_JAR=' "$HOME/dmxctl/blt.env" && [ ! -f "$HOME/dmxctl/beat-link-trigger.jar" ]; then
+    echo "注意: Beat Link Trigger の jar が ~/dmxctl/beat-link-trigger.jar にありません。Releases から落として置いてください(あとで置いても動きます)"
+  fi
+  if ! command -v java >/dev/null; then
+    echo "注意: java が見つかりません。Beat Link Trigger 8 を動かすには、画面の部品の入った Java 21 以上が要ります(headless の付かない JRE)"
+  fi
 fi
 if [ "$WITH_BLT" = 1 ] && ! command -v Xvfb >/dev/null; then
   echo "仮想の画面(Xvfb)と、設定用の VNC(x11vnc)を入れます(sudo)"

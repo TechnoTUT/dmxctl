@@ -210,11 +210,12 @@ impl D2xxApi {
         } else {
             &["libftd2xx.so", "/usr/local/lib/libftd2xx.so", "/usr/lib/libftd2xx.so"]
         };
-        // Macのアプリ(.app)に同梱したもの(Contents/Frameworks)を最初に探す
-        let bundled = std::env::current_exe().ok().and_then(|exe| Some(exe.parent()?.parent()?.join("Frameworks").join("libftd2xx.dylib"))).filter(|p| cfg!(target_os = "macos") && p.exists());
+        // FTDIのライブラリは配らない。管理者の権限が無くても使えるよう、設定フォルダに置いたものも探す
+        let in_config = crate::project::config_dir().join(if cfg!(windows) { "ftd2xx.dll" } else if cfg!(target_os = "macos") { "libftd2xx.dylib" } else { "libftd2xx.so" });
+        let in_config = Some(in_config).filter(|p| p.exists());
         // 確認用: DMXCTL_D2XX_LIB=ライブラリのパス で直接指定
         let custom = std::env::var_os("DMXCTL_D2XX_LIB").filter(|v| !v.is_empty());
-        let candidates: Vec<std::ffi::OsString> = custom.into_iter().chain(bundled.map(|p| p.into_os_string())).chain(names.iter().map(|n| n.into())).collect();
+        let candidates: Vec<std::ffi::OsString> = custom.into_iter().chain(in_config.map(|p| p.into_os_string())).chain(names.iter().map(|n| n.into())).collect();
         for name in candidates {
             // SAFETY: FTDI公式のDLL。シンボルはD2XXの公開APIと同じシグネチャで宣言している
             match unsafe { libloading::Library::new(&name) } {
@@ -222,7 +223,7 @@ impl D2xxApi {
                 Err(e) => last = e.to_string(),
             }
         }
-        Err(format!("D2XXドライバ({})が見つかりません(FTDIドライバ未導入?): {last}", names[0]))
+        Err(format!("D2XXドライバ({})が見つかりません(FTDIの配布元から入れてください。https://ftdichip.com/drivers/d2xx-drivers/): {last}", names[0]))
     }
 
     fn bind(lib: libloading::Library) -> Result<D2xxApi, String> {

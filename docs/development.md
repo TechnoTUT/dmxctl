@@ -65,6 +65,15 @@ bash ./scripts/build-linux.sh          # Linuxの上で dist/linux/dmxctl を作
 
 Mac が手元に無くても、タグを push すれば Mac 用ができます。
 
+`.github/workflows/self-hosted.yml` では、Linux のテストと x86_64 のビルドを、k8s の self-hosted runner で動かします。リポジトリが private で、GitHub の runner を使える時間に限りがあるためです。`runs-on: k8s` で動き、手順は `build.yml` の `test` と `linux` の x86_64 と同じです。
+
+| きっかけ | すること |
+|---|---|
+| main への push | テスト |
+| PR | テストと、Linux の x86_64 用のビルドが通るかの確認 |
+
+k8s に arm64 の runner は無いので、arm64 用は `build.yml` が作ります。Release も `build.yml` が作ります。k8s の runner が止まっていると、`self-hosted.yml` のジョブは待ったままになります。
+
 ## テスト
 
 ```
@@ -81,7 +90,7 @@ cargo test --release
 
 ```
 DMXCTL_TEST_PORT=/dev/cu.usbserial-XXXX cargo test --release hw_serial -- --ignored --nocapture    # USB-DMXに3秒送る
-DMXCTL_D2XX_LIB=third_party/ftd2xx/mac/libftd2xx.dylib cargo test --release hw_d2xx -- --ignored --nocapture
+DMXCTL_D2XX_LIB=/usr/local/lib/libftd2xx.dylib cargo test --release hw_d2xx -- --ignored --nocapture
 DMXCTL_TEST_PORT=… cargo test --release hw_spot_sweep -- --ignored --nocapture        # ムービングの 9ch / 11ch / 内蔵 のモードを確かめる
 DMXCTL_TEST_PORT=… DMXCTL_FX=円運動 cargo test --release real_moves_demo -- --ignored --nocapture  # 保存した設定の動きを実機に流す
 DMXCTL_NDI_SOURCE=ソース名の一部 cargo test --release hw_ndi -- --ignored --nocapture
@@ -135,8 +144,8 @@ cargo test --release perf -- --ignored --nocapture                              
 | `src/ui_laser.rs` / `src/ui_auto.rs` | レーザータブ / オートタブ。オートタブは、フレーズごとの見た目のプリセット `AutoPreset` / `PhraseLook` の表 |
 | `src/theme.rs` | 色・フォントなどの見た目 |
 | `src/kmsdrm.rs` / `src/kmsdrm/` | Linuxだけ。デスクトップ環境の無い画面に、SDL2 の KMSDRM と OpenGL ES の egui_glow で描くループ / キーの変換・タッチ |
-| `src/carabiner.rs` | Carabiner の取得と起動。配布元 GitHub Releases の版とチェックサムをコードに固定している。上げるときは `VERSION` と各OSの `sha256` を一緒に直す。ダウンロードは `curl`、展開は Linux が gzip、Windows が zip、Mac が `hdiutil` |
-| `src/link.rs` | Ableton Link。別のプログラムの Carabiner に、同じPC内の TCP でつなぎ、テンポと拍の位置を聞く。Link のコードは入れていない。テスト用に Carabiner のふりをするサーバー `link::fake` がある |
+| `Containerfile` / `.dockerignore` / `deploy/kubernetes/` | コンテナのイメージと Kubernetes のマニフェスト。画面を使わず `dmxctl serve` だけを動かす。手順は [コンテナで動かす](container.md) |
+| `third_party/link/` | Ableton Link。`build.rs` で `native/link_shim.cpp` ごと静的にリンクする |
 
 ### 設計のポイント
 
@@ -172,7 +181,7 @@ cargo test --release perf -- --ignored --nocapture                              
 
 - **USB-DMXが開けない、Resource busy と出る**: QLC+ など別の照明ソフトが使っていないか確かめる
 - **NDIのライブラリは同梱しない**: 配布条件のためです。インストール済みの NDI Tools、Linux では NDI SDK のものを読み込みます。探す順は `DMXCTL_NDI_LIB` → macOS の NDI Tools のアプリの中 → `NDI_RUNTIME_DIR_V6`/`V5` → 各OSの標準の場所 です。後ろの2つは moip-engine の `ndi` クレートが探します
-- **D2XX**: Mac版は `third_party/ftd2xx/mac/libftd2xx.dylib` をアプリに同梱しています。Windowsは FTDIドライバの `ftd2xx.dll` を使います
+- **FTDIのD2XXライブラリは同梱しない**: 配布条件のためです。利用者がFTDIの配布元から入れたものを、実行時に読み込みます。探す順は `DMXCTL_D2XX_LIB` → 設定フォルダに置いたもの → 各OSの標準の場所 です。Windowsは FTDIドライバの `ftd2xx.dll` を使います
 - **レーザーの安全処理**: 場所は `engine.rs` の `guard_values` と `emergency_stop` です。機材定義の `forbid` で禁止したオートショー・サウンド・パン/チルトの自動の動きと、機材ごとの `limits` で決めた動いてよい範囲は、出力の直前に必ず直します。内蔵の定義を上書きしても `forbid` は引き継ぎます。落ちたとき・終了のシグナル・シャットダウン・Mac/Linuxで画面を通らずに `exit()` したときは、レーザーOFF・明るさ0の安全なフレームを約0.3秒送ってから終わります。Windows のシャットダウンは、見えないウィンドウで `WM_ENDSESSION` を受けて検知します。`watch_windows_shutdown` です。`exit()` のときは `atexit` を使います
 - **KMS/DRM**: 「画面を開けませんでした」と出て画面が出ないときは、`video` グループに入っているか、デスクトップ環境など他のアプリが画面を使っていないかを確かめる。キー・マウスが効かないときは `input` グループ
 - **ムービングのチルト**: 128が真上です。動きのプリセットはチルトを大きく振る作りです
