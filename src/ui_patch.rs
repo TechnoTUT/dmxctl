@@ -139,18 +139,13 @@ impl App {
         });
 
         if let Some(i) = remove {
-            let id = core.project.fixtures[i].id;
-            core.project.fixtures.remove(i);
-            for g in core.project.groups.iter_mut() {
-                g.fixtures.retain(|x| *x != id);
+            let (id, name) = (core.project.fixtures[i].id, core.project.fixtures[i].name.clone());
+            // 消した機材を指す割り当て・エフェクトも片付ける。残すと検証に通らず、以後の編集がすべて失敗する
+            match crate::editing::gui_delete_fixture(core, id) {
+                Ok(removed) if removed.is_empty() => self.host.notice = format!("「{name}」を削除しました"),
+                Ok(removed) => self.host.notice = format!("「{name}」を削除しました。この機材を対象にしていた {} も削除しました", removed.join("、")),
+                Err(error) => self.host.notice = format!("機材を削除できません: {error}"),
             }
-            core.rt.fades.retain(|f| f.fixture != id);
-            core.project.pairs.retain(|p| p.leader != id && p.follower != id);
-            // シーン・位置プリセットに残った、消した機材の値も消す
-            for s in core.project.scenes.iter_mut().chain(core.project.positions.iter_mut()) {
-                s.values.retain(|v| v.fixture != id);
-            }
-            changed = true;
         }
         if changed {
             core.dirty = true;
