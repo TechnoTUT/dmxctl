@@ -142,13 +142,22 @@ fn client_commands_and_watch_attach_to_the_same_host() {
 #[test]
 fn momentary_flash_expires_even_when_the_client_disconnects() {
     let mut host=Running::start();
-    host.request(json!({"op":"command","command":{"cmd":"flash","on":true,"hold_ms":150}}));
-    std::thread::sleep(Duration::from_millis(50));
-    let bright=host.request(json!({"op":"output","fixture":1,"attrs":["dimmer"]}));
-    assert_eq!(bright["channels"][0]["value"],255);
-    std::thread::sleep(Duration::from_millis(250));
-    let normal=host.request(json!({"op":"output","fixture":1,"attrs":["dimmer"]}));
-    assert_ne!(normal["channels"][0]["value"],255);
+    // 決まった時間だけ待つと、PCが混んでいるとき(テストを並べて動かすときなど)に間に合わないので、
+    // 光るまで・戻るまでを、それぞれ待つ。押している時間は、混んでいても光ったのを見られる長さにする
+    let started=std::time::Instant::now();
+    host.request(json!({"op":"command","command":{"cmd":"flash","on":true,"hold_ms":1000}}));
+    let until_bright=|bright:bool|{
+        let deadline=std::time::Instant::now()+Duration::from_secs(5);
+        while std::time::Instant::now()<deadline {
+            let value=host.request(json!({"op":"output","fixture":1,"attrs":["dimmer"]}))["channels"][0]["value"].clone();
+            if (value==255)==bright {return true;}
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        false
+    };
+    assert!(until_bright(true),"the flash did not light up");
+    assert!(started.elapsed()<Duration::from_millis(1000),"the flash was seen too late to check that it expires");
+    assert!(until_bright(false),"the flash did not expire");
     host.stop();
 }
 

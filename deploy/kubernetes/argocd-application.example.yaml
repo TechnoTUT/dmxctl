@@ -1,0 +1,22 @@
+# Infra の k8s/manifest/apps/dmxctl.yaml に置く、Argo CD の Application の例。
+# 同じ形の apps/dmx.yaml・apps/plmux.yaml と合わせている。main にマージすると Argo CD が登録する
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: dmxctl
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/TechnoTUT/Infra.git
+    targetRevision: HEAD
+    path: k8s/manifest/dmxctl
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: dmxctl
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

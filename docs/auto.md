@@ -45,7 +45,7 @@ CDJ / XDJ ── Pro DJ Link・LAN ── Linux PC ── USB-DMX または Art-
 
 1. 機材・出力・シーンなどの設定は画面のあるPCで作成し、`~/.config/dmxctl/` をこのPCへコピーします。同じPCにモニターをつないで作ってもかまいません。フレーズごとの動きは **オート** タブのプリセットで決めておきます。シーン・エフェクトも選べます
 2. [Releases](https://github.com/TechnoTUT/dmxctl/releases) から `dmxctl-linux-x86_64` を落とします。Raspberry Pi などは `dmxctl-linux-arm64` です。このリポジトリも `git clone` しておきます。Debian 12・64bit の Raspberry Pi OS Bookworm・Ubuntu 24.04 以降で動きます
-3. BLT の公式の `.deb` を `sudo apt install ./beat-link-trigger_*.deb` で入れます。入った場所が `/opt/beat-link-trigger/bin/Beat Link Trigger` でなければ、`~/dmxctl/blt.env` に `BLT_CMD="起動コマンドの場所"` と書きます
+3. Beat Link Trigger (BLT) を入れます。BLT の [Releases](https://github.com/Deep-Symmetry/beat-link-trigger/releases) から `beat-link-trigger-*.jar` を落として、`~/dmxctl/beat-link-trigger.jar` という名前で置きます。BLT 8 を動かすには Java 21 以上が要ります。BLT は仮想の画面に出す画面のアプリなので、名前に headless の付かない JRE を入れます。headless の付く JRE には画面の部品が無く、BLT が起動できません。Ubuntu 24.04 と Debian 13 なら `sudo apt install openjdk-21-jre` で入ります。Debian 12 と Raspberry Pi OS Bookworm は apt で入る Java が 17 までなので、[Adoptium](https://adoptium.net/installation/linux/) の Temurin 21 を入れるか、Java 11 以上で動く BLT 7 の jar を `sudo apt install openjdk-17-jre` と組み合わせて使います。jar を別の場所に置くときは、`~/dmxctl/blt.env` に `BLT_JAR="jarの場所"` と書きます。以前の `.deb` などで入れた BLT を使い続けるときは、`blt.env` に `BLT_CMD="起動コマンドの場所"` と書くと、jar の代わりにそちらを起動します
 4. リポジトリのフォルダで、落としたファイルの場所を付けて `./scripts/linux/install-headless.sh ~/Downloads/dmxctl-linux-arm64` を実行します。これで、電源を入れたら dmxctl と BLT がユーザーのサービスとして動くようになります。`--no-blt` を付けると dmxctl だけです。USB-DMX 用のグループに追加されたときは、一度再起動してください。ソースから使うときは、`./scripts/build-linux.sh` のあと、場所を付けずに `./scripts/linux/install-headless.sh` を実行します
 
 **BLT の設定**
