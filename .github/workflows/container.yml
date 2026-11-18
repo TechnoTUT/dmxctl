@@ -3,8 +3,7 @@
 # - push of a tag starting with "v" (e.g. v0.2.0): build and push to GHCR as
 #   ghcr.io/technotut/dmxctl:0.2.0 (the "v" is dropped, as the Infra manifests expect).
 #   git tag v0.2.0 && git push origin v0.2.0
-# If the GitHub-hosted build fails, the same build runs again on the self-hosted
-# runner "k8s". The build steps live in container-build.yml.
+# The build steps live in container-build.yml.
 name: container
 
 on:
@@ -24,18 +23,6 @@ jobs:
     uses: ./.github/workflows/container-build.yml
     with:
       runner: '["ubuntu-26.04"]'
-      push: ${{ startsWith(github.ref, 'refs/tags/v') }}
-    permissions:
-      contents: read
-      packages: write
-
-  # Runs only when the GitHub-hosted build failed
-  image-k8s:
-    needs: image
-    if: ${{ always() && needs.image.result == 'failure' }}
-    uses: ./.github/workflows/container-build.yml
-    with:
-      runner: '["self-hosted","k8s"]'
       push: ${{ startsWith(github.ref, 'refs/tags/v') }}
     permissions:
       contents: read
