@@ -1,0 +1,19 @@
+# dmxctl を Kubernetes に置く一式。使い方は docs/container.md
+#   kubectl create namespace dmxctl
+#   kubectl apply -k deploy/kubernetes
+# Infra の Argo CD で動かすときは、このディレクトリを k8s/manifest/dmxctl/ にコピーし、
+# argocd-application.example.yaml を k8s/manifest/apps/dmxctl.yaml にする
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: dmxctl
+resources:
+  - pvc.yaml
+  - deployment.yaml
+  - service.yaml
+
+# 見本の設定 (example/project.json)。ConfigMap の dmxctl-example に入る。
+# Deployment はまだ使っていないので、本番の設定は Secret の dmxctl-seed のまま
+configMapGenerator:
+  - name: dmxctl-example
+    files:
+      - example/project.json

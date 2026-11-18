@@ -1,0 +1,12 @@
+# 設定の project.json と、機材定義の fixtures/ を置く場所。Infra の NFS である nfs-client を使う
+# 書き込むのは dmxctl の Pod 1 つだけなので、ReadWriteOnce で足りる
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: dmxctl-data
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: nfs-client
+  resources:
+    requests:
+      storage: 1Gi

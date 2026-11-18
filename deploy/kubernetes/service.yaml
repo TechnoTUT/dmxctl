@@ -1,0 +1,28 @@
+# 操作パネルと OSC を、LAN の固定 IP で受ける。Infra の規約に合わせて、固定 IP のラベルと DNS 名を付ける
+apiVersion: v1
+kind: Service
+metadata:
+  name: dmxctl
+  labels:
+    lbipam.technotut.net/static: "true"
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: dmxctl.svc.technotut.net
+spec:
+  type: LoadBalancer
+  # 例の IP。Infra の固定 IP の範囲、10.12.64.0 から 10.12.255.254 のなかで、空いている IP に書き換える
+  loadBalancerIP: 10.12.100.10
+  selector:
+    app: dmxctl
+  ports:
+  - name: http
+    protocol: TCP
+    port: 80
+    targetPort: web
+  - name: osc
+    protocol: UDP
+    port: 9000
+    targetPort: osc
+  - name: remote
+    protocol: TCP
+    port: 9300
+    targetPort: remote
