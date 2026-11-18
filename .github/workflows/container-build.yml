@@ -10,7 +10,7 @@ on:
         required: true
         type: string
       push:
-        description: Push to GHCR (tags only)
+        description: Push to GHCR (tags and main only)
         required: true
         type: boolean
 
@@ -22,7 +22,7 @@ jobs:
     runs-on: ${{ fromJSON(inputs.runner) }}
     permissions:
       contents: read
-      packages: write   # needed to push to GHCR (tags only)
+      packages: write   # needed to push to GHCR (tags and main only)
     steps:
       - uses: actions/checkout@v7
         with:
@@ -37,6 +37,8 @@ jobs:
           images: ghcr.io/${{ github.repository_owner }}/dmxctl
           tags: |
             type=semver,pattern={{version}}
+            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
+            type=sha,enable=${{ github.ref == 'refs/heads/main' }}
 
       - name: Log in to GHCR
         if: inputs.push
@@ -46,7 +48,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build (and push on tags)
+      - name: Build (and push on tags and main)
         uses: docker/build-push-action@v6
         with:
           context: .
