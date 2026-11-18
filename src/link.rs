@@ -133,7 +133,11 @@ impl Link {
             let mut g = lock(&self.shared);
             let now = Instant::now();
             if let Some(s) = g.snap.as_mut() {
-                s.beat = s.beat_at(now);
+                let beat = s.beat_at(now);
+                // テンポを変えても、同じ拍が同じ時刻を指すように0拍目を補正する
+                let when = s.start + (beat * 60e6 / s.bpm).round() as i64;
+                s.start = when - (beat * 60e6 / bpm).round() as i64;
+                s.beat = beat;
                 s.at = now;
                 s.bpm = bpm;
                 g.hold_until = Some(now + HOLD);
@@ -224,7 +228,8 @@ fn session(mut stream: TcpStream, initial_bpm: f64, shared: &Mutex<Shared>, rx: 
     let mut chunk = [0u8; 1024];
     let mut last_poll: Option<Instant> = None;
     let mut first = true;
-    while !stop.load(Ordering::Relaxed) {
+    let mut last_status = Instant::now();
+    while !stop.load(Ordering::Relaxed) && last_status.elapsed() < STALE {
         while let Ok(line) = rx.try_recv() {
             if stream.write_all(line.as_bytes()).is_err() {
                 return;
@@ -245,6 +250,7 @@ fn session(mut stream: TcpStream, initial_bpm: f64, shared: &Mutex<Shared>, rx: 
         while let Some(i) = inbox.iter().position(|&b| b == b'\n') {
             let line: Vec<u8> = inbox.drain(..=i).collect();
             let Some(mut snap) = parse_status(&String::from_utf8_lossy(&line)) else { continue };
+            last_status = snap.at;
             let mut g = lock(shared);
             if g.hold_until.is_some_and(|t| Instant::now() < t) {
                 continue;
@@ -405,7 +411,7 @@ mod tests {
     use super::fake::FakeCarabiner;
     use super::*;
 
-    fn wait(cond: impl Fn() -> bool) -> bool {
+    fn wait(mut cond: impl FnMut() -> bool) -> bool {
         let deadline = Instant::now() + Duration::from_secs(5);
         while !cond() && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(20));
@@ -464,7 +470,8 @@ mod tests {
         std::thread::sleep(Duration::from_millis(250));
         assert!((l.state().unwrap().0 - 90.0).abs() < 1e-6, "古い状態で戻された");
 
-        // 頭出しは、Link の時計の「今」を付けて頼む
+        // TAP と同じ順序で、テンポ変更直後に頭出ししても時計はずれない
+        l.set_tempo(120.0);
         l.force_beat(0.0);
         assert!(l.state().unwrap().1.abs() < 0.05);
         assert!(wait(|| !fake.forced().is_empty()));
@@ -472,6 +479,30 @@ mod tests {
         assert_eq!(beat, 0.0);
         assert!(off.abs() < 30_000, "Link の時計の今とずれている: {off}マイクロ秒");
         assert!(fake.beat().abs() < 1.0);
+    }
+
+    #[test]
+    fn reconnects_when_status_stops_arriving() {
+        let listener = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let l = Link::connect(listener.local_addr().unwrap().port(), 120.0).unwrap();
+        let mut first = None;
+        assert!(wait(|| {
+            if first.is_none() {
+                first = listener.accept().ok().map(|(stream, _)| stream);
+            }
+            first.is_some()
+        }));
+        let mut first = first.unwrap();
+        first.write_all(b"status { :peers 1 :bpm 120.0 :start 1 :beat 2.0 }\n").unwrap();
+        assert!(wait(|| l.connected()));
+        // 最初のソケットを開いたまま、次の接続を待つ
+        let mut reconnected = false;
+        assert!(wait(|| {
+            reconnected |= listener.accept().is_ok();
+            reconnected
+        }), "Carabiner につなぎ直さない");
+        assert!(!l.connected());
     }
 
     #[test]
