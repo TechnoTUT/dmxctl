@@ -26,11 +26,14 @@ if ! id -nG | grep -qw dialout; then
   echo "USB-DMX を使えるよう、dialout グループに入れます(sudo)"
   sudo usermod -aG dialout "$USER"
 fi
-if [ "$WITH_BLT" = 1 ] && [ ! -f "$HOME/dmxctl/beat-link-trigger.jar" ]; then
-  echo "注意: Beat Link Trigger の jar が ~/dmxctl/beat-link-trigger.jar にありません。Releases から落として置いてください(あとで置いても動きます)"
-fi
-if [ "$WITH_BLT" = 1 ] && ! command -v java >/dev/null; then
-  echo "注意: java が見つかりません。Beat Link Trigger を動かすには Java 21 以上を入れてください"
+# blt.env に BLT_CMD を書いて、以前の .deb などの BLT を使うときは、jar と java は要らない
+if [ "$WITH_BLT" = 1 ] && ! grep -qs '^BLT_CMD=' "$HOME/dmxctl/blt.env"; then
+  if ! grep -qs '^BLT_JAR=' "$HOME/dmxctl/blt.env" && [ ! -f "$HOME/dmxctl/beat-link-trigger.jar" ]; then
+    echo "注意: Beat Link Trigger の jar が ~/dmxctl/beat-link-trigger.jar にありません。Releases から落として置いてください(あとで置いても動きます)"
+  fi
+  if ! command -v java >/dev/null; then
+    echo "注意: java が見つかりません。Beat Link Trigger 8 を動かすには、画面の部品の入った Java 21 以上が要ります(headless の付かない JRE)"
+  fi
 fi
 if [ "$WITH_BLT" = 1 ] && ! command -v Xvfb >/dev/null; then
   echo "仮想の画面(Xvfb)と、設定用の VNC(x11vnc)を入れます(sudo)"
