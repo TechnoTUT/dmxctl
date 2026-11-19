@@ -1,5 +1,6 @@
 //! Local control channel. Requests are executed by the owning Host, so GUI and
 //! headless mode share state, service management, saving and shutdown.
+use crate::backend::{controls::CoreControls, editing::CoreEditing};
 use crate::backend::{commands, host::Host, recording::Recording};
 use crate::core::engine;
 use anyhow::{Context, ensure, bail};

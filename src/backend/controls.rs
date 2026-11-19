@@ -1,10 +1,10 @@
 //! Replay GUI bindings and external inputs through the existing engine actions.
-use crate::core::{engine::{Core, MidiMsg}, project::{Action, PadMode, TriggerKind}};
+use crate::core::{engine::MidiMsg, project::{Action, PadMode, TriggerKind}};
 use crate::core::hold::{Feedback, Hold};
 use crate::core::io::osc::{Arg, Message};
 use anyhow::{Context, ensure, bail};
 use serde_json::{Value, json};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 fn continuous(action: &Action) -> bool {
     use crate::core::{motion::MotionOp, project::TempoOp};
@@ -26,8 +26,16 @@ fn permitted(action: &Action) -> anyhow::Result<()> {
     Ok(())
 }
 
-impl Core {
-    pub fn controls(&mut self) -> Value {
+pub trait CoreControls {
+    fn controls(&mut self) -> Value;
+    fn remote_button(&mut self, value:&Value) -> anyhow::Result<()>;
+    fn remote_input(&mut self, value:&Value) -> anyhow::Result<()>;
+    fn preflight(&self,hits:&[usize]) -> anyhow::Result<()>;
+    fn track_input(&mut self,hits:&[usize],pressed:bool,duration:Duration,feedback:Feedback,skip_sliders:bool);
+}
+
+impl CoreControls for crate::core::engine::Core {
+    fn controls(&mut self) -> Value {
         self.project.ensure_binding_ids();
         json!(self.project.bindings.iter().enumerate().map(|(index,b)|json!({
             "id":format!("binding:{}",b.id),"name":b.name,"kind":if continuous(&b.action){"slider"}else{"button"},
@@ -37,7 +45,7 @@ impl Core {
         })).collect::<Vec<_>>())
     }
 
-    pub fn remote_button(&mut self, value:&Value) -> anyhow::Result<()> {
+    fn remote_button(&mut self, value:&Value) -> anyhow::Result<()> {
         self.project.ensure_binding_ids();
         let control=value["control"].as_str().context("control is required")?;
         let id:u64=control.strip_prefix("binding:").context("expected binding:ID")?.parse()?;
@@ -68,7 +76,7 @@ impl Core {
         Ok(())
     }
 
-    pub fn remote_input(&mut self, value:&Value) -> anyhow::Result<()> {
+    fn remote_input(&mut self, value:&Value) -> anyhow::Result<()> {
         self.project.ensure_binding_ids();
         ensure!(self.rt.learn.is_none() && self.rt.osc_learn.is_none(),"finish MIDI/OSC learn before replaying input");
         let source=value["source"].as_str().context("source is required")?;
@@ -153,29 +161,6 @@ impl Core {
             }
         }
     }
-
-    pub(crate) fn expire_remote_controls(&mut self,now:Instant) {
-        let expired:Vec<_>=self.rt.remote_holds.iter().filter(|(_,hold)|now>=hold.until).map(|(&id,_)|id).collect();
-        for id in expired {if let Some(hold)=self.rt.remote_holds.remove(&id) {self.release_hold(id,hold,"lease_expired");}}
-    }
-
-    pub(crate) fn release_remote_controls(&mut self) {
-        let holds=std::mem::take(&mut self.rt.remote_holds);
-        for (id,hold) in holds {self.release_hold(id,hold,"project_edit");}
-    }
-
-    fn release_hold(&mut self,id:u64,hold:Hold,source:&str) {
-        let index=self.project.bindings.iter().position(|b|b.id==id).unwrap_or(usize::MAX);
-        self.rt.pad_state.insert(index,true);
-        self.apply_action(index,hold.action,0.0,false);
-        if index==usize::MAX {self.rt.pad_state.remove(&index);}
-        match hold.feedback {Feedback::None=>{},Feedback::Note(n)=>self.rt.notes_down[n as usize]=false,Feedback::Key(n)=>self.rt.keys_down.retain(|&k|k!=n)}
-        if let Some(recorder)=&self.rt.recorder {
-            recorder.emit(json!({"type":"command","source":source,"command":{"cmd":"button","control":format!("binding:{id}"),"event":"release"},
-                "applies_from_frame":recorder.next_frame(),"applies_from_engine_frame":self.rt.frame_id+1,
-                "t_ms":self.now().saturating_duration_since(self.rt.t0).as_millis() as u64}));
-        }
-    }
 }
 
 fn byte(value:&Value,key:&str,max:u8) -> anyhow::Result<u8> {
@@ -187,6 +172,7 @@ fn byte(value:&Value,key:&str,max:u8) -> anyhow::Result<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::engine::Core;
     use crate::core::{fixture::Library, project::*};
     use std::{sync::Arc,path::Path};
     fn core()->Core {

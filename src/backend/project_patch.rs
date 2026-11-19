@@ -12,7 +12,6 @@
 //!   (位置がずれても、たまたま同じ値の項目に当たったときは見分けられない)
 //! - 当てるときは厳しい検証をしない(画面の編集では、名前を消して打ち直す途中なども許すため。保存・自動操作は従来どおり)
 
-use crate::core::engine::Core;
 use crate::core::project::Project;
 use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
@@ -160,9 +159,13 @@ pub struct Applied {
     pub services: bool,
 }
 
-impl Core {
+pub trait CoreProjectPatch {
+    fn apply_project_patch(&mut self, changes: &[Change]) -> anyhow::Result<Applied>;
+}
+
+impl CoreProjectPatch for crate::core::engine::Core {
     /// 画面の編集の差分を当てる(厳しい検証はしない)。当てられなければ何も変えない
-    pub fn apply_project_patch(&mut self, changes: &[Change]) -> anyhow::Result<Applied> {
+    fn apply_project_patch(&mut self, changes: &[Change]) -> anyhow::Result<Applied> {
         if changes.is_empty() {
             return Ok(Applied::default());
         }
@@ -184,6 +187,7 @@ impl Core {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::engine::Core;
     use crate::core::fixture::Library;
     use serde_json::json;
     use std::sync::Arc;

@@ -1,5 +1,6 @@
 //! 機材定義タブ: 機材・モード・チャンネル・値の範囲(選択肢)・カテゴリをアプリ内で作る/編集する。
 
+use crate::backend::editing::CoreEditing;
 use crate::ui::app::{App, RED, WARN};
 use crate::core::engine::lock;
 use crate::core::fixture::*;

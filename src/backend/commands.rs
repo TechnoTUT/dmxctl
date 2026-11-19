@@ -1,4 +1,5 @@
 //! Validated operations shared by offline runs and the running application.
+use crate::backend::controls::CoreControls;
 use crate::core::{engine::Core, fixture::Library, project::{Project, Selector}};
 use anyhow::{Context, bail, ensure};
 use serde_json::Value;

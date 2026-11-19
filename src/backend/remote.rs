@@ -20,6 +20,7 @@
 //! 持っているはずのプロジェクトを覚えて差分を作る。どちらも「処理済みの自分の編集 → 届いた差分」の順に当てるので、
 //! 行き違いがあっても同じものになる。手元の写しは `confirmed` に `pending` を重ねたもの。
 
+use crate::backend::{editing::CoreEditing, project_patch::CoreProjectPatch};
 use crate::core::engine::{lock, Core, Shared, EMERGENCY};
 use crate::core::fixture::{Library, Profile};
 use crate::core::live::{LiveForward, LiveOp};

@@ -1,4 +1,5 @@
 //! Project edits are built on a copy, checked as a whole, then committed once.
+use crate::backend::controls::CoreControls;
 use crate::core::{engine::Core, project::*, fixture::Library};
 use anyhow::{Context, ensure, bail};
 use serde_json::{Value, json};
@@ -545,8 +546,13 @@ fn saved_profile_compatible(core:&Core,candidate:&Library,id:&str)->anyhow::Resu
     Ok(())
 }
 
-impl Core {
-    pub fn save_profile(&mut self,profile:&crate::core::fixture::Profile,remote:bool,dry_run:bool)->anyhow::Result<Value> {
+pub trait CoreEditing {
+    fn save_profile(&mut self,profile:&crate::core::fixture::Profile,remote:bool,dry_run:bool)->anyhow::Result<Value>;
+    fn delete_profile(&mut self,id:&str,remote:bool,dry_run:bool)->anyhow::Result<Value>;
+}
+
+impl CoreEditing for crate::core::engine::Core {
+    fn save_profile(&mut self,profile:&crate::core::fixture::Profile,remote:bool,dry_run:bool)->anyhow::Result<Value> {
         ensure_idle(self)?;
         ensure!(!profile.id.trim().is_empty(),"profile ID is empty");
         let report=profile.validate();ensure!(report.errors.is_empty(),"invalid profile: {}",report.errors.join("; "));
@@ -570,7 +576,7 @@ impl Core {
         Ok(json!({"saved":true,"path":path,"warnings":report.warnings}))
     }
 
-    pub fn delete_profile(&mut self,id:&str,remote:bool,dry_run:bool)->anyhow::Result<Value> {
+    fn delete_profile(&mut self,id:&str,remote:bool,dry_run:bool)->anyhow::Result<Value> {
         ensure_idle(self)?;
         let old=self.lib.get(id).context("unknown profile")?;
         ensure!(self.lib.has_user_file(id),"profile has no user override to delete");
