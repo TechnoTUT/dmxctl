@@ -67,7 +67,7 @@ pub struct Runtime {
     pub flash_deadline: Option<Instant>,
     /// Automation can supply a monotonic clock without changing the GUI clock.
     pub virtual_now: Option<Instant>,
-    pub recorder: Option<crate::backend::recording::Recorder>,
+    pub recorder: Option<crate::core::recorder::Recorder>,
     pub safety_events: Vec<serde_json::Value>,
     pub blackout: bool,
     pub fades: Vec<Fade>,

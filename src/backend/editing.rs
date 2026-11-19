@@ -430,14 +430,7 @@ fn unique<'a>(names:impl Iterator<Item=&'a str>,kind:&str)->anyhow::Result<HashS
     let mut set=HashSet::new();for name in names {ensure!(!name.trim().is_empty() && set.insert(name),"empty or duplicate {kind} name");}Ok(set)
 }
 
-/// Do not place control-panel credentials in debug logs or diffs.
-pub fn redact(value:&Value)->Value {
-    match value {
-        Value::Object(map)=>Value::Object(map.iter().map(|(key,value)|(key.clone(),if key=="web_pin"{json!("")}else{redact(value)})).collect()),
-        Value::Array(values)=>Value::Array(values.iter().map(redact).collect()),
-        _=>value.clone(),
-    }
-}
+pub use crate::core::recorder::redact;
 
 impl crate::backend::host::Host {
     /// プロジェクトのMIDI機器(midi_input)に、つないでいる機器を合わせる

@@ -17,5 +17,6 @@ pub mod look;
 pub mod motion;
 pub mod pixel;
 pub mod project;
+pub mod recorder;
 #[cfg(test)]
 mod tests;

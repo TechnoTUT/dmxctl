@@ -648,7 +648,7 @@ impl App {
         self.host.after_frame();
         if before.is_some() {
             let after=lock(&self.host.core).history_snapshot();
-            crate::backend::recording::HistorySnapshot::observe(before,after,"gui_frame");
+            crate::core::recorder::HistorySnapshot::observe(before,after,"gui_frame");
         }
         if let Some(s) = self.shot.as_mut() {
             s.tick(ui.ctx());
