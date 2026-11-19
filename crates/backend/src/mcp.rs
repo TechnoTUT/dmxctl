@@ -166,8 +166,12 @@ pub fn handle(request: Requester, message: &Value) -> Option<Value> {
         "ping" => json!({}),
         "tools/list" => json!({"tools": tools()}),
         "tools/call" => {
-            let Some(name) = message["params"]["name"].as_str() else {
-                return Some(error(id, -32602, "params.name is required"));
+            let name = match message["params"].get("name") {
+                None => return Some(error(id, -32602, "params.name is required")),
+                Some(v) => match v.as_str() {
+                    Some(name) => name,
+                    None => return Some(error(id, -32602, "params.name must be a string")),
+                },
             };
             let args = message["params"].get("arguments").cloned().unwrap_or_else(|| json!({}));
             if !tools().iter().any(|t| t["name"] == name) {
@@ -470,6 +474,7 @@ mod tests {
         assert_eq!(call("stop", json!({}))["error"]["code"], -32602);
         assert_eq!(handle(&f, &rpc(2, "tools/call", json!({"name": "status", "arguments": [1]}))).unwrap()["error"]["code"], -32602);
         assert_eq!(handle(&f, &rpc(3, "tools/call", json!({}))).unwrap()["error"]["message"], "params.name is required");
+        assert_eq!(handle(&f, &rpc(4, "tools/call", json!({"name": 7}))).unwrap()["error"]["message"], "params.name must be a string");
     }
 
     #[test]
