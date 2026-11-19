@@ -159,8 +159,8 @@ impl crate::app::App {
         let mut try_look: Option<(String, PhraseLook)> = None;
 
         egui::ScrollArea::both().auto_shrink([false, true]).show(ui, |ui| {
-            egui::Grid::new("auto_looks").num_columns(13).spacing([10.0, 6.0]).striped(true).show(ui, |ui| {
-                for h in ["フレーズ", "動き", "1周", "揃え方", "向き", "色", "色の間隔", "明るさ", "波形の色", "入った瞬間", "シーン", "エフェクト", ""] {
+            egui::Grid::new("auto_looks").num_columns(14).spacing([10.0, 6.0]).striped(true).show(ui, |ui| {
+                for h in ["フレーズ", "動き", "1周", "揃え方", "向き", "色", "色の間隔", "明るさ", "波形の色", "入った瞬間", "レーザー", "シーン", "エフェクト", ""] {
                     ui.label(RichText::new(h).small().color(theme::TEXT_DIM));
                 }
                 ui.end_row();
@@ -206,6 +206,7 @@ impl crate::app::App {
                     ui.add(egui::Slider::new(&mut look.brightness, 0.0..=1.0).custom_formatter(|v, _| format!("{:.0}%", v * 100.0)));
                     ui.checkbox(&mut look.wave_color, "").on_hover_text("波形の色(/dmx/main/rgb)を使う。OFFならパレットの色のまま");
                     ui.checkbox(&mut look.flash, "全開").on_hover_text("このフレーズに入った瞬間、1拍だけ今の色で全開(レーザーは除く)");
+                    ui.checkbox(&mut look.laser, "出力").on_hover_text("このフレーズの間のみ、ARM済みのレーザーを出力する");
                     egui::ComboBox::from_id_salt(("scene", key)).width(100.0).selected_text(if look.scene.is_empty() { "なし".to_string() } else { look.scene.clone() }).show_ui(ui, |ui| {
                         ui.selectable_value(&mut look.scene, String::new(), "なし");
                         for s in &scenes {

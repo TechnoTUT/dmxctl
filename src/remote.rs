@@ -170,6 +170,7 @@ fn rt_state(c: &Core) -> Value {
     if let (Some(a), Value::Object(b)) = (v.as_object_mut(), more) {
         a.extend(b);
     }
+    v["laser"] = json!({"latch": rt.laser_latch, "hold": rt.laser_hold, "auto": rt.auto_laser, "auto_online": rt.auto_was_online});
     v
 }
 
@@ -237,6 +238,10 @@ fn apply_rt_state(c: &mut Core, d: &Value) {
     rt.last_scene = val(d, "last_scene", None);
     rt.color_swapped = val(d, "color_swapped", false);
     rt.dim = val(d, "dim", 1.0);
+    rt.laser_latch = val(&d["laser"], "latch", false);
+    rt.laser_hold = val(&d["laser"], "hold", false);
+    rt.auto_laser = val(&d["laser"], "auto", false);
+    rt.auto_was_online = val(&d["laser"], "auto_online", rt.auto_was_online);
     rt.dim_target = val(d, "dim_target", 1.0);
     rt.flash = val(d, "flash", None);
     rt.hue = val(d, "hue", rt.hue);
@@ -628,6 +633,8 @@ fn serve_conn(stream: TcpStream, core: &Shared, ctx: &eframe::egui::Context, eve
 struct Held {
     notes: std::collections::BTreeSet<(u8, u8)>,
     keys: std::collections::BTreeSet<u8>,
+    /// レーザーを「押している間だけ」出している
+    laser: bool,
 }
 
 impl Held {
@@ -640,6 +647,7 @@ impl Held {
             }
             LiveOp::Midi { kind: TriggerKind::Key, number, value, .. } => self.key(number, value > 0),
             LiveOp::Key { number, pressed } => self.key(number, pressed),
+            LiveOp::SetLaserHold { on } => self.laser = on,
             _ => {}
         }
     }
@@ -651,7 +659,8 @@ impl Held {
     /// 全部を離す操作
     fn releases(&self) -> Vec<LiveOp> {
         let notes = self.notes.iter().map(|&(channel, number)| LiveOp::Midi { kind: crate::project::TriggerKind::Note, channel, number, value: 0 });
-        notes.chain(self.keys.iter().map(|&number| LiveOp::Key { number, pressed: false })).collect()
+        let laser = self.laser.then_some(LiveOp::SetLaserHold { on: false });
+        notes.chain(self.keys.iter().map(|&number| LiveOp::Key { number, pressed: false })).chain(laser).collect()
     }
 }
 

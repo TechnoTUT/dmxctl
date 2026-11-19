@@ -29,7 +29,7 @@ fn duration(value: &Value, default: u64) -> anyhow::Result<Duration> {
 }
 
 fn permitted(action: &Action) -> anyhow::Result<()> {
-    ensure!(!matches!(action,Action::Arm{..}),"ARM cannot be operated through remote controls");
+    ensure!(!matches!(action,Action::Arm{..}|Action::Laser{..}),"ARM and laser cues cannot be operated through remote controls");
     Ok(())
 }
 
@@ -115,6 +115,7 @@ impl Core {
             "osc" => {
                 let addr=value["address"].as_str().context("OSC address is required")?;
                 ensure!(addr.starts_with('/') && addr.len()<=1024,"invalid OSC address");
+                ensure!(addr!="/dmx/laser" && !addr.starts_with("/dmx/laser/"),"laser cues cannot be operated through remote controls");
                 let args:Vec<Arg>=value["args"].as_array().context("args array is required")?.iter().map(|v| {
                     if let Some(v)=v.as_bool(){Ok(Arg::Bool(v))}
                     else if let Some(v)=v.as_i64(){Ok(Arg::Int(v))}

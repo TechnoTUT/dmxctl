@@ -94,6 +94,8 @@ pub struct App {
     pub map_sel: Option<crate::apcmini::Ctl>,
     /// レーザータブで、動いてよい範囲を編集中のレーザー
     pub laser_edit: Option<u32>,
+    /// レーザータブの「押下中のみ出力」を押しているか(離したときだけ止めるため)
+    pub laser_gui_hold: bool,
     /// コントロール画面で隠しているカテゴリ
     pub cat_hidden: HashSet<String>,
     /// シーン保存の対象から外すカテゴリ
@@ -167,6 +169,7 @@ impl App {
             group_rename: None,
             map_sel: None,
             laser_edit: None,
+            laser_gui_hold: false,
             cat_hidden: HashSet::new(),
             scene_skip_cats: HashSet::new(),
             pe: Default::default(),
@@ -663,6 +666,11 @@ impl App {
 
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        // レーザータブの「押下中のみ出力」を押したままタブを替えても、離したら止める
+        if self.laser_gui_hold && !ui.input(|i| i.pointer.any_down()) {
+            self.laser_gui_hold = false;
+            crate::engine::lock(&self.host.core).live(crate::live::LiveOp::SetLaserHold { on: false });
+        }
         self.frame(ui, frame.info().cpu_usage);
     }
 

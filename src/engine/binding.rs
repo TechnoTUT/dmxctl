@@ -319,6 +319,18 @@ impl Core {
                     }
                 }
             }
+            Action::Laser { mode } => match mode {
+                PadMode::Toggle | PadMode::Trigger => {
+                    if let Some(on) = edge.switch(mode, self.rt.laser_latch) {
+                        self.rt.laser_latch = on;
+                    }
+                }
+                PadMode::Momentary | PadMode::Continuous => {
+                    if let Some(on) = edge.switch(mode, self.rt.laser_hold) {
+                        self.set_laser_hold(on);
+                    }
+                }
+            },
             Action::Arm { sel, mode } => {
                 let idx: Vec<usize> = self.resolve(&sel);
                 let all = !idx.is_empty() && idx.iter().all(|&i| self.project.fixtures[i].armed);

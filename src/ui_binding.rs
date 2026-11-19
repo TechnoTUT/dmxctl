@@ -115,6 +115,7 @@ pub fn summary(a: &Action, meta: &SelMeta) -> String {
         },
         Action::Role { sel, op } => format!("色の系統\n{} {}", target_short(sel, meta), op.label()),
         Action::Arm { sel, .. } => format!("ARM\n{}", target_short(sel, meta)),
+        Action::Laser { mode } => format!("レーザー\n{}", if *mode == PadMode::Momentary { "押中" } else { "常時出力" }),
         Action::LiveColor { role, source } => format!("NDI {}\n{}", role.label(), source.label()),
         Action::SwapBeats { beats } => format!("入れ替え\n{beats}拍ごと"),
         Action::BarCount { count } => format!("LEDバー\n{count}本"),
@@ -395,6 +396,10 @@ pub fn binding_editor(ui: &mut egui::Ui, i: usize, b: &mut Binding, learn: Learn
                     out.changed |= pad_mode_combo(ui, &format!("barmm{i}"), mode, false);
                     ui.label(RichText::new("レーザーなど、ARMが必要な機材の出力を許可します").weak());
                 }
+                Action::Laser { mode } => {
+                    out.changed |= pad_mode_combo(ui, &format!("blsm{i}"), mode, false);
+                    ui.label(RichText::new("ARM済みのレーザーを出力します。押している間=押下中のみ / トグル=常時出力の切替").weak());
+                }
                 Action::LiveColor { role, source } => {
                     use crate::color::ColorRole;
                     egui::ComboBox::from_id_salt(format!("blcr{i}")).selected_text(role.label()).width(80.0).show_ui(ui, |ui| {
@@ -525,6 +530,10 @@ fn action_kind_combo(ui: &mut egui::Ui, i: usize, action: &mut Action, cx: &Edit
         }
         if ui.selectable_label(is(action, "ARM"), "ARM(レーザーなど)").clicked() && !is(action, "ARM") {
             *action = Action::Arm { sel: Selector::All, mode: PadMode::Toggle };
+            changed = true;
+        }
+        if ui.selectable_label(is(action, "レーザー出力"), "レーザー出力(ARM済みのもの)").clicked() && !is(action, "レーザー出力") {
+            *action = Action::Laser { mode: PadMode::Momentary };
             changed = true;
         }
         if ui.selectable_label(is(action, "NDIの色"), "NDIの色(映像・音)").clicked() && !is(action, "NDIの色") {

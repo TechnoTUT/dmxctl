@@ -30,6 +30,7 @@
 |---|---|
 | `/dmx/master f` | 全体光量。0〜1 |
 | `/dmx/blackout f` | 1 で ON、0 で OFF |
+| `/dmx/laser f` / `/dmx/laser/latch f` | ARM 済みのレーザーを出力。`/dmx/laser` は 1 を送信し続けている間のみで、1秒途絶えると停止し、0 で即座に停止する。送信側が停止しても出力が残らないようにするため / `/dmx/laser/latch` は常時出力の ON/OFF |
 | `/dmx/bpm f` / `/dmx/tap` / `/dmx/resync` | BPM の数値 / タップ / 頭出し |
 | `/dmx/scene s` / `/dmx/position s` | シーン / 位置プリセットを名前で呼び出す |
 | `/dmx/color s` / `/dmx/hue f` | 色を `赤` や `red` などの名前で / 色相を 0〜1 で一周。全体/個別スイッチに従う |
