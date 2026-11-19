@@ -70,6 +70,9 @@ impl crate::app::App {
             self.laser_edit = None;
         }
 
+        laser_cue_bar(ui, core, &mut self.laser_gui_hold);
+        ui.add_space(6.0);
+
         egui::ScrollArea::vertical().show(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
                 for id in ids {
@@ -86,6 +89,33 @@ impl crate::app::App {
             core.dirty = true;
         }
     }
+}
+
+/// 合図: ARMしたレーザーは、ここ・パッド・オートのフレーズ・OSC のどれかで合図があるときだけ出る
+fn laser_cue_bar(ui: &mut egui::Ui, core: &mut Core, gui_hold: &mut bool) {
+    ui.horizontal_wrapped(|ui| {
+        let latch = core.rt.laser_latch;
+        let (text, fill) = if latch { ("常時出力 ON", theme::DANGER) } else { ("常時出力", theme::WIDGET) };
+        if ui.add(egui::Button::new(RichText::new(text).strong()).fill(fill)).on_hover_text("ARM済みのレーザーを、再度押すまで出力します(起動のたびにOFF)").clicked() {
+            core.live(dmxctl_core::live::LiveOp::SetLaserLatch { on: !latch });
+        }
+        // 押下中のみ出力(位置を合わせるときなど)
+        let hold = ui.add(egui::Button::new(RichText::new("押下中のみ出力").strong()).fill(if core.rt.laser_hold { theme::DANGER } else { theme::WIDGET }).sense(Sense::click_and_drag()));
+        // 押した・離したときだけ変える(パッドやOSCで押している間を、ここで切らない)
+        let down = hold.is_pointer_button_down_on();
+        if down != *gui_hold {
+            *gui_hold = down;
+            core.live(dmxctl_core::live::LiveOp::SetLaserHold { on: down });
+        }
+        let auto = core.rt.auto_laser && core.project.auto.enabled && core.rt.auto_was_online;
+        let state = if core.laser_cue() {
+            let why = if core.rt.laser_hold { "押下中" } else if latch { "常時出力" } else if auto { "オートのフレーズ" } else { "" };
+            RichText::new(format!("合図あり({why}): ARM済みのレーザーを出力中")).color(theme::DANGER).strong()
+        } else {
+            RichText::new("合図なし: ARM済みでも出力しません(パッド・オートのフレーズ・OSC /dmx/laser で出力)").color(theme::TEXT_DIM)
+        };
+        ui.label(state);
+    });
 }
 
 /// レーザー1台分。戻り値=保存する設定を変えた
@@ -123,7 +153,7 @@ fn laser_card(ui: &mut egui::Ui, core: &mut Core, i: usize, editing: &mut Option
     painter.rect_filled(allowed, 3.0, alpha(accent, 0.12));
     painter.rect_stroke(allowed, 3.0, Stroke::new(1.5, accent), StrokeKind::Inside);
     // 実際に出ている位置(輪)と、合わせた位置(点)
-    let lit = fx.armed && !core.rt.blackout;
+    let lit = fx.armed && core.laser_cue() && !core.rt.blackout;
     let out = to_pos(x.t(x.out), y.as_ref().map(|a| a.t(a.out)).unwrap_or(0.5));
     painter.circle_stroke(out, 9.0, Stroke::new(2.0, if lit { theme::DANGER } else { theme::TEXT_FAINT }));
     let base = to_pos(x.t(x.base), y.as_ref().map(|a| a.t(a.base)).unwrap_or(0.5));

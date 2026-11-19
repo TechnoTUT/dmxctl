@@ -18,7 +18,7 @@ pub struct FixtureLook {
     pub id: u32,
     pub name: String,
     pub look: Look,
-    /// 出ていない理由(SAFE / BLACKOUT / 暗転)
+    /// 出ていない理由(SAFE / 待機(ARM中で合図が無い) / BLACKOUT / 暗転)
     pub note: Option<&'static str>,
 }
 
@@ -42,6 +42,8 @@ pub fn looks(core: &Core) -> Vec<FixtureLook> {
             Some("暗転")
         } else if profile.needs_arm && !fx.armed {
             Some("SAFE")
+        } else if profile.needs_arm && !core.laser_cue() {
+            Some("待機")
         } else if core.rt.muted.contains(&fx.id) {
             Some("MUTE")
         } else {

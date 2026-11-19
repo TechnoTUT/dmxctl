@@ -77,6 +77,15 @@ pub struct Runtime {
     pub palette_shown: Option<bool>,
     /// フラッシュ中なら Some(白で全開か)
     pub flash: Option<bool>,
+    /// レーザーの合図。ARMした機材は、合図のどれかがあるときだけ出す(ARMだけでは出さない)。保存しない
+    /// 常時出力(押すたびに切り替え)
+    pub laser_latch: bool,
+    /// 押している間だけ(パッド・キー・OSC)
+    pub laser_hold: bool,
+    /// OSCで押している間の期限。送る側が落ちても止まるよう、送り続けないと切れる
+    pub laser_hold_until: Option<Instant>,
+    /// オートのフレーズの見た目で「レーザー」をONにしたもの
+    pub auto_laser: bool,
     /// 暗転フェードの明るさ(1=通常 / 0=暗転)。全体光量にかかる
     pub dim: f32,
     /// 暗転フェードの向かう先(0か1)と、かける秒数
@@ -187,6 +196,10 @@ impl Runtime {
             remote_link: false,
             remote_emergency: false,
             flash_deadline: None,
+            laser_latch: false,
+            laser_hold: false,
+            laser_hold_until: None,
+            auto_laser: false,
             virtual_now: None,
             observe: Default::default(),
             safety_events: Vec::new(),

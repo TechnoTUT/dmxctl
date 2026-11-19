@@ -113,6 +113,7 @@ impl Core {
                 self.rt.osc_rgb = [None, None];
                 self.rt.osc_level = None;
                 self.rt.auto_bright = None;
+                self.rt.auto_laser = false;
                 self.rt.wave_color_off = false;
                 self.rt.auto_key.clear();
                 for name in std::mem::take(&mut self.rt.auto_fx) {
@@ -201,6 +202,8 @@ impl Core {
             }
         }
         self.rt.wave_color_off = !look.wave_color;
+        // レーザー(ARMしたものだけ。このフレーズの間だけ出す)
+        self.rt.auto_laser = look.laser;
         if !look.wave_color {
             self.rt.osc_rgb = [None, None];
         }

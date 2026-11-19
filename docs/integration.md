@@ -14,6 +14,7 @@
 - **導入方法**: テンポの元を Link にして、「Carabinerをダウンロードして入れる」を押します。画面を使わない PC では `dmxctl carabiner install` で導入します。配布元の GitHub から取得し、検証した値と一致したときだけ、設定フォルダの `carabiner/` に配置します。自動では取得しません。Windows・Mac・Linux 用があります。Linux は x86_64 と arm64 です
 - **起動**: 導入後は、Link を利用するとき、このアプリが自動で Carabiner を起動し、終了時に停止します。既に誰かが Carabiner を動かしていれば、それに接続するだけです。自分で導入した Carabiner を利用するなら、先に起動しておいてください
 - Carabiner に接続していないときは、「BPM/チェイス」タブに「Carabinerにつながっていません」と表示されます。その間は、内部の時計で拍が進みます。接続できるようになれば、自動で切り替わります
+- 再接続したときに Link の仲間がいなければ、切断前のテンポに戻します。仲間がいれば、そのセッションのテンポに合わせます
 - **Beat Link Trigger を利用しているとき**: BLT も Carabiner を利用します。BLT が Carabiner を動かしていれば、このアプリはそれにそのまま接続するため、別に起動する必要はありません
 - Windows では、Carabiner や OSC を初めて有効にしたときにファイアウォールの確認が表示されます。別の PC と接続する場合は「許可」が必要です。Linux でファイアウォールを有効にしている場合は [Linux で使う](platforms.md#linux-で使う) を確認してください
 - TouchDesigner では、Ableton Link CHOP の `Enable` を ON にするだけで、このアプリとテンポ・拍が一致します。Beat CHOP などで作成した映像の動きと、照明の BPM 同期エフェクト・チェイスが同じ拍で動きます
@@ -29,6 +30,7 @@
 |---|---|
 | `/dmx/master f` | 全体光量。0〜1 |
 | `/dmx/blackout f` | 1 で ON、0 で OFF |
+| `/dmx/laser f` / `/dmx/laser/latch f` | ARM 済みのレーザーを出力。`/dmx/laser` は 1 を送信し続けている間のみで、1秒途絶えると停止し、0 で即座に停止する。送信側が停止しても出力が残らないようにするため / `/dmx/laser/latch` は常時出力の ON/OFF |
 | `/dmx/bpm f` / `/dmx/tap` / `/dmx/resync` | BPM の数値 / タップ / 頭出し |
 | `/dmx/scene s` / `/dmx/position s` | シーン / 位置プリセットを名前で呼び出す |
 | `/dmx/color s` / `/dmx/hue f` | 色を `赤` や `red` などの名前で / 色相を 0〜1 で一周。全体/個別スイッチに従う |

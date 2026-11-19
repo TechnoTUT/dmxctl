@@ -73,6 +73,19 @@ impl Core {
         self.rt.flash_deadline = None;
     }
 
+    /// レーザーの合図があるか(常時出力・押している間・オートのフレーズのどれか)。
+    /// ARMした機材でも、合図が無ければ安全値(レーザーOFF)を出す
+    pub fn laser_cue(&self) -> bool {
+        let auto = self.rt.auto_laser && self.project.auto.enabled && self.rt.auto_was_online;
+        self.rt.laser_latch || self.rt.laser_hold || auto
+    }
+
+    /// 押している間だけのレーザーを変える(パッド・キー)。OSCの期限は消す
+    pub fn set_laser_hold(&mut self, on: bool) {
+        self.rt.laser_hold = on;
+        self.rt.laser_hold_until = None;
+    }
+
     pub fn new(mut project: Project, lib: Arc<Library>) -> Self {
         project.ensure_binding_ids();
         let mut rt = Runtime::new();

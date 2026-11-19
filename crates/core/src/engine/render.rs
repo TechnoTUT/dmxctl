@@ -7,6 +7,10 @@ impl Core {
         let now = self.now();
         self.rt.safety_events.clear();
         self.expire_remote_controls(now);
+        // OSCで押している間のレーザー: 送り続けていなければ止める
+        if self.rt.laser_hold_until.is_some_and(|until| now >= until) {
+            self.set_laser_hold(false);
+        }
         if self.rt.flash_deadline.is_some_and(|deadline|now >= deadline) {
             self.rt.flash = None;
             self.rt.flash_deadline = None;
@@ -123,6 +127,7 @@ impl Core {
             *f = [0; 512];
         }
         let mut used = vec![0usize; NUM_UNIVERSES];
+        let cue = self.laser_cue();
 
         for (i, fx) in self.project.fixtures.iter().enumerate() {
             // 使わない機材は出力しない(0のまま)
@@ -144,7 +149,7 @@ impl Core {
                 if let Some(info) = lib.info(&fx.profile, fx.mode) {
                     safe_values(mode, &info, v);
                 }
-            } else if profile.needs_arm && !fx.armed {
+            } else if profile.needs_arm && !(fx.armed && cue) {
                 for (c, ch) in mode.channels.iter().enumerate() {
                     if let Some(s) = ch.safe {
                         v[c] = s;
@@ -152,7 +157,7 @@ impl Core {
                 }
             }
             if let Some(trace)=self.rt.observe.trace.as_mut().filter(|t|t.fixture==fx.id && t.result.is_none()) {
-                trace.capture_single(fx.id,mode,v,"gates",serde_json::json!({"blackout":dark,"muted":muted,"armed":fx.armed,"needs_arm":profile.needs_arm}));
+                trace.capture_single(fx.id,mode,v,"gates",serde_json::json!({"blackout":dark,"muted":muted,"armed":fx.armed,"laser_cue":cue,"needs_arm":profile.needs_arm}));
             }
             // 禁止の値(レーザーのオートショーなど)と、動いてよい範囲は、何をしていても最後に必ず直す
             let gated = requested.as_ref().map(|_| v.clone());
@@ -166,7 +171,7 @@ impl Core {
                     if requested != applied {
                         let mut reasons = Vec::new();
                         if requested != gated[ch] {
-                            reasons.push(if dark { "blackout" } else if muted { "mute" } else { "not_armed" });
+                            reasons.push(if dark { "blackout" } else if muted { "mute" } else if !fx.armed { "not_armed" } else { "no_laser_cue" });
                         }
                         let [a, b] = fx.limits.get(&mode.channels[ch].attr).copied().unwrap_or([0, 255]);
                         let clamped = gated[ch].clamp(a.min(b), a.max(b));

@@ -22,7 +22,7 @@ fn duration(value: &Value, default: u64) -> anyhow::Result<Duration> {
 }
 
 fn permitted(action: &Action) -> anyhow::Result<()> {
-    ensure!(!matches!(action,Action::Arm{..}),"ARM cannot be operated through remote controls");
+    ensure!(!matches!(action,Action::Arm{..}|Action::Laser{..}),"ARM and laser cues cannot be operated through remote controls");
     Ok(())
 }
 
@@ -114,6 +114,7 @@ impl CoreControls for dmxctl_core::engine::Core {
             "osc" => {
                 let addr=value["address"].as_str().context("OSC address is required")?;
                 ensure!(addr.starts_with('/') && addr.len()<=1024,"invalid OSC address");
+                ensure!(addr!="/dmx/laser" && !addr.starts_with("/dmx/laser/"),"laser cues cannot be operated through remote controls");
                 let args:Vec<Arg>=value["args"].as_array().context("args array is required")?.iter().map(|v| {
                     if let Some(v)=v.as_bool(){Ok(Arg::Bool(v))}
                     else if let Some(v)=v.as_i64(){Ok(Arg::Int(v))}
@@ -256,5 +257,14 @@ mod tests {
         assert_eq!(c.rt.flash,Some(true));
         c.handle_osc(&dmxctl_core::io::osc::Message{addr:"/dmx/flash".into(),args:vec![dmxctl_core::io::osc::Arg::Int(1)]});
         c.render();assert_eq!(c.rt.flash,Some(true));
+    }
+
+    /// 遠隔の操作では、レーザーの合図を出せない
+    #[test]
+    fn remote_controls_cannot_cue_the_laser() {
+        let mut c = core();
+        let r = c.remote_input(&serde_json::json!({"source": "osc", "address": "/dmx/laser", "args": [1.0]}));
+        assert!(r.is_err());
+        assert!(!c.rt.laser_hold);
     }
 }

@@ -54,6 +54,9 @@ pub enum LiveOp {
     StepPage { delta: i8 },
     /// レーザーなどの出力の許可(ARM)。保存しない値なので、プロジェクトの編集ではなくこの操作で変える
     SetArm { fixture: u32, on: bool },
+    /// レーザーの合図: 常時出力 / 押している間だけ
+    SetLaserLatch { on: bool },
+    SetLaserHold { on: bool },
     /// 全体光量(0..1)
     SetMaster { level: f32 },
     /// 色を全体で変えるか、選んだ機材だけか
@@ -127,6 +130,8 @@ impl Core {
                     self.project.fixtures[i].armed = on;
                 }
             }
+            LiveOp::SetLaserLatch { on } => self.rt.laser_latch = on,
+            LiveOp::SetLaserHold { on } => self.set_laser_hold(on),
             LiveOp::SetMaster { level } => self.rt.master = level.clamp(0.0, 1.0),
             LiveOp::SetColorGlobal { on } => self.rt.color_global = on,
             LiveOp::SetLearn { midi, osc } => {

@@ -13,12 +13,16 @@ use std::time::{Duration, Instant};
 
 pub use dmxctl_io::osc::{encode, parse, Arg, Message, OscListener};
 
+/// OSCで「押している間だけ」のレーザー: 最後に1を受けてからこの時間届かなければ止める
+pub const LASER_OSC_HOLD: std::time::Duration = std::time::Duration::from_secs(1);
+
 /// 決まったアドレスの一覧(画面の説明用)。値の範囲は 0.0〜1.0
 pub const ADDRESSES: &[(&str, &str)] = &[
     ("/dmx/master  f", "全体光量(0〜1)"),
     ("/dmx/blackout  f", "ブラックアウト(1=ON / 0=OFF)"),
     ("/dmx/fade  f [秒]", "暗転フェード(1=暗くする / 0=戻す)。秒数を付けられる。/dmx/fade/time f で標準の秒数"),
     ("/dmx/flash  f", "フラッシュ(1の間だけ白で全開 / 0で戻す)。/dmx/flash/color f は今の色のまま全開"),
+    ("/dmx/laser  f", "ARM済みのレーザーを出力(1を送信し続けている間のみ。1秒途絶えると停止 / 0で停止)。/dmx/laser/latch f で常時出力のON/OFF"),
     ("/dmx/bpm  f", "BPM(数値そのまま。例: 128)"),
     ("/dmx/tap", "タップテンポ"),
     ("/dmx/resync", "頭出し(小節の頭へ)"),
@@ -269,6 +273,12 @@ impl Core {
             }
             ["swap"] if press => self.swap_palette(),
             ["flash"] => self.set_flash(press.then_some(true)),
+            // 押している間だけ: 送る側が落ちても止まるよう、送り続けないと切れる
+            ["laser"] => {
+                self.rt.laser_hold = press;
+                self.rt.laser_hold_until = press.then(|| self.now() + LASER_OSC_HOLD);
+            }
+            ["laser", "latch"] => self.rt.laser_latch = press,
             // 2つ目の数値があれば秒数(無ければ設定の秒数)
             ["fade"] => {
                 let secs = m.args.iter().filter_map(|a| a.num()).nth(1).unwrap_or(self.project.fade_secs);

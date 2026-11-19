@@ -336,6 +336,8 @@ pub(super) fn serve_conn(stream: TcpStream, core: &Shared, ctx: &dmxctl_core::wa
 pub(super) struct Held {
     notes: std::collections::BTreeSet<(u8, u8)>,
     keys: std::collections::BTreeSet<u8>,
+    /// レーザーを「押している間だけ」出している
+    laser: bool,
 }
 
 impl Held {
@@ -348,6 +350,7 @@ impl Held {
             }
             LiveOp::Midi { kind: TriggerKind::Key, number, value, .. } => self.key(number, value > 0),
             LiveOp::Key { number, pressed } => self.key(number, pressed),
+            LiveOp::SetLaserHold { on } => self.laser = on,
             _ => {}
         }
     }
@@ -359,7 +362,8 @@ impl Held {
     /// 全部を離す操作
     fn releases(&self) -> Vec<LiveOp> {
         let notes = self.notes.iter().map(|&(channel, number)| LiveOp::Midi { kind: dmxctl_core::project::TriggerKind::Note, channel, number, value: 0 });
-        notes.chain(self.keys.iter().map(|&number| LiveOp::Key { number, pressed: false })).collect()
+        let laser = self.laser.then_some(LiveOp::SetLaserHold { on: false });
+        notes.chain(self.keys.iter().map(|&number| LiveOp::Key { number, pressed: false })).chain(laser).collect()
     }
 }
 

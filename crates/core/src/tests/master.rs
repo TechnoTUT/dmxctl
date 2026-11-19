@@ -61,6 +61,7 @@ fn master_fader_scales_dimmer_only() {
 fn master_leaves_lasers_without_a_dimmer_alone() {
     let mut c = core();
     c.project.fixtures[1].armed = true;
+    c.rt.laser_latch = true;
     c.handle_midi(cc(0x38, 0));
     c.render();
     // レーザー(アドレス10〜)にはディマーが無いので、全体光量ではモードなどが変わらない

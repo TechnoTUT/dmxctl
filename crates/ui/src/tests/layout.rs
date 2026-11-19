@@ -234,6 +234,7 @@ fn face_pads_run_the_patterns_and_mute_buttons_silence_bars() {
     for f in c.project.fixtures.iter_mut().filter(|f| f.profile == "stage-evolution/laserscan300") {
         f.armed = true;
     }
+    c.rt.laser_latch = true;
     let laser = c.project.fixtures.iter().find(|f| f.profile == "stage-evolution/laserscan300").unwrap().address as usize - 1;
     c.render();
     assert_eq!(c.rt.frames[0][laser], 255, "ARM中はDMX制御");
