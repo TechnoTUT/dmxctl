@@ -52,6 +52,8 @@ fn io_depends_on_neither_core_nor_upper_layers() {
 fn core_depends_on_neither_upper_layers_nor_gui() {
     assert_without("core", &["dmxctl-backend", "dmxctl-ui"]);
     assert_without("core", &GUI);
+    // 機器とのやりとりは io が持つ。core は、それを Core につなぐだけ
+    assert_without("core", &DEVICE);
 }
 
 #[test]

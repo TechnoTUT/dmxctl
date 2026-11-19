@@ -8,9 +8,6 @@ description = "dmxctl のコア層。設定の形・値の合成・機器とプ�
 dmxctl-model = { path = "../model" }
 dmxctl-io = { path = "../io" }
 anyhow = "1.0.104"
-cpal = "0.18.2"
-# NDI受信(moip-engine の ndi クレート。サブモジュール moip-engine/。libndi は実行時に読み込む)
-moip-ndi = { package = "ndi", path = "../../moip-engine/ndi" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 serde_path_to_error = "0.1"

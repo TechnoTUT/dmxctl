@@ -634,11 +634,9 @@ name = "dmxctl-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "cpal",
  "dmxctl-io",
  "dmxctl-model",
  "libc",
- "ndi",
  "schemars",
  "serde",
  "serde_json",
@@ -650,10 +648,12 @@ name = "dmxctl-io"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cpal",
  "dmxctl-model",
  "flate2",
  "libloading 0.9.0",
  "midir",
+ "ndi",
  "serialport",
  "sha2",
  "zip",
