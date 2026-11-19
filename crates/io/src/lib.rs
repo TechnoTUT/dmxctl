@@ -5,6 +5,7 @@
 //! `Core` を動かすための橋渡しは `dmxctl-core` にある。
 pub mod carabiner;
 pub mod link;
+pub mod midi;
 pub mod osc;
 pub mod opendmx;
 pub mod output;

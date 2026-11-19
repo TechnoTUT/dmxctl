@@ -117,7 +117,7 @@ cargo test --release perf -- --ignored --nocapture                              
 | 層 | 役割 |
 |---|---|
 | `crates/model/` | 保存する設定・機材定義・色・動き・キーの表。機器にも画面にも依存しないデータと規則 |
-| `crates/io/` | 機器とプロトコルの、エンジンの状態を知らない部分。USB-DMX・Art-Net の送出、OSC のメッセージの組み立てと解釈と受信、Carabiner への接続 |
+| `crates/io/` | 機器とプロトコルの、エンジンの状態を知らない部分。USB-DMX・Art-Net の送出、OSC のメッセージの組み立てと解釈と受信、MIDI のポートの入出力、Carabiner への接続 |
 | `crates/core/` | 設定の形、値の合成、機器とプロトコルの入出力。NDI・OSC・USB-DMX・Art-Net・MIDI・音声・Link はここ |
 | `crates/backend/` | 画面なしで動作する部分。起動と保存、遠隔操作、ブラウザの操作パネル、自動操作用のCLI |
 | `crates/ui/` | 画面。eframe と KMS/DRM、タブごとの描画、見た目 |
@@ -142,7 +142,7 @@ cargo test --release perf -- --ignored --nocapture                              
 | `crates/io/src/opendmx.rs` / `crates/io/src/output.rs` | USB-DMX / Art-Net の出力 |
 | `crates/core/src/io/ndi.rs` | NDI受信で、映像の平均色と音の色を取る。読み込みと呼び出しは、`crates/core/Cargo.toml` の `moip-ndi` にある moip-engine の `ndi` クレートで行う。上げるときは `git -C moip-engine checkout <コミット>` してから `git add moip-engine` |
 | `crates/core/src/io/osc.rs` | OSC の受信と、アドレスごとの操作 |
-| `crates/core/src/io/midi.rs` / `crates/model/src/apcmini.rs` | MIDI 機器の入出力 / APC mini mk2 のパッド・ボタン・フェーダーの番号。AKAI の Communications Protocol v1.0 に基づく |
+| `crates/io/src/midi.rs` / `crates/core/src/io/midi.rs` / `crates/model/src/apcmini.rs` | MIDI のポートの一覧・入出力とバイト列の解釈 / 受けた入力で `Core` を動かす接続の管理 / APC mini mk2 のパッド・ボタン・フェーダーの番号。AKAI の Communications Protocol v1.0 に基づく |
 | `crates/core/src/io/audio.rs` / `crates/io/src/link.rs` / `crates/io/src/carabiner.rs` | 音声の入力 / Ableton Link / Link の窓口の Carabiner への接続とダウンロード |
 
 ### backend
