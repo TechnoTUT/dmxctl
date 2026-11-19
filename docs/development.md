@@ -47,6 +47,7 @@ cargo run --release                    # 開発中の確認
 bash ./scripts/build-mac.sh            # Mac の上で dist/mac/DMX Controller.app を作る。ユニバーサル版
 bash ./scripts/build-windows-mingw.sh  # Mac・Linux から dist/windows/dmxctl.exe を作る
 bash ./scripts/build-linux.sh          # Linux の上で dist/linux/dmxctl を作る
+cargo build --release -p dmxctl-server # 画面を持たない dmxctl-server だけを作る。cmake や画面用のライブラリは不要
 ```
 
 - Windows の上では `cargo build --release` で `target\release\dmxctl.exe` ができます。追加の DLL は不要で、exe 1つで動作します
@@ -118,6 +119,7 @@ cargo test --release perf -- --ignored --nocapture                              
 | `crates/core/` | 設定の形、値の合成、機器とプロトコルの入出力。NDI・OSC・USB-DMX・Art-Net・MIDI・音声・Link はここ |
 | `crates/backend/` | 画面なしで動作する部分。起動と保存、遠隔操作、ブラウザの操作パネル、自動操作用のCLI |
 | `crates/ui/` | 画面。eframe と KMS/DRM、タブごとの描画、見た目 |
+| `crates/server/` | 画面を持たない実行ファイル `dmxctl-server`。`core` と `backend` だけに依存し、画面のクレートを含まない。コンテナはこれを使う |
 
 ### core
 
@@ -167,7 +169,7 @@ cargo test --release perf -- --ignored --nocapture                              
 
 | ファイル | 中身 |
 |---|---|
-| `Containerfile` / `.dockerignore` / `deploy/kubernetes/` | コンテナのイメージと Kubernetes のマニフェスト。画面を使わず `dmxctl serve` だけを動作させる。手順は [コンテナで動かす](container.md) |
+| `Containerfile` / `.dockerignore` / `deploy/kubernetes/` | コンテナのイメージと Kubernetes のマニフェスト。`dmxctl-server` をビルドし、画面を使わず `dmxctl serve` だけを動作させる。手順は [コンテナで動かす](container.md) |
 
 単体テストは層ごとに `crates/core/src/tests/`・`crates/backend/src/tests/`・`crates/ui/src/tests/` に置きます。複数の層にまたがる検証は、ルートの `tests/` に置きます。ルートのクレートは、起動の `src/main.rs` と、結合テストが使う再公開だけを持ちます。他のクレートのテストが使う補助は、`dmxctl-core` の機能 `test-support` で公開します。
 

@@ -43,3 +43,9 @@ fn backend_depends_on_neither_ui_nor_gui() {
     assert_without("backend", &["dmxctl-ui"]);
     assert_without("backend", &GUI);
 }
+
+#[test]
+fn server_depends_on_neither_ui_nor_gui() {
+    assert_without("server", &["dmxctl-ui"]);
+    assert_without("server", &GUI);
+}

@@ -7,23 +7,23 @@
 # ---- 1. ビルド ----
 FROM docker.io/library/rust:1-trixie AS build
 
-# SDL2 と Ableton Link に要るもの。SDL2 は内蔵のソースからビルドし、Link は C++ で書かれている。
-# Linux で dmxctl をビルドするときに要るものと同じ一覧
+# 画面を持たない dmxctl-server をビルドするのに要るもの。音と MIDI の ALSA と、シリアルの udev の開発用ファイルだけ
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      build-essential pkg-config cmake \
-      libasound2-dev libudev-dev libdrm-dev libgbm-dev libegl-dev libgles-dev libxext-dev \
+      build-essential pkg-config \
+      libasound2-dev libudev-dev \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
 # moip-engine は NDI のクレートを入れたサブモジュール。ビルドの前に `git submodule update --init --recursive` で取っておく
 COPY . .
 
-# キャッシュを使い、2回目以降のビルドを速くする。取り出すのは release の dmxctl 1つだけ
+# キャッシュを使い、2回目以降のビルドを速くする。取り出すのは release の dmxctl-server 1つだけ。
+# 呼び出しは `dmxctl serve` のまま使えるよう、イメージの中では dmxctl の名前で入れる
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/src/target \
-    cargo build --release --locked --bin dmxctl \
- && cp target/release/dmxctl /dmxctl
+    cargo build --release --locked -p dmxctl-server \
+ && cp target/release/dmxctl-server /dmxctl
 
 # ---- 2. 実行 ----
 FROM docker.io/library/debian:trixie-slim
