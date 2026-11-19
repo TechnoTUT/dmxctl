@@ -141,7 +141,7 @@ cargo test --release perf -- --ignored --nocapture                              
 | `crates/core/src/led.rs` / `crates/model/src/layout.rs` | パッドLEDの計算 / APC mini mk2 のおすすめの MIDI 配置 |
 | `crates/core/src/observe.rs` | 実行の観測 `Observe`。`Runtime` の `observe` が持つ。記録の口と診断をまとめ、観測の有無をほかの実行中の値と混ぜない |
 | `crates/core/src/recorder.rs` / `crates/core/src/trace.rs` / `crates/core/src/hold.rs` | 実行の記録の口 / 指定した機材の合成の段階の記録 / 遠隔操作で押している間の記録。`Core` が保持するので、ここに置く。ファイルへの書き込みや問い合わせは `backend` 側 |
-| `crates/io/src/opendmx.rs` / `crates/io/src/output.rs` | USB-DMX / Art-Net の出力 |
+| `crates/io/src/opendmx.rs` / `crates/io/src/output.rs` | USB-DMX / Art-Net・sACN (E1.31) の出力。sACN の送信元の識別子(CID)は起動ごとに生成し、停止時は終了の合図を3回送信する |
 | `crates/io/src/ndi.rs` / `crates/core/src/io/ndi.rs` | NDI受信で、映像の平均色と音の色を取る。読み込みと呼び出しは、`crates/io/Cargo.toml` の `moip-ndi` にある moip-engine の `ndi` クレートで行う。上げるときは `git -C moip-engine checkout <コミット>` してから `git add moip-engine` |
 | `crates/core/src/io/osc.rs` | OSC の受信と、アドレスごとの操作 |
 | `crates/io/src/midi.rs` / `crates/core/src/io/midi.rs` / `crates/model/src/apcmini.rs` | MIDI のポートの一覧・入出力とバイト列の解釈 / 受けた入力で `Core` を動かす接続の管理 / APC mini mk2 のパッド・ボタン・フェーダーの番号。AKAI の Communications Protocol v1.0 に基づく |

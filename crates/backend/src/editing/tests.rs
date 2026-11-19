@@ -193,3 +193,19 @@ fn unrelated_edits_keep_running_fades_but_explicit_values_override_them() {
     apply(&mut c,&json!([{"entity":"fixture","op":"update","key":1,"data":{"values":values}}]),false).unwrap();
     assert!(c.rt.fades.is_empty());
 }
+
+#[test]
+fn sacn_outputs_are_validated() {
+    let c=core();
+    let check=|kind:OutputKind|{let mut p=c.project.clone();p.outputs=vec![OutputCfg{enabled:true,universe:0,kind}];validate::validate(&p,&c.lib)};
+    let sacn=|ip:&str,sacn_universe:u16,priority:u8|OutputKind::Sacn{ip:ip.into(),sacn_universe,priority};
+    assert!(check(sacn("",1,100)).is_ok(),"空ならマルチキャスト");
+    assert!(check(sacn("192.168.1.20",63999,200)).is_ok());
+    assert!(check(sacn("",0,100)).is_err(),"ユニバース0は無い");
+    assert!(check(sacn("",64000,100)).is_err());
+    assert!(check(sacn("nope",1,100)).is_err());
+    assert!(check(sacn("",1,201)).is_err(),"優先度は200まで");
+    // 優先度を省いた保存ファイルは標準の100で読む
+    let kind:OutputKind=serde_json::from_value(json!({"Sacn":{"sacn_universe":3}})).unwrap();
+    assert_eq!(kind,sacn("",3,100));
+}

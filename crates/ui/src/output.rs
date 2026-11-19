@@ -21,7 +21,7 @@ impl App {
 
         ui.horizontal(|ui| {
             crate::theme::heading(ui, "出力");
-            crate::theme::help(ui, "FT232系の安価なUSB-DMXは、まず「COMポート」方式を試し、つながらなければ「D2XX」方式を使います。同時に複数の出力を有効にできます。\nArt-Netは、ノードのIPを指定するか、全体に流す場合は 255.255.255.255");
+            crate::theme::help(ui, "FT232系の安価なUSB-DMXは、まず「COMポート」方式を試し、つながらなければ「D2XX」方式を使います。同時に複数の出力を有効にできます。\nArt-Netは、ノードのIPを指定するか、全体に流す場合は 255.255.255.255\nsACN (E1.31)は、送り先を空にするとマルチキャスト(239.255.x.y)で送ります。ユニバースは 1〜63999");
             ui.add_space(8.0);
             add_serial = ui.button("＋ USB-DMX (COMポート)").clicked();
             add_d2xx = ui.button("＋ USB-DMX (D2XX)").clicked();
@@ -30,6 +30,14 @@ impl App {
                     enabled: true,
                     universe: 0,
                     kind: OutputKind::ArtNet { ip: "255.255.255.255".into(), art_universe: 0 },
+                });
+                apply = true;
+            }
+            if ui.button("＋ sACN").clicked() {
+                core.project.outputs.push(OutputCfg {
+                    enabled: true,
+                    universe: 0,
+                    kind: OutputKind::Sacn { ip: String::new(), sacn_universe: 1, priority: dmxctl_core::project::SACN_DEFAULT_PRIORITY },
                 });
                 apply = true;
             }
@@ -49,7 +57,7 @@ impl App {
                     ui.label(dim("種類"));
                     ui.label(dim("ユニバース"));
                     ui.label(dim("送り先"));
-                    ui.label(dim("Art-Net U"));
+                    ui.label(dim("相手のU"));
                     ui.label(dim("状態"));
                     ui.label("");
                     ui.end_row();
@@ -63,11 +71,23 @@ impl App {
                         }
                         match &mut o.kind {
                             OutputKind::ArtNet { ip, art_universe } => {
-                                let r = ui.add(egui::TextEdit::singleline(ip).desired_width(140.0)).on_hover_text("ノードのIP。全体に流す場合は 255.255.255.255");
+                                let r = ui.add_sized([140.0, 20.0], egui::TextEdit::singleline(ip)).on_hover_text("ノードのIP。全体に流す場合は 255.255.255.255");
                                 if r.lost_focus() {
                                     apply = true;
                                 }
                                 apply |= ui.add(egui::DragValue::new(art_universe).range(0..=32767)).changed();
+                            }
+                            OutputKind::Sacn { ip, sacn_universe, priority } => {
+                                let r = ui
+                                    .add_sized([140.0, 20.0], egui::TextEdit::singleline(ip).hint_text("マルチキャスト"))
+                                    .on_hover_text("受け手のIP。空ならマルチキャスト(239.255.x.y)で、同じネットワークの受け手すべてに届く");
+                                if r.lost_focus() {
+                                    apply = true;
+                                }
+                                ui.horizontal(|ui| {
+                                    apply |= ui.add(egui::DragValue::new(sacn_universe).range(1..=63999)).on_hover_text("sACN のユニバース(1〜63999)").changed();
+                                    apply |= ui.add(egui::DragValue::new(priority).range(0..=200).prefix("優先 ")).on_hover_text("優先度(0〜200。標準 100)。同じユニバースを複数の送り手が送るとき、大きいほうが使われる").changed();
+                                });
                             }
                             OutputKind::OpenDmxSerial { port } => {
                                 ui.horizontal(|ui| {

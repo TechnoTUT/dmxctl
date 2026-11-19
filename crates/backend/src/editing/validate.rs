@@ -126,6 +126,11 @@ pub fn validate(project:&Project,lib:&Library)->anyhow::Result<()> {
         ensure!(output.universe<NUM_UNIVERSES,"output universe is out of range");
         match &output.kind {
             OutputKind::ArtNet{ip,art_universe}=>{let _:std::net::Ipv4Addr=ip.parse().context("invalid Art-Net IPv4 address")?;ensure!(*art_universe<32768,"invalid Art-Net universe");}
+            OutputKind::Sacn{ip,sacn_universe,priority}=>{
+                if !ip.trim().is_empty() {let _:std::net::Ipv4Addr=ip.trim().parse().context("invalid sACN IPv4 address")?;}
+                ensure!((1..=63999).contains(sacn_universe),"invalid sACN universe");
+                ensure!(*priority<=200,"invalid sACN priority");
+            }
             OutputKind::OpenDmxSerial{port}=>ensure!(!port.trim().is_empty(),"empty serial port"),_=>{},
         }
     }

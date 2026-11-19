@@ -194,6 +194,7 @@ kubectl -n dmxctl exec deploy/dmxctl -- dmxctl ctl status
 | 9190 | TCP | 制御の窓口。コンテナの中だけ。`ctl` の既定の接続先 |
 | 9300 | TCP | `dmxctl connect` のクライアントからの接続待ち受け。既定では開放しない。開放するときの追加方法は「別の PC から操作する」 |
 | 6454 | UDP | Art-Net の送信先。照明機材や Art-Net ノードへ向けて出力する |
+| 5568 | UDP | sACN (E1.31) の送信先。マルチキャストは Pod のネットワークでは届かないことが多いため、受け手の IPアドレスを指定する |
 
 ## 更新する
 
