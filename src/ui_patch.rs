@@ -104,10 +104,25 @@ impl App {
                 crate::theme::help(ui, "MIDI割り当てやエフェクトの対象に「グループ」を選べます");
             });
             let fx_names: Vec<(u32, String)> = core.project.fixtures.iter().map(|f| (f.id, f.name.clone())).collect();
-            let mut del_group: Option<usize> = None;
+            let mut del_group: Option<String> = None;
+            let mut rename: Option<(String, String)> = None;
             for (gi, g) in core.project.groups.iter_mut().enumerate() {
                 ui.horizontal_wrapped(|ui| {
-                    changed |= ui.add(egui::TextEdit::singleline(&mut g.name).desired_width(120.0)).changed();
+                    // 割り当てやエフェクトが名前で指しているので、1文字ごとには変えず、確定したときに参照ごと書き換える
+                    let mut text = match &self.group_rename {
+                        Some((i, t)) if *i == gi => t.clone(),
+                        _ => g.name.clone(),
+                    };
+                    let response = ui.add(egui::TextEdit::singleline(&mut text).desired_width(120.0));
+                    if response.changed() {
+                        self.group_rename = Some((gi, text));
+                    }
+                    if response.lost_focus()
+                        && let Some((_, t)) = self.group_rename.take_if(|(i, _)| *i == gi)
+                        && t.trim() != g.name
+                    {
+                        rename = Some((g.name.clone(), t));
+                    }
                     for (id, name) in &fx_names {
                         let mut on = g.fixtures.contains(id);
                         if ui.checkbox(&mut on, name).changed() {
@@ -120,13 +135,23 @@ impl App {
                         }
                     }
                     if ui.button("グループ削除").clicked() {
-                        del_group = Some(gi);
+                        del_group = Some(g.name.clone());
                     }
                 });
             }
-            if let Some(gi) = del_group {
-                core.project.groups.remove(gi);
-                changed = true;
+            if let Some((old, new)) = rename {
+                if let Err(error) = crate::editing::gui_rename_group(core, &old, &new) {
+                    self.host.notice = format!("グループの名前を変えられません: {error}");
+                }
+            }
+            if let Some(name) = del_group {
+                self.group_rename = None;
+                // 消したグループを指す割り当て・エフェクトも片付ける。残すと検証に通らず、以後の編集がすべて失敗する
+                match crate::editing::gui_delete_group(core, &name) {
+                    Ok(removed) if removed.is_empty() => self.host.notice = format!("グループ「{name}」を削除しました"),
+                    Ok(removed) => self.host.notice = format!("グループ「{name}」を削除しました。このグループを対象にしていた {} も削除しました", removed.join("、")),
+                    Err(error) => self.host.notice = format!("グループを削除できません: {error}"),
+                }
             }
             ui.horizontal(|ui| {
                 ui.add(egui::TextEdit::singleline(&mut self.new_group).hint_text("新しいグループ名").desired_width(160.0));
