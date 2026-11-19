@@ -338,3 +338,23 @@ fn gui_frame_processes_commands_against_its_own_core() {
     drop(app);
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn output_snapshot_accepts_pixel_group_names() {
+    let mut host=Running::start();
+    // 見本の設定に LED バーを足す(red.1〜 のピクセル)
+    let profiles=host.request(json!({"op":"profile_list"}));
+    let bar=profiles.as_array().unwrap().iter()
+        .find(|p|p["modes"][0]["channels"].as_array().unwrap().iter().any(|c|c["attr"]=="red.1")).expect("内蔵の LED バーの定義");
+    let profile=bar["id"].as_str().unwrap().to_string();
+    let reds=bar["modes"][0]["channels"].as_array().unwrap().iter().filter(|c|c["attr"].as_str().unwrap().starts_with("red.")).count();
+    host.request(json!({"op":"edit","operations":[{"entity":"fixture","op":"create","data":{"name":"Bar","profile":profile,"universe":1,"address":1}}]}));
+    let id=host.request(json!({"op":"fixtures"})).as_array().unwrap().iter().find(|f|f["name"]=="Bar").unwrap()["id"].as_u64().unwrap();
+    let all=host.request(json!({"op":"output","fixture":id,"attrs":["red"]}));
+    let channels=all["channels"].as_array().unwrap();
+    assert_eq!(channels.len(),reds,"まとめた名前で、全ピクセルの red が返る: {all}");
+    assert!(channels.iter().all(|c|c["attr"].as_str().unwrap().starts_with("red.")));
+    let one=host.request(json!({"op":"output","fixture":id,"attrs":["red.1"]}));
+    assert_eq!(one["channels"].as_array().unwrap().len(),1);
+    host.stop();
+}

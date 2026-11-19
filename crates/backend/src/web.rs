@@ -209,7 +209,11 @@ pub fn command(c: &mut Core, v: &Value) -> Result<(), String> {
         "master" => c.rt.master = num.ok_or("value がありません")?.clamp(0.0, 1.0),
         "fade" => {
             let dark = on.unwrap_or(c.rt.dim > 0.5);
-            let secs = c.project.fade_secs;
+            // secs があればその秒数(OSC の /dmx/fade と同じ)。無ければ設定の秒数
+            let secs = match v.get("secs") {
+                Some(s) => s.as_f64().filter(|s| (0.0..=60.0).contains(s)).ok_or("secs は 0〜60 の数値です")? as f32,
+                None => c.project.fade_secs,
+            };
             c.fade_to_black(dark, secs);
         }
         // 押している間だけ(ボタンを離したら on: false が来る)
@@ -243,7 +247,7 @@ pub fn command(c: &mut Core, v: &Value) -> Result<(), String> {
         }
         "color" => {
             let name = text("name")?;
-            let n = NamedColor::ALL.into_iter().find(|n| format!("{n:?}") == name).ok_or("その色はありません")?;
+            let n = NamedColor::from_name(&name).ok_or("その色はありません")?;
             let target = if v["slot"].as_str() == Some("sub") { ColorTarget::Sub } else { ColorTarget::Main };
             // 人が選んだ色なので、しばらくオートより優先する
             c.note_manual();

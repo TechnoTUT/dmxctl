@@ -369,7 +369,13 @@ fn call(request: Requester, name: &str, args: &Value) -> anyhow::Result<Value> {
             if let Some(v) = args.get("expected_session") {
                 payload["expected_session"] = v.clone();
             }
-            send(request, payload)
+            let mut result = send(request, payload)?;
+            // 割り当ての一覧は、割り当てを編集したときだけ返す(本番の設定では数十KBになり、AI の文脈を圧迫するため)
+            let touches_bindings = args["operations"].as_array().is_some_and(|ops| ops.iter().any(|op| op["entity"] == "binding"));
+            if !touches_bindings && let Some(obj) = result.as_object_mut() {
+                obj.remove("bindings");
+            }
+            Ok(result)
         }
         "project_save" => send(request, json!({"op": "save"})),
         _ => bail!("unknown tool: {name}"),
