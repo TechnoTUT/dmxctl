@@ -103,6 +103,7 @@ cargo test --release perf -- --ignored --nocapture                              
 | `DMXCTL_SCALE=1.5` | KMS/DRM の画面の拡大率。指定が無ければ画面の大きさから自動で決定する |
 | `dmxctl headless` | 画面を出さずに動作させる。`Host::run_headless` で、OSC 受信・Link・オートを必ず ON にする |
 | `DMXCTL_D2XX_LIB` / `DMXCTL_NDI_LIB` | ライブラリの場所を直接指定する |
+| `DMXCTL_NDI_DIR` / `NDI_ACCEPT_LICENSE=yes` / `NDI_SDK_URL` | コンテナの `dmxctl-fetch-ndi` が利用する。NDI のライブラリの置き場所 `/data/ndi` / 使用許諾に同意した印 / ダウンロード元 |
 | `DMXCTL_CARABINER_PORT=17000` | Ableton Link の窓口の Carabiner に接続するポート。指定が無ければ 17000 |
 | `DMXCTL_CARABINER_HOST=ホスト名` | 別の PC や別の Pod で動作している Carabiner に接続する。指定が無ければ同じ PC の Carabiner に接続し、導入済みなら起動する。指定したときは起動しない。ポートは `DMXCTL_CARABINER_PORT` |
 | `dmxctl apply-layout` | 保存してある設定を、おすすめの MIDI 配置にする。先にバックアップを残す |
@@ -174,7 +175,7 @@ cargo test --release perf -- --ignored --nocapture                              
 
 | ファイル | 中身 |
 |---|---|
-| `Containerfile` / `.dockerignore` / `deploy/kubernetes/` | コンテナのイメージと Kubernetes のマニフェスト。`dmxctl-server` をビルドし、画面を使わず `dmxctl serve` だけを動作させる。手順は [コンテナで動かす](container.md) |
+| `Containerfile` / `.dockerignore` / `deploy/container/fetch-ndi.sh` / `deploy/kubernetes/` | コンテナのイメージと Kubernetes のマニフェスト。`fetch-ndi.sh` はイメージの中で `dmxctl-fetch-ndi` になり、NDI のライブラリを利用者が公式サイトから取得する。`deploy/kubernetes/components/ndi/` はそれを initContainer で実行する追加分。`dmxctl-server` をビルドし、画面を使わず `dmxctl serve` だけを動作させる。手順は [コンテナで動かす](container.md) |
 
 単体テストは層ごとに `crates/core/src/tests/`・`crates/backend/src/tests/`・`crates/ui/src/tests/` に置きます。複数の層にまたがる検証は、ルートの `tests/` に置きます。ルートのクレートは、起動の `src/main.rs` と、結合テストが使う再公開だけを持ちます。他のクレートのテストが使う補助は、`dmxctl-core` の機能 `test-support` で公開します。
 
