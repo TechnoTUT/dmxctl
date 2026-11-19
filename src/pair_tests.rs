@@ -23,6 +23,42 @@ fn two_spots() -> Core {
 
 const F2: usize = 9; // 2台目の先頭スロット
 
+#[test]
+fn chained_pairs_follow_in_any_registration_order() {
+    for reverse in [false, true] {
+        let mut c = two_spots();
+        c.project.add_fixture(&c.lib, SPOT).unwrap();
+        c.project.pairs.push(Pair { name: "BC".into(), leader: 2, follower: 3, ..Pair::default() });
+        if reverse { c.project.pairs.reverse(); }
+        c.set_attr(&Selector::Fixture(1), "pan", 20.0);
+        c.set_attr(&Selector::Fixture(2), "pan", 40.0);
+        c.set_attr(&Selector::Fixture(3), "pan", 60.0);
+        c.render();
+        assert_eq!((c.rt.frames[0][0], c.rt.frames[0][9], c.rt.frames[0][18]), (20, 235, 20));
+        let view = c.paired_view(3).unwrap();
+        assert_eq!(view.values[0], 20, "画面も連鎖した値を表示する");
+        assert_eq!(c.project.fixtures[2].values[0], 60, "保存する基準値は変えない");
+
+        c.project.pairs.iter_mut().find(|p| p.leader == 1).unwrap().enabled = false;
+        c.render();
+        assert_eq!(c.rt.frames[0][18], 215, "上流を無効にすると直近のリーダーに追従する");
+        assert_eq!(c.paired_view(3).unwrap().values[0], 215);
+    }
+}
+
+#[test]
+fn cyclic_pairs_do_not_block_independent_links() {
+    let mut c = two_spots();
+    for _ in 0..2 { c.project.add_fixture(&c.lib, SPOT).unwrap(); }
+    c.project.pairs.push(Pair { name: "BA".into(), leader: 2, follower: 1, ..Pair::default() });
+    c.project.pairs.push(Pair { name: "CD".into(), leader: 3, follower: 4, mirror: false, ..Pair::default() });
+    c.set_attr(&Selector::Fixture(1), "pan", 20.0);
+    c.set_attr(&Selector::Fixture(2), "pan", 40.0);
+    c.set_attr(&Selector::Fixture(3), "pan", 60.0);
+    c.render();
+    assert_eq!((c.rt.frames[0][0], c.rt.frames[0][9], c.rt.frames[0][27]), (20, 40, 60));
+}
+
 fn note(n: u8, v: u8) -> MidiMsg {
     MidiMsg { kind: TriggerKind::Note, channel: 0, number: n, value: v }
 }

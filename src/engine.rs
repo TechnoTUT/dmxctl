@@ -517,13 +517,7 @@ impl Core {
         self.trace_stage("pixel",Some(&vals),serde_json::Value::Null);
 
         // ペア: フォロワーの値を、(エフェクト適用後の)リーダーの値から作る。反転もここで行う
-        for p in self.project.pairs.iter().filter(|p| p.enabled) {
-            let Some(plan) = self.pair_plan(p) else { continue };
-            let (lf, ff) = (&self.project.fixtures[plan.li], &self.project.fixtures[plan.fi]);
-            let (Some(lm), Some(fm)) = (lib.mode(&lf.profile, lf.mode), lib.mode(&ff.profile, ff.mode)) else { continue };
-            let lvals = vals[plan.li].clone();
-            apply_pair(&plan, lm, fm, &lvals, &mut vals[plan.fi]);
-        }
+        self.render_pairs(&mut vals);
 
         self.trace_stage("pairs",Some(&vals),serde_json::Value::Null);
         // 全体光量: 各機材のディマー(無ければ色の強さのチャンネル)に掛ける
