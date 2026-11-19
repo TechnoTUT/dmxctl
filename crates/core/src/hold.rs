@@ -5,15 +5,38 @@ use serde_json::json;
 use std::time::Instant;
 
 pub struct Hold {
-    pub action: Action,
-    pub until: Instant,
-    pub feedback: Feedback,
+    action: Action,
+    until: Instant,
+    feedback: Feedback,
 }
 
 #[derive(Clone)]
 pub enum Feedback { None, Note(u8), Key(u8) }
 
 impl Core {
+    /// 割り当ての `id` を、`duration` のあいだ押している扱いにする。`feedback` は離したときに消す表示
+    pub fn hold_remote_control(&mut self, id: u64, action: Action, duration: std::time::Duration, feedback: Feedback) {
+        let until = self.now() + duration;
+        self.rt.remote_holds.insert(id, Hold { action, until, feedback });
+    }
+
+    /// 割り当ての `id` を、離す処理をせずに押している扱いから外す
+    pub fn forget_remote_control(&mut self, id: u64) {
+        self.rt.remote_holds.remove(&id);
+    }
+
+    /// 割り当ての `id` を押している扱いか
+    pub fn is_remote_held(&self, id: u64) -> bool {
+        self.rt.remote_holds.contains_key(&id)
+    }
+
+    /// 割り当ての `id` を、離した扱いにする。`source` は記録に残す理由
+    pub fn release_remote_control(&mut self, id: u64, source: &str) {
+        if let Some(hold) = self.rt.remote_holds.remove(&id) {
+            self.release_hold(id, hold, source);
+        }
+    }
+
     /// 期限が切れた押している間の記録を、離した扱いにする
     pub fn expire_remote_controls(&mut self,now:Instant) {
         let expired:Vec<_>=self.rt.remote_holds.iter().filter(|(_,hold)|now>=hold.until).map(|(&id,_)|id).collect();
@@ -26,7 +49,7 @@ impl Core {
         for (id,hold) in holds {self.release_hold(id,hold,"project_edit");}
     }
 
-    pub fn release_hold(&mut self,id:u64,hold:Hold,source:&str) {
+    fn release_hold(&mut self,id:u64,hold:Hold,source:&str) {
         let index=self.project.bindings.iter().position(|b|b.id==id).unwrap_or(usize::MAX);
         self.rt.pad_state.insert(index,true);
         self.apply_action(index,hold.action,0.0,false);

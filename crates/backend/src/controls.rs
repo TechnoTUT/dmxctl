@@ -1,6 +1,6 @@
 //! Replay GUI bindings and external inputs through the existing engine actions.
-use dmxctl_core::{engine::MidiMsg, project::{Action, PadMode, TriggerKind}};
-use dmxctl_core::hold::{Feedback, Hold};
+use dmxctl_core::{engine::{Core, MidiMsg}, project::{Action, PadMode, TriggerKind}};
+use dmxctl_core::hold::Feedback;
 use dmxctl_core::io::osc::{Arg, Message};
 use anyhow::{Context, ensure, bail};
 use serde_json::{Value, json};
@@ -30,8 +30,6 @@ pub trait CoreControls {
     fn controls(&mut self) -> Value;
     fn remote_button(&mut self, value:&Value) -> anyhow::Result<()>;
     fn remote_input(&mut self, value:&Value) -> anyhow::Result<()>;
-    fn preflight(&self,hits:&[usize]) -> anyhow::Result<()>;
-    fn track_input(&mut self,hits:&[usize],pressed:bool,duration:Duration,feedback:Feedback,skip_sliders:bool);
 }
 
 impl CoreControls for dmxctl_core::engine::Core {
@@ -41,7 +39,7 @@ impl CoreControls for dmxctl_core::engine::Core {
             "id":format!("binding:{}",b.id),"name":b.name,"kind":if continuous(&b.action){"slider"}else{"button"},
             "page":b.page,"trigger":b.trigger,"osc":b.osc,"action":b.action,
             "pressed":self.rt.pad_state.get(&index).copied().unwrap_or(false),
-            "remote_held":self.rt.remote_holds.contains_key(&b.id),"remote_allowed":permitted(&b.action).is_ok()
+            "remote_held":self.is_remote_held(b.id),"remote_allowed":permitted(&b.action).is_ok()
         })).collect::<Vec<_>>())
     }
 
@@ -54,7 +52,7 @@ impl CoreControls for dmxctl_core::engine::Core {
         permitted(&action)?;
         let event=value["event"].as_str().context("event is required")?;
         if event=="release" {
-            if let Some(hold)=self.rt.remote_holds.remove(&id) { self.release_hold(id,hold,"release"); }
+            self.release_remote_control(id,"release");
             return Ok(());
         }
         if event=="set" {
@@ -72,7 +70,7 @@ impl CoreControls for dmxctl_core::engine::Core {
         let duration=duration(value,if event=="click"{50}else{1000})?;
         self.note_manual();
         self.apply_binding(index,1.0,true);
-        self.rt.remote_holds.insert(id,Hold {action,until:self.now()+duration,feedback:Feedback::None});
+        self.hold_remote_control(id,action,duration,Feedback::None);
         Ok(())
     }
 
@@ -92,10 +90,10 @@ impl CoreControls for dmxctl_core::engine::Core {
                         && (b.on_page(self.rt.page) || (kind==TriggerKind::Note && self.rt.pad_state.get(&i)==Some(&true))) {hits.push(i);}
                 }
                 let pressed=if kind==TriggerKind::Note {input>0}else{input>=64};
-                self.preflight(&hits)?;
+                preflight(self,&hits)?;
                 let duration=duration(value,1000)?;
                 self.handle_midi(MidiMsg {kind,channel,number,value:input});
-                self.track_input(&hits,pressed,duration,if kind==TriggerKind::Note {Feedback::Note(number)}else{Feedback::None},kind==TriggerKind::Cc);
+                track_input(self,&hits,pressed,duration,if kind==TriggerKind::Note {Feedback::Note(number)}else{Feedback::None},kind==TriggerKind::Cc);
                 return Ok(());
             }
             "key" => {
@@ -107,10 +105,10 @@ impl CoreControls for dmxctl_core::engine::Core {
                     if b.trigger.is_some_and(|t|t.kind==TriggerKind::Key && t.number==number)
                         && (b.page.is_none_or(|p|p==self.rt.key_page) || self.rt.pad_state.get(&i)==Some(&true)) {hits.push(i);}
                 }
-                self.preflight(&hits)?;
+                preflight(self,&hits)?;
                 let duration=duration(value,1000)?;
                 self.handle_key(number,pressed);
-                self.track_input(&hits,pressed,duration,Feedback::Key(number),false);
+                track_input(self,&hits,pressed,duration,Feedback::Key(number),false);
                 return Ok(());
             }
             "osc" => {
@@ -127,7 +125,7 @@ impl CoreControls for dmxctl_core::engine::Core {
                     if b.osc.as_deref()==Some(addr) {hits.push(i);}
                     if addr.starts_with("/dmx/phrase") && b.osc.as_deref().is_some_and(|a|a.starts_with("/dmx/phrase/")) {permitted(&b.action)?;}
                 }
-                self.preflight(&hits)?;
+                preflight(self,&hits)?;
                 let first=args.iter().find_map(Arg::num);
                 let duration=duration(value,1000)?;
                 self.handle_osc(&Message {addr:addr.to_string(),args});
@@ -136,30 +134,31 @@ impl CoreControls for dmxctl_core::engine::Core {
                 }
                 if first.is_none() {return Ok(());}
                 let pressed=first.unwrap()>=0.5;
-                self.track_input(&hits,pressed,duration,Feedback::None,true);
+                track_input(self,&hits,pressed,duration,Feedback::None,true);
             }
             _=>bail!("source must be midi, key or osc"),
         }
         Ok(())
     }
+}
 
-    fn preflight(&self,hits:&[usize]) -> anyhow::Result<()> {
-        for &i in hits {
-            let binding=&self.project.bindings[i];
-            permitted(&binding.action)?;
-            ensure!(continuous(&binding.action) || !self.rt.pad_state.get(&i).copied().unwrap_or(false) || self.rt.remote_holds.contains_key(&binding.id),"control is held by another input");
-        }
-        Ok(())
+/// 押す前の確認。許されない割り当てや、別の入力が押している割り当てを断る
+fn preflight(core:&Core,hits:&[usize]) -> anyhow::Result<()> {
+    for &i in hits {
+        let binding=&core.project.bindings[i];
+        permitted(&binding.action)?;
+        ensure!(continuous(&binding.action) || !core.rt.pad_state.get(&i).copied().unwrap_or(false) || core.is_remote_held(binding.id),"control is held by another input");
     }
+    Ok(())
+}
 
-    fn track_input(&mut self,hits:&[usize],pressed:bool,duration:Duration,feedback:Feedback,skip_sliders:bool) {
-        for &i in hits {
-            let b=&self.project.bindings[i];
-            if !pressed {self.rt.remote_holds.remove(&b.id);}
-            else if !skip_sliders || !continuous(&b.action) {
-                self.rt.remote_holds.insert(b.id,Hold {action:b.action.clone(),until:self.now()+duration,feedback:feedback.clone()});
-            }
-        }
+/// 押した割り当てを押している扱いにし、離したら外す
+fn track_input(core:&mut Core,hits:&[usize],pressed:bool,duration:Duration,feedback:Feedback,skip_sliders:bool) {
+    for &i in hits {
+        let b=&core.project.bindings[i];
+        let (id,action)=(b.id,b.action.clone());
+        if !pressed {core.forget_remote_control(id);}
+        else if !skip_sliders || !continuous(&action) {core.hold_remote_control(id,action,duration,feedback.clone());}
     }
 }
 
@@ -172,7 +171,6 @@ fn byte(value:&Value,key:&str,max:u8) -> anyhow::Result<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dmxctl_core::engine::Core;
     use dmxctl_core::{fixture::Library, project::*};
     use std::{sync::Arc,path::Path};
     fn core()->Core {
