@@ -111,57 +111,57 @@ cargo test --release perf -- --ignored --nocapture                              
 
 ## コードの地図
 
-ソースは3つの層に分けています。参照してよい向きは `ui` → `backend` → `core` だけです。`tests/layers.rs` が、逆向きの参照が入っていないかを調べます。層ごとに別々に保守できるので、画面を修正するときに出力の中身を、機器の対応を追加するときに画面を読む必要はありません。
+ソースは3つの層を、別々のクレートに分けています。参照してよい向きは `ui` → `backend` → `core` だけです。逆向きの参照はコンパイルが通らず、`tests/layers.rs` が、`core` に画面のクレートが入り込んでいないかを調べます。層ごとに別々に保守できるので、画面を修正するときに出力の中身を、機器の対応を追加するときに画面を読む必要はありません。
 
 | 層 | 役割 |
 |---|---|
-| `src/core/` | 設定の形、値の合成、機器とプロトコルの入出力。NDI・OSC・USB-DMX・Art-Net・MIDI・音声・Link はここ |
-| `src/backend/` | 画面なしで動作する部分。起動と保存、遠隔操作、ブラウザの操作パネル、自動操作用のCLI |
-| `src/ui/` | 画面。eframe と KMS/DRM、タブごとの描画、見た目 |
+| `crates/core/` | 設定の形、値の合成、機器とプロトコルの入出力。NDI・OSC・USB-DMX・Art-Net・MIDI・音声・Link はここ |
+| `crates/backend/` | 画面なしで動作する部分。起動と保存、遠隔操作、ブラウザの操作パネル、自動操作用のCLI |
+| `crates/ui/` | 画面。eframe と KMS/DRM、タブごとの描画、見た目 |
 
 ### core
 
 | ファイル | 中身 |
 |---|---|
-| `core/engine.rs` | 共有状態の `Core`、値の合成 `render`、出力ループ |
-| `core/engine/` | `Core` の操作を分野ごとに分けたもの。`binding.rs` は MIDIの受信と割り当ての実行、`tempo.rs` は BPM・Link・MIDIクロック・音声・チェイス、`palette.rs` は色とメイン/サブ色、`scene.rs` はシーン・位置・フェード、`pair.rs` はペア |
-| `core/engine/auto.rs` | オート。OSCで曲の色・明るさ・フレーズが届いているかを見て、届かないときは待機の見た目を出力の直前、フラッシュの後に重ねる。フレーズのプリセットの見た目を当てる `apply_look` と、BLTの様子を返す `blt_state` もここ |
-| `core/motion.rs` / `core/engine/motion.rs` | ムービングの動きを、形×1周の長さ×揃え方×向きで傾きとして計算する / それを `render` の中、エフェクトの後でパン/チルトに書き込む |
-| `core/live.rs` | 画面・MIDI から実行中の状態を変更する操作 `LiveOp`。必ず `Core::live` を通す。クライアントでは、トレイト `LiveForward` を通してサーバーへ送信する |
-| `core/project.rs` | 保存する設定 `project.json` と、割り当ての種類 `Action` |
-| `core/fixture.rs` | 機材定義。内蔵のものはリポジトリの `fixtures/` から取り込む |
-| `core/keys.rs` | キーボードの割り当て `TriggerKind::Key`。番号は 段×16+位置 |
-| `core/color.rs` / `core/look.rs` / `core/pixel.rs` | 色 / フレーズの見た目 / LEDバーの模様のプリセット4セット |
-| `core/led.rs` / `core/layout.rs` | パッドLEDの計算 / APC mini mk2 のおすすめの MIDI 配置 |
-| `core/recorder.rs` / `core/trace.rs` / `core/hold.rs` | 実行の記録の口 / 指定した機材の合成の段階の記録 / 遠隔操作で押している間の記録。`Core` が保持するので、ここに置く。ファイルへの書き込みや問い合わせは `backend` 側 |
-| `core/io/opendmx.rs` / `core/io/output.rs` | USB-DMX / Art-Net の出力 |
-| `core/io/ndi.rs` | NDI受信で、映像の平均色と音の色を取る。読み込みと呼び出しは、Cargo.toml の `moip-ndi` にある moip-engine の `ndi` クレートで行う。上げるときは `git -C moip-engine checkout <コミット>` してから `git add moip-engine` |
-| `core/io/osc.rs` | OSC の受信と、アドレスごとの操作 |
-| `core/io/midi.rs` / `core/io/apcmini.rs` | MIDI 機器の入出力 / APC mini mk2 のパッド・ボタン・フェーダーの番号。AKAI の Communications Protocol v1.0 に基づく |
-| `core/io/audio.rs` / `core/io/link.rs` / `core/io/carabiner.rs` | 音声の入力 / Ableton Link / Link の窓口の Carabiner への接続とダウンロード |
+| `crates/core/src/engine.rs` | 共有状態の `Core`、値の合成 `render`、出力ループ |
+| `crates/core/src/engine/` | `Core` の操作を分野ごとに分けたもの。`binding.rs` は MIDIの受信と割り当ての実行、`tempo.rs` は BPM・Link・MIDIクロック・音声・チェイス、`palette.rs` は色とメイン/サブ色、`scene.rs` はシーン・位置・フェード、`pair.rs` はペア |
+| `crates/core/src/engine/auto.rs` | オート。OSCで曲の色・明るさ・フレーズが届いているかを見て、届かないときは待機の見た目を出力の直前、フラッシュの後に重ねる。フレーズのプリセットの見た目を当てる `apply_look` と、BLTの様子を返す `blt_state` もここ |
+| `crates/core/src/motion.rs` / `crates/core/src/engine/motion.rs` | ムービングの動きを、形×1周の長さ×揃え方×向きで傾きとして計算する / それを `render` の中、エフェクトの後でパン/チルトに書き込む |
+| `crates/core/src/live.rs` | 画面・MIDI から実行中の状態を変更する操作 `LiveOp`。必ず `Core::live` を通す。クライアントでは、トレイト `LiveForward` を通してサーバーへ送信する |
+| `crates/core/src/project.rs` | 保存する設定 `project.json` と、割り当ての種類 `Action` |
+| `crates/core/src/fixture.rs` | 機材定義。内蔵のものはリポジトリの `fixtures/` から取り込む |
+| `crates/core/src/keys.rs` | キーボードの割り当て `TriggerKind::Key`。番号は 段×16+位置 |
+| `crates/core/src/color.rs` / `crates/core/src/look.rs` / `crates/core/src/pixel.rs` | 色 / フレーズの見た目 / LEDバーの模様のプリセット4セット |
+| `crates/core/src/led.rs` / `crates/core/src/layout.rs` | パッドLEDの計算 / APC mini mk2 のおすすめの MIDI 配置 |
+| `crates/core/src/recorder.rs` / `crates/core/src/trace.rs` / `crates/core/src/hold.rs` | 実行の記録の口 / 指定した機材の合成の段階の記録 / 遠隔操作で押している間の記録。`Core` が保持するので、ここに置く。ファイルへの書き込みや問い合わせは `backend` 側 |
+| `crates/core/src/io/opendmx.rs` / `crates/core/src/io/output.rs` | USB-DMX / Art-Net の出力 |
+| `crates/core/src/io/ndi.rs` | NDI受信で、映像の平均色と音の色を取る。読み込みと呼び出しは、`crates/core/Cargo.toml` の `moip-ndi` にある moip-engine の `ndi` クレートで行う。上げるときは `git -C moip-engine checkout <コミット>` してから `git add moip-engine` |
+| `crates/core/src/io/osc.rs` | OSC の受信と、アドレスごとの操作 |
+| `crates/core/src/io/midi.rs` / `crates/core/src/io/apcmini.rs` | MIDI 機器の入出力 / APC mini mk2 のパッド・ボタン・フェーダーの番号。AKAI の Communications Protocol v1.0 に基づく |
+| `crates/core/src/io/audio.rs` / `crates/core/src/io/link.rs` / `crates/core/src/io/carabiner.rs` | 音声の入力 / Ableton Link / Link の窓口の Carabiner への接続とダウンロード |
 
 ### backend
 
 | ファイル | 中身 |
 |---|---|
-| `backend/host.rs` | 画面によらずに動作する部分の `Host`。Core・出力ループ・MIDI/OSC/Link/NDI/音声/操作パネル・自動操作の窓口・保存を持つ。画面は `Host` を1つ持ち、headless と serve は `Host` だけで動作する |
-| `backend/project_patch.rs` | 画面の1フレームで変わったプロジェクトの差分 `Change` を作って当てる。クライアントの編集をサーバーへ送信するのに使う |
-| `backend/remote.rs` | `--remote-listen` のサーバーと `dmxctl connect` のクライアントの通信。食い違いを防ぐ仕組みは先頭のコメントにある |
-| `backend/cli.rs` / `backend/control.rs` / `backend/commands.rs` / `backend/editing.rs` / `backend/recording.rs` / `backend/diagnostics.rs` | 自動操作・検証用の [CLI](cli.md)。順に、サブコマンド / 制御用の接続 / 操作 / 設定の編集と検証 / 記録のファイル書き込み / `explain` などの診断 |
-| `backend/controls.rs` | 制御用の接続やパネルから、割り当てを押したり離したりする操作 |
-| `backend/web.rs` / `backend/web/panel.html` | ブラウザの操作パネル。std の TCP で最小限の HTTP を話す。`GET /` でページ、`GET /api/state` で様子、`POST /api/cmd` で操作。合言葉は `X-Pin` ヘッダー |
+| `crates/backend/src/host.rs` | 画面によらずに動作する部分の `Host`。Core・出力ループ・MIDI/OSC/Link/NDI/音声/操作パネル・自動操作の窓口・保存を持つ。画面は `Host` を1つ持ち、headless と serve は `Host` だけで動作する |
+| `crates/backend/src/project_patch.rs` | 画面の1フレームで変わったプロジェクトの差分 `Change` を作って当てる。クライアントの編集をサーバーへ送信するのに使う |
+| `crates/backend/src/remote.rs` | `--remote-listen` のサーバーと `dmxctl connect` のクライアントの通信。食い違いを防ぐ仕組みは先頭のコメントにある |
+| `crates/backend/src/cli.rs` / `crates/backend/src/control.rs` / `crates/backend/src/commands.rs` / `crates/backend/src/editing.rs` / `crates/backend/src/recording.rs` / `crates/backend/src/diagnostics.rs` | 自動操作・検証用の [CLI](cli.md)。順に、サブコマンド / 制御用の接続 / 操作 / 設定の編集と検証 / 記録のファイル書き込み / `explain` などの診断 |
+| `crates/backend/src/controls.rs` | 制御用の接続やパネルから、割り当てを押したり離したりする操作 |
+| `crates/backend/src/web.rs` / `crates/backend/src/web/panel.html` | ブラウザの操作パネル。std の TCP で最小限の HTTP を話す。`GET /` でページ、`GET /api/state` で様子、`POST /api/cmd` で操作。合言葉は `X-Pin` ヘッダー |
 
 ### ui
 
 | ファイル | 中身 |
 |---|---|
-| `main.rs` / `ui/app.rs` | 起動 / 画面。起動では最初の引数で動作方法を選択し、eframe か KMS/DRM かを決定する。`App::new`・`App::frame`・`App::shutdown` は eframe に依存しないので、どちらの土台からも呼べる |
-| `ui/map.rs` | メイン画面の MIDI タブ。`ui/map/` に、図の描画 `pad.rs` と右のパネル `stage.rs` / `settings.rs` がある |
-| `ui/keys.rs` | キーの絵を出すキーボードタブ |
-| `ui/laser.rs` / `ui/auto.rs` | レーザータブ / オートタブ。オートタブは、フレーズごとの見た目のプリセット `AutoPreset` / `PhraseLook` の表 |
-| `ui/` の `binding.rs`・`control.rs`・`midi.rs`・`output.rs`・`pair.rs`・`patch.rs`・`profile.rs`・`sequence.rs`・`show.rs` | 残りのタブ。ファイル名がタブに対応する |
-| `ui/theme.rs` / `ui/shot.rs` | 色・フォントなどの見た目 / 画面を撮影して保存する |
-| `ui/kmsdrm.rs` / `ui/kmsdrm/` | Linux だけ。デスクトップ環境の無い画面に、SDL2 の KMSDRM と OpenGL ES の egui_glow で描画するループ / キーの変換・タッチ |
+| `src/main.rs` / `crates/ui/src/app.rs` | 起動 / 画面。起動では最初の引数で動作方法を選択し、eframe か KMS/DRM かを決定する。`App::new`・`App::frame`・`App::shutdown` は eframe に依存しないので、どちらの土台からも呼べる |
+| `crates/ui/src/map.rs` | メイン画面の MIDI タブ。`crates/ui/src/map/` に、図の描画 `pad.rs` と右のパネル `stage.rs` / `settings.rs` がある |
+| `crates/ui/src/keys.rs` | キーの絵を出すキーボードタブ |
+| `crates/ui/src/laser.rs` / `crates/ui/src/auto.rs` | レーザータブ / オートタブ。オートタブは、フレーズごとの見た目のプリセット `AutoPreset` / `PhraseLook` の表 |
+| `crates/ui/src/` の `binding.rs`・`control.rs`・`midi.rs`・`output.rs`・`pair.rs`・`patch.rs`・`profile.rs`・`sequence.rs`・`show.rs` | 残りのタブ。ファイル名がタブに対応する |
+| `crates/ui/src/theme.rs` / `crates/ui/src/shot.rs` | 色・フォントなどの見た目 / 画面を撮影して保存する |
+| `crates/ui/src/kmsdrm.rs` / `crates/ui/src/kmsdrm/` | Linux だけ。デスクトップ環境の無い画面に、SDL2 の KMSDRM と OpenGL ES の egui_glow で描画するループ / キーの変換・タッチ |
 
 ### そのほか
 
@@ -169,7 +169,7 @@ cargo test --release perf -- --ignored --nocapture                              
 |---|---|
 | `Containerfile` / `.dockerignore` / `deploy/kubernetes/` | コンテナのイメージと Kubernetes のマニフェスト。画面を使わず `dmxctl serve` だけを動作させる。手順は [コンテナで動かす](container.md) |
 
-単体テストは層ごとに `src/core/tests/`・`src/backend/tests/`・`src/ui/tests/` に置きます。複数の層にまたがる検証は `tests/` に置きます。
+単体テストは層ごとに `crates/core/src/tests/`・`crates/backend/src/tests/`・`crates/ui/src/tests/` に置きます。複数の層にまたがる検証は、ルートの `tests/` に置きます。ルートのクレートは、起動の `src/main.rs` と、結合テストが使う再公開だけを持ちます。他のクレートのテストが使う補助は、`dmxctl-core` の機能 `test-support` で公開します。
 
 ### 設計のポイント
 
@@ -206,7 +206,7 @@ cargo test --release perf -- --ignored --nocapture                              
 - **USB-DMX が開けない、Resource busy と表示される**: QLC+ など別の照明ソフトが利用していないか確認する
 - **NDI のライブラリは同梱しない**: 配布条件のためです。インストール済みの NDI Tools、Linux では NDI SDK のものを読み込みます。探す順は `DMXCTL_NDI_LIB` → macOS の NDI Tools のアプリの中 → `NDI_RUNTIME_DIR_V6`/`V5` → 各OSの標準の場所 です。後ろの2つは moip-engine の `ndi` クレートが探します
 - **FTDI の D2XX ライブラリは同梱しない**: 配布条件のためです。利用者が FTDI の配布元から導入したものを、実行時に読み込みます。探す順は `DMXCTL_D2XX_LIB` → 設定フォルダに置いたもの → 各OSの標準の場所 です。Windows は FTDI ドライバの `ftd2xx.dll` を利用します
-- **レーザーの安全処理**: 場所は `core/engine.rs` の `guard_values` と `emergency_stop` です。機材定義の `forbid` で禁止したオートショー・サウンド・パン/チルトの自動の動きと、機材ごとの `limits` で決めた動いてよい範囲は、出力の直前に必ず補正します。内蔵の定義を上書きしても `forbid` は引き継ぎます。異常終了時・終了シグナル・シャットダウン・Mac/Linux で画面を通らずに `exit()` したときは、レーザーOFF・明るさ0の安全なフレームを約0.3秒送信してから終了します。Windows のシャットダウンは、見えないウィンドウで `WM_ENDSESSION` を受信して検知します。`watch_windows_shutdown` です。`exit()` のときは `atexit` を使います
+- **レーザーの安全処理**: 場所は `crates/core/src/engine.rs` の `guard_values` と `emergency_stop` です。機材定義の `forbid` で禁止したオートショー・サウンド・パン/チルトの自動の動きと、機材ごとの `limits` で決めた動いてよい範囲は、出力の直前に必ず補正します。内蔵の定義を上書きしても `forbid` は引き継ぎます。異常終了時・終了シグナル・シャットダウン・Mac/Linux で画面を通らずに `exit()` したときは、レーザーOFF・明るさ0の安全なフレームを約0.3秒送信してから終了します。Windows のシャットダウンは、見えないウィンドウで `WM_ENDSESSION` を受信して検知します。`watch_windows_shutdown` です。`exit()` のときは `atexit` を使います
 - **KMS/DRM**: 「画面を開けませんでした」と表示されて画面が出ないときは、`video` グループに所属しているか、デスクトップ環境など他のアプリが画面を使っていないかを確認する。キー・マウスが効かないときは `input` グループ
 - **ムービングのチルト**: 128が真上です。動きのプリセットはチルトを大きく振る作りです
 - 実行中のアプリは5秒ごとに設定を自動保存するため、`project.json` を直接書き換えるときは先にアプリを閉じる
