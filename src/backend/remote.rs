@@ -22,7 +22,7 @@
 
 use crate::core::engine::{lock, Core, Shared, EMERGENCY};
 use crate::core::fixture::{Library, Profile};
-use crate::core::live::LiveOp;
+use crate::core::live::{LiveForward, LiveOp};
 use crate::core::project::{Project, PAGES};
 use crate::backend::project_patch::{self, Change};
 use anyhow::{bail, ensure, Context as _};
@@ -756,13 +756,16 @@ impl Link {
         seq
     }
 
-    /// 実行中の状態を変える操作を送る
-    pub fn live(&self, op: &LiveOp) {
-        self.send(json!({"t":"live","op":op}));
-    }
 
     fn sent(&self) -> u64 {
         self.inner.seq.load(Ordering::SeqCst)
+    }
+}
+
+impl LiveForward for Link {
+    /// 実行中の状態を変える操作を送る
+    fn live(&self, op: &LiveOp) {
+        self.send(json!({"t":"live","op":op}));
     }
 }
 
@@ -898,7 +901,7 @@ impl Client {
         let (writer, reader, welcome) = self.pending.take().expect("attach once");
         {
             let mut c = lock(&core);
-            c.rt.remote = Some(self.link.clone());
+            c.rt.remote = Some(std::sync::Arc::new(self.link.clone()));
             apply_rt_state(&mut c, &welcome["rt"]);
             let s = guard(&self.sync);
             c.rt.learn = s.learn.0;

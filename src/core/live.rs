@@ -75,6 +75,12 @@ impl LiveOp {
     }
 }
 
+/// 操作を手元で実行せず、別の場所へ送る口。クライアントで、操作をサーバーへ送るのに使う。
+/// 実装は `backend::remote` にある。
+pub trait LiveForward: Send + Sync {
+    fn live(&self, op: &LiveOp);
+}
+
 impl Core {
     /// 画面からの操作を実行する
     pub fn live(&mut self, op: LiveOp) {

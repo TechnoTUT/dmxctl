@@ -193,7 +193,7 @@ pub struct Runtime {
     pub key_page: u8,
     /// サーバーにつないだクライアント(`dmxctl connect`)では、操作をサーバーへ送る口。
     /// このときの Core はサーバーの写しで、出力ループも外部との連携も動かさない
-    pub remote: Option<crate::backend::remote::Link>,
+    pub remote: Option<std::sync::Arc<dyn crate::core::live::LiveForward>>,
     /// クライアントでの表示用: サーバーで実行中のフェードの数・Ableton Linkが動いているか
     pub remote_fades: usize,
     pub remote_link: bool,
