@@ -8,10 +8,10 @@
 
    ```
    dmxctl serve --project show.json
-   dmxctl --control
+   dmxctl --control --project show.json --output none --inputs none --no-autosave
    ```
 
-   `serve` は既定で実機へ送信しません。実機の照明を動かすときだけ、本体に `--output live` を付けます。MCP の側から送信を有効にする方法はありません
+   試用には本番とは別のプロジェクトを指定します。上の例はどちらも実機送信・入力・自動保存を無効にして起動します。画面版の `--control` は制御の接続を有効にするだけで、実機送信・入力・自動保存は既定で有効です。実機送信の有無は本体の `--output none` または `--output live` で指定します
 
 2. AI のクライアントに、`dmxctl mcp` をサーバーとして登録します。Claude Code では次のとおりです。Mac の場合、実行ファイルは `DMX Controller.app/Contents/MacOS/dmxctl` です
 
