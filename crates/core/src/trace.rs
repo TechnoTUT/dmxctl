@@ -70,16 +70,16 @@ impl Core {
         let mut trace=self.rt.trace.take().unwrap();
         Ok(json!({"ready":true,"trace":trace.result.take()}))
     }
-    pub fn trace_begin(&mut self) {
+    pub(crate) fn trace_begin(&mut self) {
         if let Some(trace)=self.rt.trace.as_mut() {
             if trace.result.is_none() {trace.stages.clear();trace.frame=Some(self.rt.frame_id+1);}
         }
         self.trace_stage("base",None,Value::Null);
     }
-    pub fn trace_stage(&mut self,stage:&str,values:Option<&[Vec<u8>]>,details:Value) {
+    pub(crate) fn trace_stage(&mut self,stage:&str,values:Option<&[Vec<u8>]>,details:Value) {
         if let Some(trace)=self.rt.trace.as_mut() {trace.capture(&self.project,&self.lib,values,stage,details);}
     }
-    pub fn trace_finish(&mut self) {
+    pub(crate) fn trace_finish(&mut self) {
         let t_ms=self.now().saturating_duration_since(self.rt.t0).as_millis() as u64;
         let Some(trace)=self.rt.trace.as_mut().filter(|t|t.result.is_none()) else{return;};
         let Some(f)=self.project.fixtures.iter().find(|f|f.id==trace.fixture) else {

@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 pub struct Host {
     pub launch: crate::control::Launch,
     control: Option<crate::control::Server>,
-    pub shutdown_requested: bool,
+    pub(crate) shutdown_requested: bool,
     shutdown_done: bool,
     pub core: Shared,
     /// 出力ループ(クライアントでは動かさない)
@@ -41,17 +41,39 @@ pub struct Host {
     audio: Option<dmxctl_core::io::audio::AudioService>,
     /// 描き直しを頼む先(画面なしでは使われないContext)
     pub ctx: dmxctl_core::wake::Wake,
-    /// プロジェクトを読み直した回数(画面は、変わったら編集中の選択などを捨てる)
+    /// 状態が入れ替わった回数。画面は、前に見た値と比べて、編集中の欄を今の値に戻す
+    pub(crate) revisions: Revisions,
+    /// 起動時に自動接続しようとしたMIDI機器。画面の機器の選択欄の初期値で、自動接続しないときは空
+    pub(crate) initial_midi: String,
+}
+
+/// 状態が入れ替わった回数。画面は、前に見た値と比べて、違えば編集中の欄などを今の値に戻す
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Revisions {
+    /// プロジェクトを読み直した回数。変わったら、編集中の選択などを捨てる
     pub reloads: u64,
-    /// サービスの設定を反映した回数(画面は、変わったらOSCポートの編集欄などを今の値に戻す)
+    /// サービスの設定を反映した回数。変わったら、OSCポートの編集欄などを今の値に戻す
     pub services_applied: u64,
-    /// MIDI機器をプロジェクトの設定に合わせた回数(画面は、変わったら機器の選択欄を合わせる)
+    /// MIDI機器をプロジェクトの設定に合わせた回数。変わったら、機器の選択欄を合わせる
     pub midi_synced: u64,
-    /// 起動時に自動接続しようとしたMIDI機器(画面の機器の選択欄の初期値。自動接続しないときは空)
-    pub initial_midi: String,
 }
 
 impl Host {
+    /// 状態が入れ替わった回数。画面が前に見た値と比べるのに使う
+    pub fn revisions(&self) -> Revisions {
+        self.revisions
+    }
+
+    /// 起動時に自動接続しようとしたMIDI機器の名前。自動接続しないときは空
+    pub fn initial_midi(&self) -> &str {
+        &self.initial_midi
+    }
+
+    /// 終了を頼まれたか。サーバーから止められたときなどに真になる
+    pub fn shutdown_requested(&self) -> bool {
+        self.shutdown_requested
+    }
+
     pub fn start(ctx: &dmxctl_core::wake::Wake, options: crate::control::Launch) -> anyhow::Result<Self> {
         if let Some(target) = options.connect.clone() {
             return Self::connect(ctx, options, &target);
@@ -126,9 +148,7 @@ impl Host {
             ndi: None,
             audio: None,
             ctx: ctx.clone(),
-            reloads: 0,
-            services_applied: 0,
-            midi_synced: 0,
+            revisions: Revisions::default(),
             initial_midi: String::new(),
         };
         if let Some(p) = std::env::var("DMXCTL_PAGE").ok().and_then(|v| v.parse::<u8>().ok()) {
@@ -168,9 +188,7 @@ impl Host {
             ndi: None,
             audio: None,
             ctx: ctx.clone(),
-            reloads: 0,
-            services_applied: 0,
-            midi_synced: 0,
+            revisions: Revisions::default(),
             initial_midi: String::new(),
         };
         host.auto_connect_midi();
@@ -301,7 +319,7 @@ impl Host {
     pub fn apply_services(&mut self) {
         // クライアントでは、OSC・Link・NDI・音声・操作パネルはサーバーが動かす
         if self.client.is_some() {
-            self.services_applied += 1;
+            self.revisions.services_applied += 1;
             return;
         }
         if !self.launch.inputs {
@@ -327,7 +345,7 @@ impl Host {
                 c.project.web_enabled.then_some(c.project.web_port),
             )
         };
-        self.services_applied += 1;
+        self.revisions.services_applied += 1;
         // ブラウザの操作パネル
         if self.web.as_ref().map(|w| w.port) != web_want {
             self.web = None;
@@ -402,7 +420,7 @@ impl Host {
     /// GUIの保存・自動保存・終了時の保存。厳しい検証(editing::validate)はかけない:
     /// GUIの編集で検証に通らない状態(機材を消したあとの参照など)になっても、作業内容を失わないように。
     /// リモートの "save" は、呼ぶ前に検証する
-    pub fn save_checked(&mut self) -> anyhow::Result<()> {
+    pub(crate) fn save_checked(&mut self) -> anyhow::Result<()> {
         if let Some(c) = &self.client {
             c.save();
             return Ok(());
