@@ -19,6 +19,13 @@ pub enum NamedColor {
 }
 
 impl NamedColor {
+    /// 名前から探す。日本語の名前(赤)と英語名(Red / red)のどちらでもよい
+    pub fn from_name(s: &str) -> Option<NamedColor> {
+        let s = s.trim();
+        let l = s.to_lowercase();
+        NamedColor::ALL.into_iter().find(|c| c.label() == s || format!("{c:?}").to_lowercase() == l)
+    }
+
     pub const ALL: [NamedColor; 10] = [
         NamedColor::Red,
         NamedColor::Orange,

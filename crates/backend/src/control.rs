@@ -350,8 +350,13 @@ fn snapshot(core: &engine::Core, request: &Value) -> anyhow::Result<Value> {
     for f in &core.project.fixtures {
         if fixture.is_some_and(|id|f.id as u64!=id) { continue; }
         let Some(mode) = core.lib.mode(&f.profile,f.mode) else {continue;};
+        // 名前が一致するチャンネル。一致するものが無い名前は、ピクセルをまとめた名前(LED バーの red など)として探す
+        let wanted:std::collections::BTreeSet<usize>=attrs.iter().flat_map(|a| {
+            let exact:Vec<usize>=mode.channels.iter().enumerate().filter(|(_,c)|c.attr==*a).map(|(i,_)|i).collect();
+            if exact.is_empty() {mode.attr_channels(a)} else {exact}
+        }).collect();
         for (i,ch) in mode.channels.iter().enumerate() {
-            if !attrs.is_empty() && !attrs.contains(&ch.attr.as_str()) {continue;}
+            if !attrs.is_empty() && !wanted.contains(&i) {continue;}
             let address = f.address as usize + i;
             if address==0 {continue;}
             let Some(value) = core.rt.frames.get(f.universe).and_then(|frame|frame.get(address-1)) else {continue;};

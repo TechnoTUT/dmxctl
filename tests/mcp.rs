@@ -147,11 +147,21 @@ fn an_mcp_client_operates_the_running_application() {
     let (failed, r) = mcp.call("edit", json!({"operations": [{"entity": "scene", "op": "capture", "data": {"name": "MCP"}}], "dry_run": true}));
     assert!(!failed, "{r}");
     assert_eq!(r["applied"], false);
+    // 割り当て以外の編集では、割り当ての一覧(本番では数十KB)を返さない
+    let (failed, r) = mcp.call("edit", json!({"operations": [{"entity": "scene", "op": "capture", "data": {"name": "MCP保存"}}]}));
+    assert!(!failed && r["applied"] == true && r.get("bindings").is_none(), "{r}");
     let (failed, r) = mcp.call("edit", json!({"operations": [{"entity": "scene", "op": "capture", "data": {"name": "MCP"}}], "dry_run": "true"}));
     assert!(failed && r.as_str().is_some_and(|msg| msg.contains("dry_run must be boolean")), "{r}");
     let (failed, scenes) = mcp.call("schema", json!({"entity": "scene"}));
     assert!(!failed, "{scenes}");
     assert!(scenes["current"].as_array().unwrap().iter().all(|scene| scene["name"] != "MCP"));
+    // 色は日本語の名前でも英語名でも選べる。範囲外の全体光量は丸めずに拒む
+    for name in ["赤", "red"] {
+        let (failed, r) = mcp.call("command", json!({"command": {"cmd": "color", "name": name, "slot": "main"}}));
+        assert!(!failed, "{name}: {r}");
+    }
+    let (failed, r) = mcp.call("command", json!({"command": {"cmd": "master", "value": -0.1}}));
+    assert!(failed && r.as_str().is_some_and(|m| m.contains("0..1")), "{r}");
 
     // 長い待機の途中でも、後続の要求とキャンセルを受け付ける
     mcp.next += 1;

@@ -1,6 +1,6 @@
 //! Validated operations shared by offline runs and the running application.
 use crate::controls::CoreControls;
-use dmxctl_core::{engine::Core, fixture::Library, project::{Project, Selector}};
+use dmxctl_core::{engine::Core, fixture::Library, project::{BPM_MAX, BPM_MIN, Project, Selector}};
 use anyhow::{Context, bail, ensure};
 use serde_json::Value;
 
@@ -75,6 +75,10 @@ fn apply_inner(core: &mut Core, value: &Value) -> anyhow::Result<()> {
         }
         "blackout"|"master"|"fade"|"bpm"|"auto"|"auto_resume"|"preset"|"look"|"color"|"swap"|"scene"|"tap"|"resync" => {
             if let Some(number) = value.get("value") { finite(number)?; }
+            // 画面のスライダーは範囲内しか出さないので丸めているが、ctl・MCP では範囲外を黙って丸めずに知らせる
+            let number = value.get("value").and_then(Value::as_f64);
+            if cmd=="master" { ensure!(number.is_some_and(|v|(0.0..=1.0).contains(&v)),"master value must be in 0..1"); }
+            if cmd=="bpm" { ensure!(number.is_some_and(|v|(BPM_MIN as f64..=BPM_MAX as f64).contains(&v)),"bpm value must be in {BPM_MIN}..{BPM_MAX}"); }
             if let Some(on) = value.get("on") { ensure!(on.is_boolean(), "on must be boolean"); }
             crate::web::command(core, value).map_err(anyhow::Error::msg)?;
         }
@@ -107,4 +111,49 @@ pub(crate) fn validate(project: &Project, lib: &Library) -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use std::{path::Path, sync::Arc};
+
+    fn core() -> Core {
+        let (lib, _) = Library::load(Path::new("none"));
+        Core::new(Project::starter(&lib), Arc::new(lib))
+    }
+
+    #[test]
+    fn master_and_bpm_out_of_range_are_rejected_not_clamped() {
+        let mut c = core();
+        apply(&mut c, &json!({"cmd": "master", "value": 0.5})).unwrap();
+        assert!(apply(&mut c, &json!({"cmd": "master", "value": -0.1})).is_err());
+        assert!(apply(&mut c, &json!({"cmd": "master", "value": 1.5})).is_err());
+        assert_eq!(c.rt.master, 0.5, "拒んだ値で変えない");
+        apply(&mut c, &json!({"cmd": "bpm", "value": 128})).unwrap();
+        assert!(apply(&mut c, &json!({"cmd": "bpm", "value": 10})).is_err());
+        assert!(apply(&mut c, &json!({"cmd": "bpm", "value": 400})).is_err());
+        assert_eq!(c.project.bpm, 128.0);
+    }
+
+    #[test]
+    fn colors_are_found_by_japanese_or_english_name() {
+        let mut c = core();
+        for name in ["赤", "red", "Red", " RED "] {
+            apply(&mut c, &json!({"cmd": "color", "name": name, "slot": "main"})).unwrap_or_else(|e| panic!("{name}: {e}"));
+        }
+        apply(&mut c, &json!({"cmd": "color", "name": "青", "slot": "sub"})).unwrap();
+        assert!(apply(&mut c, &json!({"cmd": "color", "name": "存在しない色"})).is_err());
+    }
+
+    #[test]
+    fn fade_takes_seconds() {
+        let mut c = core();
+        apply(&mut c, &json!({"cmd": "fade", "on": true, "secs": 0.0})).unwrap();
+        c.render();
+        assert!(c.rt.dim <= 0.001, "0秒ですぐ暗くなる: {}", c.rt.dim);
+        assert!(apply(&mut c, &json!({"cmd": "fade", "on": false, "secs": 100})).is_err());
+        assert!(apply(&mut c, &json!({"cmd": "fade", "on": false, "secs": "3"})).is_err());
+    }
 }

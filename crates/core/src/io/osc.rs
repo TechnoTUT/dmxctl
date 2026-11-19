@@ -69,8 +69,7 @@ fn phrase_ja(key: &str) -> Option<&'static str> {
 }
 
 fn color_by_name(s: &str) -> Option<NamedColor> {
-    let l = s.trim().to_lowercase();
-    NamedColor::ALL.into_iter().find(|c| c.label() == s.trim() || format!("{c:?}").to_lowercase() == l)
+    NamedColor::from_name(s)
 }
 
 impl Core {

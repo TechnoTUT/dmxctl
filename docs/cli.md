@@ -229,7 +229,8 @@ AI はプロセスの標準入力を開いたまま操作を送信し、標準�
 - `set`: 機材 ID と属性名を指定。値は既存エンジンの0〜255 スケールで、16bit の属性も同一のスケールです。
 - `motion`: `shape`, `beats`, `spread`, `position`, `size`, `points`, `glide` を変更できます。向き合わせの校正値は変更できません。形や揃え方の列挙値は `inspect` の設定と既存の JSON 形式に従います。
 - `effect`: 既存のエフェクトの `enabled`, `min`, `max`, `rate_hz`, `beats`, `phase`, `spread`, `wave` を変更できます。
-- 既存の操作 API から、`blackout`, `master`, `fade`, `flash`, `bpm`, `auto`, `auto_resume`, `preset`, `look`, `color`, `swap`, `scene`, `tap`, `resync` も利用できます。`on` は真偽値、数値には `value`、シーンには `name`、プリセットには0始まりの `index`、フレーズには `phrase` を渡します。色は `Red` のような `name` と、`main` か `sub` の `slot` を渡します。
+- 既存の操作 API から、`blackout`, `master`, `fade`, `flash`, `bpm`, `auto`, `auto_resume`, `preset`, `look`, `color`, `swap`, `scene`, `tap`, `resync` も利用できます。`on` は真偽値、数値には `value`、シーンには `name`、プリセットには0始まりの `index`、フレーズには `phrase` を渡します。色は `name` と、`main` か `sub` の `slot` を渡します。`name` は `赤` のような日本語の名前か、`Red` / `red` のような英語名です(OSC の `/dmx/color` と同じ)。`master` の `value` は0〜1、`bpm` は20〜300 で、範囲外は丸めずに拒否します。`fade` には `secs` で0〜60秒を指定でき、省略すると設定の秒数です。
+- `output snapshot` の `--attrs` には、LED バーの `red` のように、ピクセルをまとめた名前も指定できます。全ピクセルの `red.1`, `red.2`, … を返します。
 
 ユニバースと DMX アドレスはログ上で1始まりです。`project.json` 内のユニバース番号とプリセット番号は既存形式の0始まりです。
 

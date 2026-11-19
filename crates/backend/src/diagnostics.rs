@@ -63,7 +63,8 @@ fn command_catalog()->Value {
         "motion":{"required":["params"],"fields":["shape","beats","spread","position","size","points","glide"]},
         "effect":{"required":["name","params"]},"blackout":{"on":"boolean"},"master":{"value_range":[0,1]},
         "bpm":{"value_range":[BPM_MIN,BPM_MAX]},"scene":{"required":["name"]},"color":{"required":["name"],"slot":["main","sub"]},
-        "flash":{"on":"boolean","hold_ms":[1,5000]},"other":["fade","auto","auto_resume","preset","look","swap","tap","resync"]})
+        "flash":{"on":"boolean","hold_ms":[1,5000]},"fade":{"on":"boolean","secs":[0,60]},
+        "other":["auto","auto_resume","preset","look","swap","tap","resync"]})
 }
 
 /// 本体へ1件の要求を送る口。`ctl` は TCP、MCP も同じ口を使う。テストでは差し替えられる
