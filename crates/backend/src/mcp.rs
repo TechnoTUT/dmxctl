@@ -10,11 +10,15 @@
 use crate::diagnostics::Requester;
 use anyhow::{Context, bail, ensure};
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 use std::io::{BufRead, Write};
+use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
+use std::thread;
 use std::time::Duration;
 
 /// 対応する MCP の版。クライアントが求めた版がこの中にあれば、それで答える
-const PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05"];
+const PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2024-11-05"];
+const MAX_WAITS: usize = 4;
 
 const INSTRUCTIONS: &str = "dmxctl の照明を操作する。まず status で状態を、fixture_list で機材と属性を確認する。\
 値は DMX(0〜255)。変更の後は output_check で、安全の処理を通った最終の出力を確かめる。\
@@ -32,38 +36,117 @@ pub fn run(args: &[String]) -> anyhow::Result<()> {
     let request = move |payload: &Value, timeout: Duration| crate::control::request_with_timeout(address, payload, timeout);
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
-    serve(&request, stdin.lock(), stdout.lock())
+    serve(&request, stdin.lock(), stdout)
 }
 
 /// 1行に1つの JSON-RPC のメッセージを読み、答えを1行ずつ書く。入力が閉じたら終わる
-pub fn serve(request: Requester, input: impl BufRead, mut output: impl Write) -> anyhow::Result<()> {
-    for line in input.lines() {
-        let line = line?;
-        if line.trim().is_empty() {
-            continue;
+pub fn serve(
+    request: &(impl Fn(&Value, Duration) -> anyhow::Result<Value> + Sync),
+    input: impl BufRead,
+    output: impl Write + Send,
+) -> anyhow::Result<()> {
+    let output = Mutex::new(output);
+    let pending = Mutex::new(BTreeMap::<String, Arc<AtomicBool>>::new());
+    thread::scope(|scope| {
+        let mut workers: Vec<thread::ScopedJoinHandle<'_, std::io::Result<()>>> = Vec::new();
+        let input_result = (|| -> anyhow::Result<()> {
+            for line in input.lines() {
+                let line = line?;
+                for worker in workers.extract_if(.., |worker| worker.is_finished()) {
+                    worker.join().expect("MCP wait worker panicked")?;
+                }
+                if line.trim().is_empty() {
+                    continue;
+                }
+                let message = match serde_json::from_str::<Value>(&line) {
+                    Ok(message) => message,
+                    Err(e) => {
+                        write_reply(&output, error(Value::Null, -32700, &format!("parse error: {e}")))?;
+                        continue;
+                    }
+                };
+                if message["jsonrpc"] == "2.0" && message["method"] == "notifications/cancelled" && message.get("id").is_none() {
+                    let request_id = message["params"]["requestId"].to_string();
+                    if let Some(cancelled) = pending.lock().unwrap().get(&request_id) {
+                        cancelled.store(true, Ordering::Relaxed);
+                    }
+                    continue;
+                }
+                if message["jsonrpc"] == "2.0" && message["method"] == "tools/call" && message["params"]["name"] == "wait"
+                    && let Some(id) = message.get("id")
+                {
+                    let key = id.to_string();
+                    let mut waits = pending.lock().unwrap();
+                    if waits.contains_key(&key) {
+                        write_reply(&output, error(id.clone(), -32600, "request ID is already in use"))?;
+                        continue;
+                    }
+                    if waits.len() >= MAX_WAITS {
+                        write_reply(&output, tool_reply(id.clone(), Err(anyhow::anyhow!("too many pending wait requests"))))?;
+                        continue;
+                    }
+                    let cancelled = Arc::new(AtomicBool::new(false));
+                    waits.insert(key.clone(), Arc::clone(&cancelled));
+                    let pending = &pending;
+                    let output = &output;
+                    // 待機中も、後続の操作やキャンセルを標準入力から受け付ける
+                    workers.push(thread::Builder::new().spawn_scoped(scope, move || {
+                        let poll = |payload: &Value, timeout: Duration| {
+                            ensure!(!cancelled.load(Ordering::Relaxed), "wait cancelled");
+                            request(payload, timeout)
+                        };
+                        let reply = handle(&poll, &message);
+                        let mut waits = pending.lock().unwrap();
+                        waits.remove(&key);
+                        if let Some(reply) = reply && !cancelled.load(Ordering::Relaxed) {
+                            write_reply(output, reply)?;
+                        }
+                        Ok(())
+                    })?);
+                } else if let Some(reply) = handle(request, &message) {
+                    write_reply(&output, reply)?;
+                }
+            }
+            Ok(())
+        })();
+        for cancelled in pending.lock().unwrap().values() {
+            cancelled.store(true, Ordering::Relaxed);
         }
-        let reply = match serde_json::from_str::<Value>(&line) {
-            Ok(message) => handle(request, &message),
-            Err(e) => Some(error(Value::Null, -32700, &format!("parse error: {e}"))),
-        };
-        if let Some(reply) = reply {
-            writeln!(output, "{reply}")?;
-            output.flush()?;
+        input_result?;
+        for worker in workers {
+            worker.join().expect("MCP wait worker panicked")?;
         }
-    }
-    Ok(())
+        Ok(())
+    })
+}
+
+fn write_reply(output: &Mutex<impl Write>, reply: Value) -> std::io::Result<()> {
+    let mut output = output.lock().unwrap();
+    writeln!(output, "{reply}")?;
+    output.flush()
 }
 
 fn error(id: Value, code: i64, message: &str) -> Value {
     json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}})
 }
 
+fn tool_reply(id: Value, result: anyhow::Result<Value>) -> Value {
+    let result = match result {
+        Ok(value) => json!({"content": [{"type": "text", "text": value.to_string()}], "isError": false}),
+        Err(e) => json!({"content": [{"type": "text", "text": format!("{e:#}")}], "isError": true}),
+    };
+    json!({"jsonrpc": "2.0", "id": id, "result": result})
+}
+
 /// 1つのメッセージを処理する。通知(id の無いもの)には答えない
 pub fn handle(request: Requester, message: &Value) -> Option<Value> {
+    if !message.is_object() {
+        return Some(error(Value::Null, -32600, "invalid request"));
+    }
     let id = message.get("id").cloned();
     let method = message["method"].as_str().unwrap_or("");
     let Some(id) = id else {
-        // notifications/initialized・notifications/cancelled など。答えは要らない
+        // 通知には応答しない
         return None;
     };
     if message["jsonrpc"] != "2.0" || method.is_empty() {
@@ -92,10 +175,7 @@ pub fn handle(request: Requester, message: &Value) -> Option<Value> {
                 return Some(error(id, -32602, "arguments must be an object"));
             }
             // 本体の窓口が拒んだ・つながらないなどは、ツールの失敗として返す(AI が読んで直せるように)
-            match call(request, name, &args) {
-                Ok(value) => json!({"content": [{"type": "text", "text": value.to_string()}], "isError": false}),
-                Err(e) => json!({"content": [{"type": "text", "text": format!("{e:#}")}], "isError": true}),
-            }
+            return Some(tool_reply(id, call(request, name, &args)));
         }
         _ => return Some(error(id, -32601, &format!("method not found: {method}"))),
     };
@@ -212,7 +292,7 @@ fn call(request: Requester, name: &str, args: &Value) -> anyhow::Result<Value> {
     let attr = || -> anyhow::Result<&str> { args["attr"].as_str().context("attr is required") };
     match name {
         "status" => send(request, json!({"op": "status"})),
-        "fixture_list" => send(request, json!({"op": "fixtures"})),
+        "fixture_list" => send(request, json!({"op": "fixtures", "include_attrs": true})),
         "fixture_set" => {
             let value = args["value"].as_f64().context("value is required")?;
             ensure!(value.is_finite(), "value must be finite");
@@ -265,7 +345,8 @@ fn call(request: Requester, name: &str, args: &Value) -> anyhow::Result<Value> {
         "schema" => send(request, json!({"op": "schema", "entity": args["entity"].as_str().unwrap_or("project")})),
         "edit" => {
             ensure!(args["operations"].is_array(), "operations must be an array");
-            let mut payload = json!({"op": "edit", "operations": args["operations"], "dry_run": args["dry_run"].as_bool().unwrap_or(false)});
+            let dry_run = crate::commands::flag(args, "dry_run", false)?;
+            let mut payload = json!({"op": "edit", "operations": args["operations"], "dry_run": dry_run});
             if let Some(v) = args.get("expected_revision") {
                 payload["expected_revision"] = v.clone();
             }
@@ -285,15 +366,15 @@ mod tests {
     use std::cell::RefCell;
 
     /// 送られた要求を記録し、決まった答えを返す偽の本体
-    fn fake() -> (RefCell<Vec<Value>>, impl Fn(&Value, Duration) -> anyhow::Result<Value>) {
+    fn fake() -> (RefCell<Vec<Value>>, impl Fn(&Value, Duration) -> anyhow::Result<Value> + Sync) {
         let log = RefCell::new(Vec::new());
         // 時計を聞くたびに1フレーム進む
-        let frame = std::cell::Cell::new(10u64);
+        let frame = std::sync::atomic::AtomicU64::new(10);
         let reply = move |p: &Value, _: Duration| -> anyhow::Result<Value> {
             match p["op"].as_str().unwrap_or("") {
                 "clock" => {
-                    frame.set(frame.get() + 1);
-                    Ok(json!({"frame": frame.get(), "beat": 2.0, "session": "s", "emergency": false}))
+                    let frame = frame.fetch_add(1, Ordering::Relaxed) + 1;
+                    Ok(json!({"frame": frame, "beat": 2.0, "session": "s", "emergency": false}))
                 }
                 "check" => Ok(json!({"passed": true, "frame": 11, "actual": [80.0]})),
                 "command" if p["command"]["cmd"] == "input" => bail!("laser cues cannot be operated through remote controls"),
@@ -310,13 +391,13 @@ mod tests {
     #[test]
     fn initialize_lists_tools_and_ignores_notifications() {
         let (_, f) = fake();
-        let init = handle(&f, &rpc(1, "initialize", json!({"protocolVersion": "2025-03-26", "capabilities": {}, "clientInfo": {"name": "t", "version": "1"}}))).unwrap();
-        assert_eq!(init["result"]["protocolVersion"], "2025-03-26");
+        let init = handle(&f, &rpc(1, "initialize", json!({"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "t", "version": "1"}}))).unwrap();
+        assert_eq!(init["result"]["protocolVersion"], "2024-11-05");
         assert_eq!(init["result"]["serverInfo"]["name"], "dmxctl");
         assert!(init["result"]["capabilities"]["tools"].is_object());
         // 知らない版を求められたら、こちらの最新で答える
-        let other = handle(&f, &rpc(2, "initialize", json!({"protocolVersion": "1999-01-01"}))).unwrap();
-        assert_eq!(other["result"]["protocolVersion"], PROTOCOL_VERSIONS[0]);
+        let other = handle(&f, &rpc(2, "initialize", json!({"protocolVersion": "2025-03-26"}))).unwrap();
+        assert_eq!(other["result"]["protocolVersion"], "2025-06-18");
         assert!(handle(&f, &json!({"jsonrpc": "2.0", "method": "notifications/initialized"})).is_none());
         let list = handle(&f, &rpc(3, "tools/list", json!({}))).unwrap();
         let names: Vec<&str> = list["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
@@ -330,6 +411,8 @@ mod tests {
         }
         assert_eq!(handle(&f, &rpc(4, "ping", json!({}))).unwrap()["result"], json!({}));
         assert_eq!(handle(&f, &rpc(5, "resources/list", json!({}))).unwrap()["error"]["code"], -32601);
+        let batch = json!([rpc(6, "ping", json!({}))]);
+        assert_eq!(handle(&f, &batch).unwrap()["error"]["code"], -32600);
     }
 
     #[test]

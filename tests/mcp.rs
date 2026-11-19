@@ -114,6 +114,8 @@ fn an_mcp_client_operates_the_running_application() {
     assert!(!failed, "{status}");
     let (failed, fixtures) = mcp.call("fixture_list", json!({}));
     assert!(!failed, "{fixtures}");
+    let attrs = fixtures[0]["attrs"].as_array().expect("機材の属性一覧");
+    assert!(attrs.iter().any(|attr| attr == "dimmer"), "{fixtures}");
 
     // 値を変えて、反映を待ち、最終の出力を確かめる
     let (failed, r) = mcp.call("fixture_set", json!({"fixture": 1, "attr": "dimmer", "value": 200}));
@@ -144,6 +146,23 @@ fn an_mcp_client_operates_the_running_application() {
     // 編集は dry_run で確かめられる
     let (failed, r) = mcp.call("edit", json!({"operations": [{"entity": "scene", "op": "capture", "data": {"name": "MCP"}}], "dry_run": true}));
     assert!(!failed, "{r}");
+    assert_eq!(r["applied"], false);
+    let (failed, r) = mcp.call("edit", json!({"operations": [{"entity": "scene", "op": "capture", "data": {"name": "MCP"}}], "dry_run": "true"}));
+    assert!(failed && r.as_str().is_some_and(|msg| msg.contains("dry_run must be boolean")), "{r}");
+    let (failed, scenes) = mcp.call("schema", json!({"entity": "scene"}));
+    assert!(!failed, "{scenes}");
+    assert!(scenes["current"].as_array().unwrap().iter().all(|scene| scene["name"] != "MCP"));
+
+    // 長い待機の途中でも、後続の要求とキャンセルを受け付ける
+    mcp.next += 1;
+    let wait_id = mcp.next;
+    mcp.send(json!({"jsonrpc": "2.0", "id": wait_id, "method": "tools/call",
+        "params": {"name": "wait", "arguments": {"ms": 15000, "timeout_ms": 1000}}}));
+    assert_eq!(mcp.rpc("ping", json!({}))["result"], json!({}));
+    mcp.send(json!({"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": wait_id}}));
+    let (failed, r) = mcp.call("wait", json!({"ms": 1500}));
+    assert!(!failed && r["matched"] == true, "{r}");
+
 
     // MCP を閉じても、本体は動き続ける
     drop(mcp.stdin.take());
