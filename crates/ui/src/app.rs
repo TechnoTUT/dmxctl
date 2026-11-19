@@ -42,6 +42,13 @@ pub const SMOOTH: Duration = Duration::from_millis(50);
 
 /// このウィンドウが前面か。前面でない(映像ソフトなどを前に出している)ときは、描き直しを減らしてCPUを譲る。
 /// デスクトップ環境の無い画面(KMSDRM)では他のアプリが前に出ることは無いので、いつも前面
+/// ウィンドウが今手前(フォーカスあり)か。`logic` からも正しく読める。
+/// ウィンドウが隠れていて `ui` が呼ばれない間、egui の `run_logic` は最新のフォーカスを `raw.focused` にだけ入れる。
+/// `InputState::focused` は最後に描いたときの値のままなので、ここでは `raw.focused` を読む
+pub fn window_focused(ctx: &egui::Context) -> bool {
+    ctx.input(|i| i.raw.focused)
+}
+
 pub fn in_front(ui: &egui::Ui) -> bool {
     no_desktop(ui.ctx()) || ui.input(|i| i.focused)
 }
@@ -699,6 +706,23 @@ impl App {
 }
 
 impl eframe::App for App {
+    /// 毎フレームの `ui` の前と、ウィンドウが隠れている(最小化・ほかのウィンドウの裏)間に再描画を頼まれたときに呼ばれる。
+    /// 隠れている間 eframe は `ui` を呼ばないので、画面に頼らない処理はここでも行う
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // 制御の窓口(`ctl`・MCP)と、LAN のクライアントから頼まれた保存などを処理する。
+        // 隠れていても応答する(`frame` でも呼ぶが、2回目は空の待ち行列を見るだけ)
+        self.host.control_tick();
+        if self.host.shutdown_requested() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+        // レーザータブの「押下中のみ出力」を押したままウィンドウが手前でなくなったら、離したことにする
+        // (隠れている間は離したことを受け取れないので、レーザーが出たままにならないように)
+        if self.laser_gui_hold && !window_focused(ctx) {
+            self.laser_gui_hold = false;
+            dmxctl_core::engine::lock(&self.host.core).live(dmxctl_core::live::LiveOp::SetLaserHold { on: false });
+        }
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         // レーザータブの「押下中のみ出力」を押したままタブを替えても、離したら止める
         if self.laser_gui_hold && !ui.input(|i| i.pointer.any_down()) {
