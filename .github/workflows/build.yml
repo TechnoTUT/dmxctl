@@ -1,5 +1,5 @@
-# CI. Everything except the macOS build runs on Linux runners, because private
-# repositories bill Windows minutes at 2x and macOS minutes at 10x.
+# CI. Everything except the macOS build runs on Linux runners. The repository is
+# public, so GitHub-hosted runners are not limited by run time.
 # - push to main: tests only (cargo test on Linux). Other branches are tested
 #   through their pull request, so a PR does not run the same tests twice.
 # - pull request: tests, plus Windows (cross-built from Linux with MinGW) and

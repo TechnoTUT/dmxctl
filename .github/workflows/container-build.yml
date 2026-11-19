@@ -1,13 +1,12 @@
 # Reusable: build the container image from Containerfile on the given runner.
-# Called by container.yml, once on GitHub-hosted runners and again on the
-# self-hosted runner "k8s" when the first run fails.
+# Called by container.yml.
 name: container-build
 
 on:
   workflow_call:
     inputs:
       runner:
-        description: JSON array of runner labels, e.g. ["ubuntu-26.04"] or ["self-hosted","k8s"]
+        description: JSON array of runner labels, e.g. ["ubuntu-26.04"]
         required: true
         type: string
       push:
