@@ -64,6 +64,14 @@ pub enum Tab {
     Monitor,
 }
 
+impl Tab {
+    /// 全部のタブ。画面を出さない確認用
+    pub const ALL: [Tab; 14] = [
+        Tab::Control, Tab::Map, Tab::Patch, Tab::Profiles, Tab::Pairs, Tab::Laser, Tab::Keys,
+        Tab::Auto, Tab::Scenes, Tab::Effects, Tab::Sequence, Tab::Midi, Tab::Output, Tab::Monitor,
+    ];
+}
+
 /// タブ。先頭の`LIVE_TABS`個が本番で使う画面、残りが準備・設定
 const TABS: [(Tab, &str); 14] = [
     (Tab::Map, "MIDI"),
