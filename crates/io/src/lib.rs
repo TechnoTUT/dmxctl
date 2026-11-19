@@ -6,6 +6,7 @@
 pub mod carabiner;
 pub mod link;
 pub mod midi;
+pub mod ndi;
 pub mod osc;
 pub mod opendmx;
 pub mod output;
