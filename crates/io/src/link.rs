@@ -6,7 +6,7 @@
 //! Beat Link Trigger も Carabiner を使うので、同じ Carabiner に一緒につなげる。
 
 use std::io::{ErrorKind, Read, Write};
-use std::net::{Ipv4Addr, SocketAddr, TcpStream};
+use std::net::{Ipv4Addr, SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, mpsc};
 use std::thread::JoinHandle;
@@ -48,6 +48,20 @@ pub fn port() -> u16 {
         return p;
     }
     std::env::var("DMXCTL_CARABINER_PORT").ok().and_then(|s| s.trim().parse().ok()).filter(|p| *p != 0).unwrap_or(DEFAULT_PORT)
+}
+
+/// 接続する Carabiner のホスト。環境変数 `DMXCTL_CARABINER_HOST` で、別の PC や別の Pod の Carabiner を指定できる。
+/// 指定が無いときは None で、同じPCの Carabiner につなぎ、入れてあれば起動する
+pub fn host() -> Option<String> {
+    std::env::var("DMXCTL_CARABINER_HOST").ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+}
+
+/// 接続先のアドレス。ホスト名は、つなぎ直すたびに引き直す。引けなければ None
+fn resolve(host: Option<&str>, port: u16) -> Option<SocketAddr> {
+    match host {
+        None => Some(SocketAddr::from((Ipv4Addr::LOCALHOST, port))),
+        Some(h) => (h, port).to_socket_addrs().ok()?.find(|a| a.is_ipv4()),
+    }
 }
 
 /// Carabiner が教えてくれた、ある時点の状態
@@ -175,13 +189,14 @@ impl Drop for Link {
 
 /// つなぎ直しながら、止められるまで動く裏のスレッド
 fn run(port: u16, initial_bpm: f64, shared: Arc<Mutex<Shared>>, rx: mpsc::Receiver<String>, stop: Arc<AtomicBool>) {
-    let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
+    let remote = host();
     // 入れてある Carabiner を、このアプリが起動したとき、その子プロセス
     let mut child: Option<std::process::Child> = None;
     let mut spawn_tries = 0;
     let mut resume_bpm = initial_bpm;
     while !stop.load(Ordering::Relaxed) {
-        match TcpStream::connect_timeout(&addr, Duration::from_millis(500)) {
+        let conn = resolve(remote.as_deref(), port).ok_or(()).and_then(|a| TcpStream::connect_timeout(&a, Duration::from_millis(500)).map_err(|_| ()));
+        match conn {
             Ok(stream) => {
                 // つながっていない間にたまった操作は、古いので捨てる
                 while rx.try_recv().is_ok() {}
@@ -198,7 +213,7 @@ fn run(port: u16, initial_bpm: f64, shared: Arc<Mutex<Shared>>, rx: mpsc::Receiv
                 if child.as_mut().is_some_and(|c| c.try_wait().ok().flatten().is_some()) {
                     child = None;
                 }
-                if child.is_none() && spawn_tries < 3 && autostart_allowed() {
+                if child.is_none() && remote.is_none() && spawn_tries < 3 && autostart_allowed() {
                     child = crate::carabiner::spawn(port);
                     if child.is_some() {
                         spawn_tries += 1;
@@ -457,6 +472,14 @@ mod tests {
         assert!(parse_status("beat-at-time { :when 1 :quantum 4.0 :beat 5.25 }").is_none());
         assert!(parse_status("status { :peers 0 :bpm 120.0 }").is_none());
         assert!(parse_status("bad-bpm ").is_none());
+    }
+
+    #[test]
+    fn resolves_local_or_named_host() {
+        assert_eq!(resolve(None, 17000), Some(SocketAddr::from((Ipv4Addr::LOCALHOST, 17000))));
+        assert_eq!(resolve(Some("127.0.0.1"), 17001), Some(SocketAddr::from((Ipv4Addr::LOCALHOST, 17001))));
+        // 引けないホストは None で、つながっていない扱いになる
+        assert_eq!(resolve(Some("no-such-host.invalid"), 17000), None);
     }
 
     #[test]
