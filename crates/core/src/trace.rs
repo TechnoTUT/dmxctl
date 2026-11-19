@@ -70,6 +70,12 @@ impl Core {
         let mut trace=self.rt.observe.trace.take().unwrap();
         Ok(json!({"ready":true,"trace":trace.result.take()}))
     }
+    /// 取りやめたトレースの枠を空ける(結果を取りに来ない呼び出し元のため)。チケットが違えば何もしない
+    pub fn cancel_trace(&mut self,ticket:u64)->Value {
+        let cancelled=self.rt.observe.trace.as_ref().is_some_and(|t|t.ticket==ticket);
+        if cancelled {self.rt.observe.trace=None;}
+        json!({"cancelled":cancelled})
+    }
     pub(crate) fn trace_begin(&mut self) {
         if let Some(trace)=self.rt.observe.trace.as_mut() {
             if trace.result.is_none() {trace.stages.clear();trace.frame=Some(self.rt.frame_id+1);}

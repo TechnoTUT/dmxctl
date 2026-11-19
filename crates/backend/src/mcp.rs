@@ -92,7 +92,8 @@ pub fn serve(
                     // 待機中も、後続の操作やキャンセルを標準入力から受け付ける
                     workers.push(thread::Builder::new().spawn_scoped(scope, move || {
                         let poll = |payload: &Value, timeout: Duration| {
-                            ensure!(!cancelled.load(Ordering::Relaxed), "wait cancelled");
+                            // キャンセル後も、本体の枠を空ける後片付け(trace_cancel)だけは送る
+                            ensure!(!cancelled.load(Ordering::Relaxed) || payload["op"] == "trace_cancel", "wait cancelled");
                             request(payload, timeout)
                         };
                         let reply = handle(&poll, &message);
@@ -298,13 +299,9 @@ fn tools() -> Vec<Value> {
     ]
 }
 
-/// `red.12` → (`red`, Some(12))。ピクセルの属性でなければ (名前, None)
-fn split_pixel(attr: &str) -> (&str, Option<u32>) {
-    match attr.rsplit_once('.') {
-        Some((base, n)) if !base.is_empty() => n.parse().map_or((attr, None), |n| (base, Some(n))),
-        _ => (attr, None),
-    }
-}
+// ピクセルの属性の判定(`red.12` → (`red`, Some(12)))は、本体の `Mode::attr_channels` と同じものを使う。
+// 番号は1以上の u16 だけ(`red.0` はピクセルではなく普通の属性名)
+use dmxctl_core::fixture::split_pixel;
 
 /// 機材の一覧を軽くする: ピクセルの属性(red.1〜red.90 など)を、まとめた名前とピクセル数にする
 fn compact_fixtures(mut list: Value) -> Value {
@@ -603,6 +600,10 @@ mod tests {
         assert_eq!(list[1]["attrs"], json!(["dimmer", "pan", "tilt"]));
         assert!(list[1].get("pixels").is_none());
         assert_eq!(split_pixel("color.wheel"), ("color.wheel", None), "数字でない後ろは、ピクセルの番号ではない");
+        // 本体と同じく、red.0 や 70000 番はピクセルではないので、そのままの名前で残す(まとめた red では解決できないため)
+        let odd = compact_fixtures(json!([{"id": 2, "attrs": ["red.0", "green.70000", "blue.1", "blue.2"]}]));
+        assert_eq!(odd[0]["attrs"], json!(["blue", "green.70000", "red.0"]));
+        assert_eq!(odd[0]["pixels"], 2);
 
         let controls = json!([
             {"id": "binding:1", "name": "フラッシュ 白", "kind": "button", "page": null, "action": {"Flash": {"white": true}}, "pressed": false, "remote_allowed": true, "trigger": {"kind": "Note"}},
@@ -625,6 +626,100 @@ mod tests {
             {"attr": "dimmer", "universe": 1, "address": 6, "value": 255, "fixture": 1},
         ]}));
         assert_eq!(snap, json!({"frame": 5, "t_ms": 9, "universe": 1, "first_address": 1, "values": {"pan": [128, 7], "dimmer": 255}}));
+    }
+
+    /// trace_start が成立したあとに explain をキャンセルしても、本体のトレースの枠を空け、次の explain がすぐ成功する
+    #[test]
+    fn cancelling_explain_releases_the_trace_slot() {
+        use std::io::Write as _;
+        use std::sync::Mutex as M;
+        // 枠が1つの偽の本体。1件目の結果はいつまでもできない。2件目からはすぐできる
+        struct Host {
+            slot: Option<u64>,
+            next: u64,
+            log: Vec<Value>,
+        }
+        let host = Arc::new(M::new(Host { slot: None, next: 0, log: Vec::new() }));
+        let fake = {
+            let host = host.clone();
+            move |p: &Value, _: Duration| -> anyhow::Result<Value> {
+                let mut h = host.lock().unwrap();
+                h.log.push(p.clone());
+                match p["op"].as_str().unwrap_or("") {
+                    "trace_start" => {
+                        ensure!(h.slot.is_none(), "another trace is pending");
+                        h.next += 1;
+                        let t = h.next;
+                        h.slot = Some(t);
+                        Ok(json!({"ticket": t}))
+                    }
+                    "trace_result" => {
+                        let t = p["ticket"].as_u64().unwrap();
+                        ensure!(h.slot == Some(t), "trace is no longer available");
+                        if t == 1 {
+                            return Ok(json!({"ready": false}));
+                        }
+                        h.slot = None;
+                        Ok(json!({"ready": true, "trace": {"ticket": t}}))
+                    }
+                    "trace_cancel" => {
+                        let t = p["ticket"].as_u64().unwrap();
+                        let hit = h.slot == Some(t);
+                        if hit {
+                            h.slot = None;
+                        }
+                        Ok(json!({"cancelled": hit}))
+                    }
+                    _ => Ok(json!({})),
+                }
+            }
+        };
+        let (reader, mut writer) = std::io::pipe().unwrap();
+        #[derive(Clone)]
+        struct Out(Arc<M<Vec<u8>>>);
+        impl std::io::Write for Out {
+            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(b);
+                Ok(b.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let out = Out(Arc::new(M::new(Vec::new())));
+        let server = {
+            let out = out.clone();
+            std::thread::spawn(move || serve(&fake, std::io::BufReader::new(reader), out))
+        };
+        let explain = |id: u64| json!({"jsonrpc": "2.0", "id": id, "method": "tools/call", "params": {"name": "explain", "arguments": {"fixture": 1, "attr": "pan", "timeout_ms": 60000}}});
+        writeln!(writer, "{}", explain(1)).unwrap();
+        // trace_start が成立するまで待ってから、キャンセルする
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while host.lock().unwrap().slot.is_none() {
+            assert!(std::time::Instant::now() < deadline, "trace_start が呼ばれない");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        writeln!(writer, "{}", json!({"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 1}})).unwrap();
+        // 枠が空くまで待つ(キャンセルを受けたワーカーが trace_cancel を送る)
+        while host.lock().unwrap().slot.is_some() {
+            assert!(std::time::Instant::now() < deadline, "キャンセル後も枠が空かない");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        writeln!(writer, "{}", explain(2)).unwrap();
+        // 返事が届いてから入力を閉じる(閉じると、待っているものは取りやめになるため)
+        while out.0.lock().unwrap().is_empty() {
+            assert!(std::time::Instant::now() < deadline, "次の explain の返事が来ない");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        drop(writer);
+        server.join().unwrap().unwrap();
+        let text = String::from_utf8(out.0.lock().unwrap().clone()).unwrap();
+        let replies: Vec<Value> = text.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+        assert_eq!(replies.len(), 1, "キャンセルした explain には答えない: {text}");
+        assert_eq!(replies[0]["id"], 2);
+        assert_eq!(replies[0]["result"]["isError"], false, "次の explain はすぐ成功する: {text}");
+        let log = &host.lock().unwrap().log;
+        assert!(log.iter().any(|p| p["op"] == "trace_cancel" && p["ticket"] == 1), "{log:?}");
     }
 
     #[test]
