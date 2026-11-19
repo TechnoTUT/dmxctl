@@ -65,7 +65,7 @@ impl NamedColor {
 
     /// APC mini mk2 のパッドの色(パレット番号)
     pub fn led(self) -> u8 {
-        use crate::led::*;
+        use crate::apcmini::*;
         match self {
             NamedColor::Red => C_RED,
             NamedColor::Orange => C_ORANGE,
@@ -348,7 +348,7 @@ impl SelectOp {
 /// 下段のパッド8個=色 / シーンボタン8=全体⇄個別 / トラックボタン1〜8=機材の選択。
 /// フェーダー8=色相(H)。すでに使われているボタンは飛ばす。戻り値=(追加した数, 飛ばした数)
 pub fn add_template(project: &mut crate::project::Project) -> (usize, usize) {
-    use crate::io::apcmini::Ctl;
+    use crate::apcmini::Ctl;
     use crate::project::*;
     let mut added = 0;
     let mut skipped = 0;
@@ -379,7 +379,7 @@ pub fn add_template(project: &mut crate::project::Project) -> (usize, usize) {
 /// 下から2段目のパッド=メイン色 / 3段目=サブ色 / 入れ替え・自動入れ替え=シーンボタン7・6(使用中ならトラックボタン8・7)
 /// フェーダー6=メインの色相 / フェーダー7=サブの色相。戻り値=(追加した数, 飛ばした数)
 pub fn add_palette_template(project: &mut crate::project::Project) -> (usize, usize) {
-    use crate::io::apcmini::Ctl;
+    use crate::apcmini::Ctl;
     use crate::project::*;
     let used = |p: &Project, ctl: Ctl| p.bindings.iter().any(|b| b.trigger.is_some_and(|t| ctl.matches(&t)));
     let (mut added, mut skipped) = (0, 0);

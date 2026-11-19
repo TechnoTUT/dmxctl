@@ -215,6 +215,7 @@ impl Core {
 mod glide;
 mod guard;
 mod output_loop;
+mod pixel;
 mod render;
 mod runtime;
 mod safety;
