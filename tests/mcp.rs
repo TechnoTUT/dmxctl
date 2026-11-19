@@ -144,6 +144,12 @@ fn an_mcp_client_operates_the_running_application() {
     // 編集は dry_run で確かめられる
     let (failed, r) = mcp.call("edit", json!({"operations": [{"entity": "scene", "op": "capture", "data": {"name": "MCP"}}], "dry_run": true}));
     assert!(!failed, "{r}");
+    assert_eq!(r["applied"], false);
+    let (failed, r) = mcp.call("edit", json!({"operations": [{"entity": "scene", "op": "capture", "data": {"name": "MCP"}}], "dry_run": "true"}));
+    assert!(failed && r.as_str().is_some_and(|msg| msg.contains("dry_run must be boolean")), "{r}");
+    let (failed, scenes) = mcp.call("schema", json!({"entity": "scene"}));
+    assert!(!failed, "{scenes}");
+    assert!(scenes["current"].as_array().unwrap().iter().all(|scene| scene["name"] != "MCP"));
 
     // MCP を閉じても、本体は動き続ける
     drop(mcp.stdin.take());

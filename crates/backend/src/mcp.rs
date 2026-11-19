@@ -265,7 +265,8 @@ fn call(request: Requester, name: &str, args: &Value) -> anyhow::Result<Value> {
         "schema" => send(request, json!({"op": "schema", "entity": args["entity"].as_str().unwrap_or("project")})),
         "edit" => {
             ensure!(args["operations"].is_array(), "operations must be an array");
-            let mut payload = json!({"op": "edit", "operations": args["operations"], "dry_run": args["dry_run"].as_bool().unwrap_or(false)});
+            let dry_run = crate::commands::flag(args, "dry_run", false)?;
+            let mut payload = json!({"op": "edit", "operations": args["operations"], "dry_run": dry_run});
             if let Some(v) = args.get("expected_revision") {
                 payload["expected_revision"] = v.clone();
             }
