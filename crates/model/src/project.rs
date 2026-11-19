@@ -536,6 +536,17 @@ impl Binding {
 #[derive(schemars::JsonSchema, Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum OutputKind {
     ArtNet { ip: String, art_universe: u16 },
+    /// sACN (E1.31)。`ip` が空ならマルチキャスト(239.255.x.y)、指定があればその相手だけに送る
+    Sacn {
+        #[serde(default)]
+        ip: String,
+        #[schemars(range(min = 1, max = 63999))]
+        sacn_universe: u16,
+        /// 優先度(0〜200。標準 100)。同じユニバースを複数の送り手が送るとき、大きいほうが使われる
+        #[serde(default = "default_sacn_priority")]
+        #[schemars(range(max = 200))]
+        priority: u8,
+    },
     /// FTDI系USB-DMXをCOMポートとして使う
     OpenDmxSerial { port: String },
     /// FTDI系USB-DMXをD2XXドライバ(ftd2xx.dll)で直接使う
@@ -546,10 +557,18 @@ impl OutputKind {
     pub fn label(&self) -> &'static str {
         match self {
             OutputKind::ArtNet { .. } => "Art-Net",
+            OutputKind::Sacn { .. } => "sACN (E1.31)",
             OutputKind::OpenDmxSerial { .. } => "USB-DMX (COMポート)",
             OutputKind::OpenDmxD2xx { .. } => "USB-DMX (D2XX)",
         }
     }
+}
+
+/// sACN の優先度の標準
+pub const SACN_DEFAULT_PRIORITY: u8 = 100;
+
+fn default_sacn_priority() -> u8 {
+    SACN_DEFAULT_PRIORITY
 }
 
 #[derive(schemars::JsonSchema, Debug, Clone, Serialize, Deserialize, PartialEq)]

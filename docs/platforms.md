@@ -10,7 +10,7 @@ Release の `DMX-Controller-mac.zip` は、Apple Silicon と Intel の両方で�
 - 保存のショートカットは ⌘S です。他のキーは同じです
 - FT232系の USB-DMX は、Mac 標準のドライバで `/dev/cu.usbserial-…` として認識され、「出力」タブの COMポートの一覧に表示されます。D2XX を利用する場合は、[FTDI の配布元](https://ftdichip.com/drivers/d2xx-drivers/) から `libftd2xx.dylib` を取得し、`/usr/local/lib/` か設定フォルダに配置してください。このアプリには同梱していません
 - 簡易署名のアプリのため、ダウンロードしたものを初回に開くと「開発元を確認できません」と表示されます。Finder でアプリを右クリック →「開く」で開けます。macOS 15 以降で開けないときは、「システム設定」→「プライバシーとセキュリティ」の「このまま開く」を押します
-- 初めて Art-Net・OSC を利用するとき、「ローカルネットワーク上のデバイスの検索と接続」の許可を求められます。許可してください
+- 初めて Art-Net・sACN・OSC を利用するとき、「ローカルネットワーク上のデバイスの検索と接続」の許可を求められます。許可してください
 
 ## Linux で使う
 
@@ -27,7 +27,7 @@ Release の Linux 版 `dmxctl-linux-x86_64` / `dmxctl-linux-arm64` は Debian 12
 - D2XX を利用する場合は FTDI の `libftd2xx.so` を導入し、`sudo rmmod ftdi_sio` で標準のドライバを外します。通常は COMポート方式で十分です
 - MIDI・音声入力は ALSA を利用します。PipeWire や PulseAudio の環境でもそのまま動作します
 - メニューに表示したいときは、`dmxctl` を PATH の通った場所に置き、`scripts/linux/dmxctl.desktop` を `~/.local/share/applications/` にコピーします
-- ufw や firewalld でファイアウォールを有効にしている場合は、利用する機能の UDP ポートを開放してください。OSC 受信は既定で 9000、Ableton Link は 20808 です。Link の通信を担当するのは Carabiner です。dmxctl が Carabiner へ接続する 17000 は同じ PC 内だけで使うため、開放は不要です。Art-Net の送信だけであれば開放は不要です
+- ufw や firewalld でファイアウォールを有効にしている場合は、利用する機能の UDP ポートを開放してください。OSC 受信は既定で 9000、Ableton Link は 20808 です。Link の通信を担当するのは Carabiner です。dmxctl が Carabiner へ接続する 17000 は同じ PC 内だけで使うため、開放は不要です。Art-Net・sACN の送信だけであれば開放は不要です
 - Ctrl+C・`kill`・ログアウト・シャットダウンで終了のシグナルを受信したときも、レーザーOFF・明るさ0の安全な値を送信してから停止します
 - NDI を利用するには NDI SDK のライブラリが必要です。次の [Linux で NDI を使う](#linux-で-ndi-を使う) を確認してください
 
