@@ -1,5 +1,7 @@
 # Container image (Containerfile).
 # - pull request: build the image and run `dmxctl help` inside it. Nothing is pushed.
+# - push to main: build and push to GHCR as ghcr.io/technotut/dmxctl:main and
+#   ghcr.io/technotut/dmxctl:sha-<short commit>.
 # - push of a tag starting with "v" (e.g. v0.2.0): build and push to GHCR as
 #   ghcr.io/technotut/dmxctl:0.2.0 (the "v" is dropped, as the Infra manifests expect).
 #   git tag v0.2.0 && git push origin v0.2.0
@@ -9,11 +11,14 @@ name: container
 on:
   pull_request:
   push:
+    branches: [main]
     tags: ['v*']
 
+# A new pull request push cancels the old build. A push to main or a tag is never
+# cancelled, so an image push is not cut off halfway.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -23,7 +28,7 @@ jobs:
     uses: ./.github/workflows/container-build.yml
     with:
       runner: '["ubuntu-26.04"]'
-      push: ${{ startsWith(github.ref, 'refs/tags/v') }}
+      push: ${{ github.event_name == 'push' }}
     permissions:
       contents: read
       packages: write
