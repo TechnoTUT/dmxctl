@@ -1,7 +1,7 @@
 //! 出力先(Art-Net / USB-DMX)。
 
-use crate::io::opendmx::{LinkKind, OpenDmx};
-use crate::project::{OutputCfg, OutputKind};
+use crate::opendmx::{LinkKind, OpenDmx};
+use dmxctl_model::project::{OutputCfg, OutputKind};
 use std::net::{SocketAddr, UdpSocket};
 
 pub trait Output: Send {

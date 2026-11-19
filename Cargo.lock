@@ -635,16 +635,25 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "cpal",
+ "dmxctl-io",
  "dmxctl-model",
- "flate2",
  "libc",
- "libloading 0.9.0",
  "midir",
  "ndi",
  "schemars",
  "serde",
  "serde_json",
  "serde_path_to_error",
+]
+
+[[package]]
+name = "dmxctl-io"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dmxctl-model",
+ "flate2",
+ "libloading 0.9.0",
  "serialport",
  "sha2",
  "zip",

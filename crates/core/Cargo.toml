@@ -6,9 +6,9 @@ description = "dmxctl のコア層。設定の形・値の合成・機器とプ�
 
 [dependencies]
 dmxctl-model = { path = "../model" }
+dmxctl-io = { path = "../io" }
 anyhow = "1.0.104"
 cpal = "0.18.2"
-libloading = "0.9.0"
 # NDI受信(moip-engine の ndi クレート。サブモジュール moip-engine/。libndi は実行時に読み込む)
 moip-ndi = { package = "ndi", path = "../../moip-engine/ndi" }
 midir = "0.11.0"
@@ -16,17 +16,11 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 serde_path_to_error = "0.1"
 schemars = "1.2"
-serialport = "4.10.1"
-# Carabiner のダウンロードで、チェックサムの確認と展開に使う
-sha2 = "0.10"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
-flate2 = "1"
 
-[target.'cfg(windows)'.dependencies]
-zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [features]
 # 他のクレートのテストが使う、Carabiner のふりをするサーバーなどを公開する
-test-support = []
+test-support = ["dmxctl-io/test-support"]

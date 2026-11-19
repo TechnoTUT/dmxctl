@@ -43,6 +43,12 @@ fn model_depends_on_nothing_above_it() {
 }
 
 #[test]
+fn io_depends_on_neither_core_nor_upper_layers() {
+    assert_without("io", &["dmxctl-core", "dmxctl-backend", "dmxctl-ui"]);
+    assert_without("io", &GUI);
+}
+
+#[test]
 fn core_depends_on_neither_upper_layers_nor_gui() {
     assert_without("core", &["dmxctl-backend", "dmxctl-ui"]);
     assert_without("core", &GUI);

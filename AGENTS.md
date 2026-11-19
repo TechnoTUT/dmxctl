@@ -22,7 +22,7 @@ dmxctl を開発する人と AI エージェント向けのルールです。ビ
 
 ## 構成のルール
 
-- ソースは4つのクレートに分ける。`crates/model/` は設定の形・機材定義・色や動きの表、`crates/core/` は値の合成と機器・プロトコルの入出力、`crates/backend/` は画面なしの起動・保存・遠隔操作・CLI、`crates/ui/` は画面である。参照してよい向きは `ui` → `backend` → `core` → `model` だけで、逆向きの参照はコンパイルが通らず、`tests/layers.rs` が余計なクレートの依存を検出する
+- ソースは5つのクレートに分ける。`crates/model/` は設定の形・機材定義・色や動きの表、`crates/io/` は機器とプロトコルの、エンジンの状態に触れない部分、`crates/core/` は値の合成と、機器をエンジンにつなぐ橋渡し、`crates/backend/` は画面なしの起動・保存・遠隔操作・CLI、`crates/ui/` は画面である。参照してよい向きは `ui` → `backend` → `core` → `io` → `model` だけで、逆向きの参照はコンパイルが通らず、`tests/layers.rs` が余計なクレートの依存を検出する
 - 新しい処理は、画面に依存しないなら `core` か `backend` に配置する。`core` の型は、上の層の型に依存させない。上の層の処理を呼びたいときは、`core` にトレイトを定義して上の層で実装する。例は `core::live::LiveForward`
 - 画面によらずに動く部分は `crates/backend/src/host.rs` の `Host` に置く。headless と serve は `Host` だけで動くので、画面の `App` にしか無い処理に頼らない
 - 画面や MIDI から実行中の状態を変えるときは、`Core` のメソッドや `rt` を直接触らず、`LiveOp` にして `Core::live` に渡す。クライアントの `dmxctl connect` では、ここでサーバーへ送るため。詳しくは `crates/core/src/live.rs`

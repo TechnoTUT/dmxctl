@@ -4,7 +4,7 @@
 //! BREAK → MAB → スタートコード+スロット を250kbaud/8N2で連続して送り続ける必要がある。
 //! 送出は専用スレッドで行い、接続が切れたら自動で再接続する。
 
-use crate::io::output::Output;
+use crate::output::Output;
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -211,7 +211,7 @@ impl D2xxApi {
             &["libftd2xx.so", "/usr/local/lib/libftd2xx.so", "/usr/lib/libftd2xx.so"]
         };
         // FTDIのライブラリは配らない。管理者の権限が無くても使えるよう、設定フォルダに置いたものも探す
-        let in_config = crate::project::config_dir().join(if cfg!(windows) { "ftd2xx.dll" } else if cfg!(target_os = "macos") { "libftd2xx.dylib" } else { "libftd2xx.so" });
+        let in_config = dmxctl_model::project::config_dir().join(if cfg!(windows) { "ftd2xx.dll" } else if cfg!(target_os = "macos") { "libftd2xx.dylib" } else { "libftd2xx.so" });
         let in_config = Some(in_config).filter(|p| p.exists());
         // 確認用: DMXCTL_D2XX_LIB=ライブラリのパス で直接指定
         let custom = std::env::var_os("DMXCTL_D2XX_LIB").filter(|v| !v.is_empty());
