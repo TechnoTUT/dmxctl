@@ -79,7 +79,7 @@ impl Recorder {
 impl Core {
     /// External inputs are root operations; remotely replayed inputs already
     /// have a command event, so do not record their dispatch a second time.
-    pub fn record_input(&self,command:Value) {
+    pub(crate) fn record_input(&self,command:Value) {
         if self.rt.audit_depth!=0 {return;}
         if let Some(recorder)=&self.rt.recorder {
             recorder.emit(json!({"type":"command","source":"input","command":command,

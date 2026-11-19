@@ -420,7 +420,7 @@ impl Host {
     /// GUIの保存・自動保存・終了時の保存。厳しい検証(editing::validate)はかけない:
     /// GUIの編集で検証に通らない状態(機材を消したあとの参照など)になっても、作業内容を失わないように。
     /// リモートの "save" は、呼ぶ前に検証する
-    pub fn save_checked(&mut self) -> anyhow::Result<()> {
+    pub(crate) fn save_checked(&mut self) -> anyhow::Result<()> {
         if let Some(c) = &self.client {
             c.save();
             return Ok(());

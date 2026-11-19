@@ -39,7 +39,7 @@ impl BltState {
 
 impl Core {
     /// BLTなどから曲の情報が届いた(オートの「つながっている」の目印)
-    pub fn note_live_input(&mut self) {
+    pub(crate) fn note_live_input(&mut self) {
         self.rt.auto_last = Some(self.now());
     }
 
