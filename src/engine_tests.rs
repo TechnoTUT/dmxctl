@@ -47,7 +47,10 @@ fn laser_is_off_until_armed_and_blackout_wins() {
 
     c.project.fixtures[1].armed = true;
     c.render();
-    assert_eq!(c.rt.frames[0][laser_mode_slot], 255, "ARM後はDMX制御");
+    assert_eq!(c.rt.frames[0][laser_mode_slot], 0, "ARMだけでは出さない(合図を待つ)");
+    c.rt.laser_latch = true;
+    c.render();
+    assert_eq!(c.rt.frames[0][laser_mode_slot], 255, "ARM+合図でDMX制御");
 
     c.set_attr(&Selector::Fixture(1), "dimmer", 255.0);
     c.rt.blackout = true;

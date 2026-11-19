@@ -221,6 +221,10 @@ pub fn apply(p: &mut Project, lib: &Library) -> Report {
     }
     accents.push(("入れ替え(押中)", Action::Palette { op: PaletteOp::HoldSwap }));
     accents.push(("消灯(押中)", Action::Blackout { mode: PadMode::Momentary }));
+    // ARMしたレーザーを、押下中のみ出力
+    if !armed.is_empty() {
+        accents.push(("レーザー(押中)", Action::Laser { mode: PadMode::Momentary }));
+    }
     for (col, (name, action)) in accents.into_iter().enumerate() {
         put(p, None, Ctl::Pad(pad_note(7, col as u8)), name.into(), action);
     }
@@ -297,6 +301,9 @@ pub fn apply(p: &mut Project, lib: &Library) -> Report {
     }
     for k in &armed {
         arms.push((format!("ARM:{} 全部", k.name), Action::Arm { sel: k.sel(), mode: PadMode::Toggle }));
+    }
+    if !armed.is_empty() {
+        arms.push(("レーザー常時出力".into(), Action::Laser { mode: PadMode::Toggle }));
     }
     // 6段目: NDIの色とテンポ
     use crate::color::ColorRole;

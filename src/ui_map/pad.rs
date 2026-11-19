@@ -77,6 +77,7 @@ pub(crate) fn action_color(a: &Action, p: &Project) -> Color32 {
         Action::Pixel { .. } => COL_PIXEL,
         Action::Role { .. } | Action::LiveColor { .. } => COL_COLOR,
         Action::Arm { .. } => COL_DARK,
+        Action::Laser { .. } => COL_FLASH,
         Action::SwapBeats { .. } => COL_SWAP,
         Action::BarCount { .. } => COL_PIXEL,
         // 動きは種類ごとに色分け(APCのLEDと同じ: 形=オレンジ / 1周の長さ=黄 / 揃え方=ピンク / 向き=水色)
@@ -177,6 +178,7 @@ pub(super) fn pad_text(a: &Action, meta: &SelMeta, core: &Core) -> (String, Stri
             RoleOp::Alternate => "1台おき",
         })),
         Action::Arm { sel, .. } => (target_plain(sel, meta), s("ARM")),
+        Action::Laser { mode } => (if *mode == PadMode::Momentary { s("レーザー・押中") } else { s("レーザー") }, s(if *mode == PadMode::Momentary { "押下中のみ" } else { "常時出力" })),
         Action::LiveColor { role, source } => (format!("NDI → {}", role.label()), s(match source {
             crate::ndi::LiveSource::Video => "映像の色",
             crate::ndi::LiveSource::Audio => "音の色",

@@ -390,6 +390,8 @@ pub enum Action {
     Role { sel: Selector, op: RoleOp },
     /// ARM(レーザーなど、許可するまで安全値を出し続ける機材の出力を許可する)
     Arm { sel: Selector, mode: PadMode },
+    /// レーザーの合図(ARMしたレーザーを出す)。押している間=押下中のみ出力 / トグル=常時出力を切り替え / ワンショット=常時出力にする
+    Laser { mode: PadMode },
     /// NDI(映像の平均色・音の色)をメイン色/サブ色に使う。同じものをもう一度押すと使わない
     LiveColor { role: crate::color::ColorRole, source: crate::ndi::LiveSource },
     /// メイン⇄サブの自動入れ替えの間隔(拍)。押すと自動入れ替えもONにする
@@ -498,6 +500,7 @@ impl Action {
             Action::Pixel { .. } => "LEDバー調整",
             Action::Role { .. } => "色の系統",
             Action::Arm { .. } => "ARM",
+            Action::Laser { .. } => "レーザー出力",
             Action::LiveColor { .. } => "NDIの色",
             Action::SwapBeats { .. } => "入れ替えの間隔",
             Action::BarCount { .. } => "LEDバーの本数",
@@ -639,6 +642,8 @@ pub struct PhraseLook {
     pub wave_color: bool,
     /// 入った瞬間に1拍だけ今の色で全開
     pub flash: bool,
+    /// このフレーズの間、ARMしたレーザーを出す
+    pub laser: bool,
     /// 呼び出すシーン(空なら呼ばない)
     pub scene: String,
     /// ONにするエフェクト・チェイス・ピクセルエフェクト(次のフレーズで、そこに無いものはOFFに戻す)
@@ -653,7 +658,7 @@ impl Default for PhraseLook {
 
 impl PhraseLook {
     pub fn new(shape: crate::motion::Shape, beats: f32, spread: crate::motion::Spread, color: ColorMove, color_beats: f32, brightness: f32) -> Self {
-        PhraseLook { shape, beats, spread, position: None, color, color_beats, brightness, wave_color: true, flash: false, scene: String::new(), effects: Vec::new() }
+        PhraseLook { shape, beats, spread, position: None, color, color_beats, brightness, wave_color: true, flash: false, laser: false, scene: String::new(), effects: Vec::new() }
     }
 }
 
@@ -670,7 +675,7 @@ impl AutoPreset {
         put("verse", PhraseLook::new(S::Eight, 8.0, P::Fan, Swap, 4.0, 0.8));
         put("bridge", PhraseLook::new(S::PanSweep, 4.0, P::Mirror, Fade, 4.0, 0.8));
         put("up", PhraseLook::new(S::TiltSweep, 2.0, P::Sync, Swap, 2.0, 0.9));
-        put("chorus", PhraseLook { flash: true, ..PhraseLook::new(S::Cross, 2.0, P::Mirror, Swap, 1.0, 1.0) });
+        put("chorus", PhraseLook { flash: true, laser: true, ..PhraseLook::new(S::Cross, 2.0, P::Mirror, Swap, 1.0, 1.0) });
         put("down", PhraseLook::new(S::Wave, 8.0, P::Fan, Fade, 8.0, 0.6));
         put("outro", PhraseLook::new(S::Circle, 16.0, P::Fan, Fade, 8.0, 0.6));
         AutoPreset { name: "標準".into(), looks }
@@ -688,7 +693,7 @@ impl AutoPreset {
         put("intro", PhraseLook::new(S::Circle, 8.0, P::Fan, Swap, 4.0, 0.7));
         put("verse", PhraseLook::new(S::Eight, 4.0, P::Mirror, Swap, 2.0, 0.9));
         put("up", PhraseLook { flash: false, ..PhraseLook::new(S::TiltSweep, 1.0, P::Sync, Swap, 1.0, 1.0) });
-        put("chorus", PhraseLook { flash: true, ..PhraseLook::new(S::Random, 1.0, P::Fan, Swap, 1.0, 1.0) });
+        put("chorus", PhraseLook { flash: true, laser: true, ..PhraseLook::new(S::Random, 1.0, P::Fan, Swap, 1.0, 1.0) });
         p
     }
 }

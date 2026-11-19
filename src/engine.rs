@@ -130,6 +130,15 @@ pub struct Runtime {
     pub palette_shown: Option<bool>,
     /// フラッシュ中なら Some(白で全開か)
     pub flash: Option<bool>,
+    /// レーザーの合図。ARMした機材は、合図のどれかがあるときだけ出す(ARMだけでは出さない)。保存しない
+    /// 常時出力(押すたびに切り替え)
+    pub laser_latch: bool,
+    /// 押している間だけ(パッド・キー・OSC)
+    pub laser_hold: bool,
+    /// OSCで押している間の期限。送る側が落ちても止まるよう、送り続けないと切れる
+    pub laser_hold_until: Option<Instant>,
+    /// オートのフレーズの見た目で「レーザー」をONにしたもの
+    pub auto_laser: bool,
     /// 暗転フェードの明るさ(1=通常 / 0=暗転)。全体光量にかかる
     pub dim: f32,
     /// 暗転フェードの向かう先(0か1)と、かける秒数
@@ -243,6 +252,10 @@ impl Runtime {
             remote_link: false,
             remote_emergency: false,
             flash_deadline: None,
+            laser_latch: false,
+            laser_hold: false,
+            laser_hold_until: None,
+            auto_laser: false,
             virtual_now: None,
             recorder: None,
             safety_events: Vec::new(),
@@ -318,6 +331,19 @@ impl Core {
     pub fn set_flash(&mut self, flash: Option<bool>) {
         self.rt.flash = flash;
         self.rt.flash_deadline = None;
+    }
+
+    /// レーザーの合図があるか(常時出力・押している間・オートのフレーズのどれか)。
+    /// ARMした機材でも、合図が無ければ安全値(レーザーOFF)を出す
+    pub fn laser_cue(&self) -> bool {
+        let auto = self.rt.auto_laser && self.project.auto.enabled && self.rt.auto_was_online;
+        self.rt.laser_latch || self.rt.laser_hold || auto
+    }
+
+    /// 押している間だけのレーザーを変える(パッド・キー)。OSCの期限は消す
+    pub fn set_laser_hold(&mut self, on: bool) {
+        self.rt.laser_hold = on;
+        self.rt.laser_hold_until = None;
     }
 
     pub fn new(mut project: Project, lib: Arc<Library>) -> Self {
@@ -454,6 +480,10 @@ impl Core {
         let now = self.now();
         self.rt.safety_events.clear();
         self.expire_remote_controls(now);
+        // OSCで押している間のレーザー: 送り続けていなければ止める
+        if self.rt.laser_hold_until.is_some_and(|until| now >= until) {
+            self.set_laser_hold(false);
+        }
         if self.rt.flash_deadline.is_some_and(|deadline|now >= deadline) {
             self.rt.flash = None;
             self.rt.flash_deadline = None;
@@ -570,6 +600,7 @@ impl Core {
             *f = [0; 512];
         }
         let mut used = vec![0usize; NUM_UNIVERSES];
+        let cue = self.laser_cue();
 
         for (i, fx) in self.project.fixtures.iter().enumerate() {
             // 使わない機材は出力しない(0のまま)
@@ -591,7 +622,7 @@ impl Core {
                 if let Some(info) = lib.info(&fx.profile, fx.mode) {
                     safe_values(mode, &info, v);
                 }
-            } else if profile.needs_arm && !fx.armed {
+            } else if profile.needs_arm && !(fx.armed && cue) {
                 for (c, ch) in mode.channels.iter().enumerate() {
                     if let Some(s) = ch.safe {
                         v[c] = s;
@@ -599,7 +630,7 @@ impl Core {
                 }
             }
             if let Some(trace)=self.rt.trace.as_mut().filter(|t|t.fixture==fx.id && t.result.is_none()) {
-                trace.capture_single(fx.id,mode,v,"gates",serde_json::json!({"blackout":dark,"muted":muted,"armed":fx.armed,"needs_arm":profile.needs_arm}));
+                trace.capture_single(fx.id,mode,v,"gates",serde_json::json!({"blackout":dark,"muted":muted,"armed":fx.armed,"laser_cue":cue,"needs_arm":profile.needs_arm}));
             }
             // 禁止の値(レーザーのオートショーなど)と、動いてよい範囲は、何をしていても最後に必ず直す
             let gated = requested.as_ref().map(|_| v.clone());
@@ -613,7 +644,7 @@ impl Core {
                     if requested != applied {
                         let mut reasons = Vec::new();
                         if requested != gated[ch] {
-                            reasons.push(if dark { "blackout" } else if muted { "mute" } else { "not_armed" });
+                            reasons.push(if dark { "blackout" } else if muted { "mute" } else if !fx.armed { "not_armed" } else { "no_laser_cue" });
                         }
                         let [a, b] = fx.limits.get(&mode.channels[ch].attr).copied().unwrap_or([0, 255]);
                         let clamped = gated[ch].clamp(a.min(b), a.max(b));
