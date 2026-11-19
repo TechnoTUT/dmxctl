@@ -1,9 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use dmxctl::ui::app;
+use dmxctl_ui::app;
 use dmxctl::core::{engine, layout};
 #[cfg(target_os = "linux")]
-use dmxctl::ui::kmsdrm;
+use dmxctl_ui::kmsdrm;
 
 const USAGE: &str = "dmxctl [--project FILE] [--control] [--listen IP:PORT] [--output none|live] [--inputs none|configured] [--no-autosave]
     画面を開いて起動する(引数なし)
@@ -37,7 +37,7 @@ impl Mode {
             Some("apply-layout") => (Self::ApplyLayout, rest),
             Some("kmsdrm") => (Self::Kmsdrm, rest),
             Some("connect") => (Self::Connect, rest),
-            Some(command) if dmxctl::backend::cli::COMMANDS.contains(&command) => (Self::Cli, args),
+            Some(command) if dmxctl_backend::cli::COMMANDS.contains(&command) => (Self::Cli, args),
             // 以前の書き方(フラグ・環境変数)。systemd のサービスなど、インストール済みのものが使っている
             _ if args.iter().any(|a| a == "--apply-layout") => (Self::ApplyLayout, args),
             _ if args.iter().any(|a| a == "--headless") || std::env::var_os("DMXCTL_HEADLESS").is_some_and(|v| v == "1") => (Self::Headless, args),
@@ -55,11 +55,11 @@ fn main() -> eframe::Result {
     }
     match mode {
         Mode::Help => {
-            println!("{USAGE}\n{}", dmxctl::backend::cli::HELP);
+            println!("{USAGE}\n{}", dmxctl_backend::cli::HELP);
             return Ok(());
         }
         Mode::Cli => {
-            if let Err(error) = dmxctl::backend::cli::run(rest.to_vec()) {
+            if let Err(error) = dmxctl_backend::cli::run(rest.to_vec()) {
                 eprintln!("{}", serde_json::json!({"error": error.to_string()}));
                 std::process::exit(1);
             }
@@ -85,7 +85,7 @@ fn main() -> eframe::Result {
         },
         _ => (None, rest),
     };
-    let mut launch = dmxctl::backend::control::Launch::parse(rest, false).unwrap_or_else(|error| {
+    let mut launch = dmxctl_backend::control::Launch::parse(rest, false).unwrap_or_else(|error| {
         eprintln!("{error}");
         std::process::exit(1);
     });
@@ -94,7 +94,7 @@ fn main() -> eframe::Result {
     engine::install_safety_hooks();
     // 画面を出さずに動かす(モニターの無いPCで、Beat Link Triggerなどと一緒にオートで動かす)
     if matches!(mode, Mode::Headless) {
-        dmxctl::backend::host::Host::run_headless(launch);
+        dmxctl_backend::host::Host::run_headless(launch);
     }
     // デスクトップ環境の無いLinux(または kmsdrm / DMXCTL_KMSDRM=1)では、画面に直接(KMS/DRM)出す
     #[cfg(target_os = "linux")]

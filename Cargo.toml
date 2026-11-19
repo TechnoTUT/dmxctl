@@ -4,48 +4,25 @@ version = "0.1.0"
 edition = "2024"
 default-run = "dmxctl"
 
+# 層ごとのクレート。参照してよい向きは ui → backend → core だけ
 [workspace]
 members = ["crates/*"]
+# 引数なしの cargo test などで、全部のクレートを対象にする
+default-members = [".", "crates/*"]
 # サブモジュールは、自分で workspace を持つ
 exclude = ["moip-engine"]
 
 [dependencies]
 dmxctl-core = { path = "crates/core" }
-anyhow = "1.0.104"
-cpal = "0.18.2"
+dmxctl-backend = { path = "crates/backend" }
+dmxctl-ui = { path = "crates/ui" }
 eframe = { version = "0.36.2", default-features = false, features = ["glow", "default_fonts", "wayland", "x11"] }
-libloading = "0.9.0"
-# NDI受信(moip-engine の ndi クレート。サブモジュール moip-engine/。libndi は実行時に読み込む)
-moip-ndi = { package = "ndi", path = "moip-engine/ndi" }
-midir = "0.11.0"
-rfd = "0.17.2"
-serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
-serde_path_to_error = "0.1"
-schemars = "1.2"
-serialport = "4.10.1"
-# Carabiner のダウンロードで、チェックサムの確認と展開に使う
-sha2 = "0.10"
+
+[dev-dependencies]
+dmxctl-core = { path = "crates/core", features = ["test-support"] }
 
 [profile.release]
 opt-level = 3
 lto = "thin"
 strip = true
-
-[target.'cfg(unix)'.dependencies]
-libc = "0.2"
-flate2 = "1"
-
-[target.'cfg(windows)'.dependencies]
-zip = { version = "2", default-features = false, features = ["deflate"] }
-
-# デスクトップ環境の無いLinuxで、画面(KMS/DRM)に直接出す(src/kmsdrm.rs)。
-# SDL2 はソースからビルドして実行ファイルに内蔵する(動かすPCに libSDL2 は要らない。libdrm・EGL などは SDL が実行時に読み込む)。
-# ビルドに cmake と libdrm-dev・libgbm-dev・libegl-dev・libgles-dev・libxext-dev が要る
-[target.'cfg(target_os = "linux")'.dependencies]
-egui_glow = { version = "0.36.2", default-features = false }
-glow = "0.17.0"
-sdl2 = { version = "0.38.0", features = ["bundled", "static-link"] }
-
-[dev-dependencies]
-dmxctl-core = { path = "crates/core", features = ["test-support"] }

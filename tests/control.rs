@@ -1,4 +1,4 @@
-use dmxctl::backend::control;
+use dmxctl_backend::control;
 use dmxctl::core::{fixture::Library, project::{Project, OutputCfg, OutputKind}};
 use serde_json::{Value, json};
 use std::{io::{BufRead, BufReader}, net::SocketAddr, path::PathBuf, process::{Child, Command, Stdio},
@@ -308,7 +308,7 @@ fn gui_frame_processes_commands_against_its_own_core() {
     let address=reservation.local_addr().unwrap();
     drop(reservation);
     let ctx=eframe::egui::Context::default();
-    let mut app=dmxctl::ui::app::App::with_options(&ctx,false,control::Launch {
+    let mut app=dmxctl_ui::app::App::with_options(&ctx,false,control::Launch {
         project:Some(dir.join("project.json")),listen:Some(address),output:false,inputs:false,autosave:false,..Default::default()
     }).unwrap();
     for command in [json!({"cmd":"set","fixture":1,"attr":"pan","value":83}),
