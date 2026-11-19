@@ -1,0 +1,13 @@
+//! コア層の単体テスト。
+mod bpm;
+mod binding;
+mod color;
+mod engine;
+mod led;
+mod live;
+mod master;
+mod perf;
+mod pair;
+mod palette;
+mod pixel;
+mod safety;
