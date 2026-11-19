@@ -104,6 +104,7 @@ cargo test --release perf -- --ignored --nocapture                              
 | `dmxctl headless` | 画面を出さずに動作させる。`Host::run_headless` で、OSC 受信・Link・オートを必ず ON にする |
 | `DMXCTL_D2XX_LIB` / `DMXCTL_NDI_LIB` | ライブラリの場所を直接指定する |
 | `DMXCTL_CARABINER_PORT=17000` | Ableton Link の窓口の Carabiner に接続するポート。指定が無ければ 17000 |
+| `DMXCTL_CARABINER_HOST=ホスト名` | 別の PC や別の Pod で動作している Carabiner に接続する。指定が無ければ同じ PC の Carabiner に接続し、導入済みなら起動する。指定したときは起動しない。ポートは `DMXCTL_CARABINER_PORT` |
 | `dmxctl apply-layout` | 保存してある設定を、おすすめの MIDI 配置にする。先にバックアップを残す |
 | `--remote-listen ADDR` / `dmxctl connect HOST[:PORT]` | サーバーとしてクライアントからの接続を待ち受ける。アドレスは必須で、ポートの既定は 9300 / サーバーに接続するクライアントとして起動する。同じ PC で試すなら `dmxctl serve --project examples/cli/project.json --remote-listen 127.0.0.1:9300` と `DMXCTL_NO_MIDI=1 dmxctl connect 127.0.0.1` |
 | `--remote-allow-safety-edit` | サーバーで、クライアントから機材定義の安全の設定を変更することを許可する。既定では自動操作の窓口と同様に変更できない |

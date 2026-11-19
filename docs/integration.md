@@ -11,6 +11,7 @@
 | MIDI クロック | 外部から入力される、1拍24回の MIDI クロックでテンポと拍を決定します。Start の 0xFA で小節の頭に合わせます。クロックが途切れても、最後のテンポのまま内部で動き続けるため、照明は停止しません。入力は、メインの MIDI 入力か、loopMIDI のような仮想ポートなど別のポートを選択できます。クロック受信中は BPM の手入力と TAP は効きません |
 
 - **Carabiner が必要です**: Link はライセンスの都合でこのアプリに含めておらず、別のプログラムの [Carabiner](https://github.com/Deep-Symmetry/carabiner/releases) が Link に参加します。このアプリは、同じ PC で動作する Carabiner に、ポート 17000 で接続します。ポートを変更したときは、環境変数 `DMXCTL_CARABINER_PORT` に同じ番号を設定します
+- **別の PC や Pod の Carabiner**: 環境変数 `DMXCTL_CARABINER_HOST` にホスト名か IPアドレスを設定すると、そのホストの Carabiner に接続します。この場合、このアプリは Carabiner を起動しません。Kubernetes で、Link の VLAN にだけつないだ Pod で Carabiner を動作させるときに利用します。接続先のポートは、Carabiner が `127.0.0.1` 以外でも待ち受けている必要があります
 - **導入方法**: テンポの元を Link にして、「Carabinerをダウンロードして入れる」を押します。画面を使わない PC では `dmxctl carabiner install` で導入します。配布元の GitHub から取得し、検証した値と一致したときだけ、設定フォルダの `carabiner/` に配置します。自動では取得しません。Windows・Mac・Linux 用があります。Linux は x86_64 と arm64 です
 - **起動**: 導入後は、Link を利用するとき、このアプリが自動で Carabiner を起動し、終了時に停止します。既に誰かが Carabiner を動かしていれば、それに接続するだけです。自分で導入した Carabiner を利用するなら、先に起動しておいてください
 - Carabiner に接続していないときは、「BPM/チェイス」タブに「Carabinerにつながっていません」と表示されます。その間は、内部の時計で拍が進みます。接続できるようになれば、自動で切り替わります
