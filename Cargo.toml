@@ -4,7 +4,13 @@ version = "0.1.0"
 edition = "2024"
 default-run = "dmxctl"
 
+[workspace]
+members = ["crates/*"]
+# サブモジュールは、自分で workspace を持つ
+exclude = ["moip-engine"]
+
 [dependencies]
+dmxctl-core = { path = "crates/core" }
 anyhow = "1.0.104"
 cpal = "0.18.2"
 eframe = { version = "0.36.2", default-features = false, features = ["glow", "default_fonts", "wayland", "x11"] }
@@ -40,3 +46,6 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 egui_glow = { version = "0.36.2", default-features = false }
 glow = "0.17.0"
 sdl2 = { version = "0.38.0", features = ["bundled", "static-link"] }
+
+[dev-dependencies]
+dmxctl-core = { path = "crates/core", features = ["test-support"] }
