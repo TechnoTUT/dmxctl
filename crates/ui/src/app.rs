@@ -3,7 +3,7 @@
 
 use dmxctl_core::engine::lock;
 use dmxctl_core::fixture::{Library, Range};
-use dmxctl_backend::host::Host;
+use dmxctl_backend::host::{Host, Revisions};
 use dmxctl_core::io::midi;
 use dmxctl_core::project::*;
 use eframe::egui::{self, Align, Color32, Layout, RichText};
@@ -136,9 +136,7 @@ pub struct App {
     /// キーボードタブで、色の段(Shift)を出したままにする
     pub(crate) key_color_view: bool,
     /// ホストの読み直し・サービス反映の回数(変わったら、画面の編集中の値を捨てる)
-    seen_reloads: u64,
-    seen_services: u64,
-    seen_midi: u64,
+    seen: Revisions,
     seen_devices: u64,
     /// 診断表示(環境変数 DMXCTL_PERF=1): 描画1回あたりの時間
     perf: Option<Perf>,
@@ -168,11 +166,9 @@ impl App {
         let host = Host::start(&wake_of(egui_ctx), options.clone())?;
         let osc_port_edit = lock(&host.core).project.osc_port;
         let mut app = App {
-            midi_choice: host.initial_midi.clone(),
+            midi_choice: host.initial_midi().to_string(),
             osc_port_edit,
-            seen_reloads: host.reloads,
-            seen_services: host.services_applied,
-            seen_midi: host.midi_synced,
+            seen: host.revisions(),
             seen_devices: 0,
             clock_ports: Vec::new(),
             host,
@@ -217,13 +213,14 @@ impl App {
 
     /// ホストで起きたこと(自動操作からの読み直し・設定の反映)に、画面の編集中の値を合わせる
     fn follow_host(&mut self) {
-        if self.seen_reloads != self.host.reloads {
-            self.seen_reloads = self.host.reloads;
+        let now = self.host.revisions();
+        if self.seen.reloads != now.reloads {
+            self.seen.reloads = now.reloads;
             self.map_sel = None;
             self.pe = Default::default();
         }
-        if self.seen_midi != self.host.midi_synced {
-            self.seen_midi = self.host.midi_synced;
+        if self.seen.midi_synced != now.midi_synced {
+            self.seen.midi_synced = now.midi_synced;
             self.midi_choice = lock(&self.host.core).project.midi_input.clone();
         }
         // クライアント: 出力・音声・MIDIクロックの機器は、サーバーのPCのものから選ぶ
@@ -235,8 +232,8 @@ impl App {
             self.audio_ports = d.audio;
             self.clock_ports = d.midi;
         }
-        if self.seen_services != self.host.services_applied {
-            self.seen_services = self.host.services_applied;
+        if self.seen.services_applied != now.services_applied {
+            self.seen.services_applied = now.services_applied;
             self.osc_port_edit = lock(&self.host.core).project.osc_port;
         }
     }
@@ -659,7 +656,7 @@ impl App {
     pub fn frame(&mut self, ui: &mut egui::Ui, cpu_usage: Option<f32>) {
         self.host.control_tick();
         self.follow_host();
-        if self.host.shutdown_requested {
+        if self.host.shutdown_requested() {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
         }
         if let (Some(p), Some(cpu)) = (self.perf.as_mut(), cpu_usage) {

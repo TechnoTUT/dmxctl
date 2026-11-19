@@ -437,7 +437,7 @@ impl crate::host::Host {
     /// プロジェクトのMIDI機器(midi_input)に、つないでいる機器を合わせる
     pub(crate) fn sync_midi_choice(&mut self)->anyhow::Result<()> {
         let name=dmxctl_core::engine::lock(&self.core).project.midi_input.clone();
-        self.midi_synced+=1;
+        self.revisions.midi_synced+=1;
         if !self.launch.inputs {return Ok(());}
         if self.midi.connected.as_deref()==Some(name.as_str()) {return Ok(());}
         self.midi.disconnect();
@@ -497,7 +497,7 @@ impl crate::host::Host {
         }
         let midi_error=if old_midi!=new_midi {self.sync_midi_choice().err().map(|e|e.to_string())}else{None};
         self.apply_services();
-        self.reloads+=1;
+        self.revisions.reloads+=1;
         Ok(json!({"applied":true,"source":path,"backup":backup,"project":self.project_path,"midi_error":midi_error}))
     }
 }
