@@ -198,7 +198,7 @@ fn impossible_limits_and_blackout_conflicts_are_rejected() {
 
 #[test]
 fn serve_defaults_to_no_inputs_and_gui_ignores_unknown_args() {
-    use dmxctl::backend::control::Launch;
+    use dmxctl_backend::control::Launch;
     let args=|a:&[&str]|a.iter().map(|s|s.to_string()).collect::<Vec<_>>();
     let serve=Launch::parse(&args(&["--project","p.json"]),true).unwrap();
     assert!(!serve.inputs && !serve.output && !serve.autosave);
