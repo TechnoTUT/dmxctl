@@ -3,6 +3,7 @@
 //!
 //! 保存する設定の型は `dmxctl-model` から借りる。エンジンの `Core` には触れない。
 //! `Core` を動かすための橋渡しは `dmxctl-core` にある。
+pub mod audio;
 pub mod carabiner;
 pub mod link;
 pub mod midi;
