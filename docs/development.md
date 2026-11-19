@@ -156,6 +156,7 @@ cargo test --release perf -- --ignored --nocapture                              
 | `crates/backend/src/project_patch.rs` | 画面の1フレームで変わったプロジェクトの差分 `Change` を作って当てる。クライアントの編集をサーバーへ送信するのに使う |
 | `crates/backend/src/remote.rs` | `--remote-listen` のサーバーと `dmxctl connect` のクライアントの通信。`remote/` の `state.rs`・`server.rs`・`client.rs` に分けてある。食い違いを防ぐ仕組みは先頭のコメントにある |
 | `crates/backend/src/cli.rs` / `crates/backend/src/control.rs` / `crates/backend/src/commands.rs` / `crates/backend/src/editing.rs` / `crates/backend/src/recording.rs` / `crates/backend/src/diagnostics.rs` | 自動操作・検証用の [CLI](cli.md)。順に、サブコマンド / 制御用の接続 / 操作 / 設定の編集と検証 / 記録のファイル書き込み / `explain` などの診断 |
+| `crates/backend/src/mcp.rs` | [MCP](mcp.md) のサーバー。標準入出力の JSON-RPC を、制御用の接続の操作に変換して中継する。`wait` と `explain` は `diagnostics.rs` の処理を共有する |
 | `crates/backend/src/controls.rs` | 制御用の接続やパネルから、割り当てを押したり離したりする操作 |
 | `crates/backend/src/web.rs` / `crates/backend/src/web/panel.html` | ブラウザの操作パネル。std の TCP で最小限の HTTP を話す。`GET /` でページ、`GET /api/state` で様子、`POST /api/cmd` で操作。合言葉は `X-Pin` ヘッダー |
 

@@ -66,7 +66,15 @@ fn command_catalog()->Value {
         "flash":{"on":"boolean","hold_ms":[1,5000]},"other":["fade","auto","auto_resume","preset","look","swap","tap","resync"]})
 }
 
+/// 本体へ1件の要求を送る口。`ctl` は TCP、MCP も同じ口を使う。テストでは差し替えられる
+pub type Requester<'a>=&'a dyn Fn(&Value,Duration)->anyhow::Result<Value>;
+
 pub fn wait_for(address:std::net::SocketAddr,target:&Value,timeout_ms:u64)->anyhow::Result<Value> {
+    wait_with(&|request:&Value,timeout:Duration|crate::control::request_with_timeout(address,request,timeout),target,timeout_ms)
+}
+
+/// `target` の条件(frame・beat・ms・condition)を満たすまで待つ
+pub fn wait_with(request_with_timeout:Requester,target:&Value,timeout_ms:u64)->anyhow::Result<Value> {
     ensure!((1..=300000).contains(&timeout_ms),"timeout-ms must be in 1..300000");
     let started=Instant::now();let timeout=Duration::from_millis(timeout_ms);
     let mut last=Value::Null;
@@ -75,9 +83,9 @@ pub fn wait_for(address:std::net::SocketAddr,target:&Value,timeout_ms:u64)->anyh
         ensure!(!remaining.is_zero(),"wait timed out; last observation: {last}");
         let mut request=target.get("condition").cloned().unwrap_or_else(||json!({"op":"clock"}));
         if target.get("condition").is_some(){request["op"]=json!("check");}
-        last=crate::control::request_with_timeout(address,&request,remaining.min(Duration::from_secs(6)))?;
+        last=request_with_timeout(&request,remaining.min(Duration::from_secs(6)))?;
         let clock=if request["op"]=="check" {
-            crate::control::request_with_timeout(address,&json!({"op":"clock"}),timeout.saturating_sub(started.elapsed()).min(Duration::from_secs(6)))?
+            request_with_timeout(&json!({"op":"clock"}),timeout.saturating_sub(started.elapsed()).min(Duration::from_secs(6)))?
         }else{last.clone()};
         if let Some(session)=target.get("session") {ensure!(clock["session"]==*session,"application session changed while waiting");}
         ensure!(clock["emergency"]!=true,"application entered emergency stop while waiting");
@@ -127,38 +135,54 @@ pub fn client(address:std::net::SocketAddr,args:&[&str],options:&std::collection
             println!("{result}");ensure!(result["passed"]==true,"output assertion failed");
         }
         "explain"=>{
-            ensure!((1..=300000).contains(&timeout),"invalid timeout-ms");payload["op"]=json!("trace_start");
-            let started=Instant::now();let timeout=Duration::from_millis(timeout);
-            let start=crate::control::request_with_timeout(address,&payload,timeout.min(Duration::from_secs(6)))?;
-            loop {
-                let remaining=timeout.saturating_sub(started.elapsed());ensure!(!remaining.is_zero(),"trace timed out");
-                let result=crate::control::request_with_timeout(address,&json!({"op":"trace_result","ticket":start["ticket"]}),remaining.min(Duration::from_secs(6)))?;
-                if result["ready"]==true {println!("{}",result["trace"]);break;}
-                std::thread::sleep(Duration::from_millis(25).min(timeout.saturating_sub(started.elapsed())));
-            }
+            let requester=|request:&Value,timeout:Duration|crate::control::request_with_timeout(address,request,timeout);
+            println!("{}",explain(&requester,payload,timeout)?);
         }
         "wait"=>{
-            let clock=crate::control::request(address,&json!({"op":"clock"}))?;
-            let mut target=json!({"session":clock["session"]});
-            let mut criteria=false;
-            if let Some(frames)=options.get("--frames") {
-                let frames=frames.parse::<u64>()?;ensure!(frames>0,"frames must be positive");
-                target["frame"]=json!(clock["frame"].as_u64().unwrap().checked_add(frames).context("frame target overflow")?);criteria=true;
-            }
-            if let Some(beats)=options.get("--beats") {
-                let beats=beats.parse::<f64>()?;ensure!(beats.is_finite() && beats>0.0,"beats must be positive and finite");
-                target["beat"]=json!(clock["beat"].as_f64().unwrap()+beats);criteria=true;
-            }
-            if let Some(ms)=options.get("--ms") {target["ms"]=json!(ms.parse::<u64>()?);criteria=true;}
-            if payload.get("fixture").is_some() {
-                target["condition"]=payload;criteria=true;
-            }else if let Some(frame)=payload.get("after_frame") {target["frame"]=json!(target["frame"].as_u64().unwrap_or(0).max(frame.as_u64().unwrap()));criteria=true;}
-            ensure!(criteria,"specify frames, beats, ms or an output condition");
-            println!("{}",wait_for(address,&target,timeout)?);
+            let frames=options.get("--frames").map(|v|v.parse::<u64>()).transpose()?;
+            let beats=options.get("--beats").map(|v|v.parse::<f64>()).transpose()?;
+            let ms=options.get("--ms").map(|v|v.parse::<u64>()).transpose()?;
+            let requester=|request:&Value,timeout:Duration|crate::control::request_with_timeout(address,request,timeout);
+            println!("{}",wait(&requester,frames,beats,ms,payload,timeout)?);
         }
         _=>unreachable!(),
     }
     Ok(())
+}
+
+/// 待つ。`frames`・`beats` は今からの量、`ms` は経過時間。`condition` に fixture・attr があれば、出力がその条件を満たすまで待つ
+/// (`after_frame` だけなら、そのフレームまで待つ)
+pub fn wait(request:Requester,frames:Option<u64>,beats:Option<f64>,ms:Option<u64>,condition:Value,timeout_ms:u64)->anyhow::Result<Value> {
+    let clock=request(&json!({"op":"clock"}),Duration::from_secs(6))?;
+    let mut target=json!({"session":clock["session"]});
+    let mut criteria=false;
+    if let Some(frames)=frames {
+        ensure!(frames>0,"frames must be positive");
+        target["frame"]=json!(clock["frame"].as_u64().context("clock has no frame")?.checked_add(frames).context("frame target overflow")?);criteria=true;
+    }
+    if let Some(beats)=beats {
+        ensure!(beats.is_finite() && beats>0.0,"beats must be positive and finite");
+        target["beat"]=json!(clock["beat"].as_f64().context("clock has no beat")?+beats);criteria=true;
+    }
+    if let Some(ms)=ms {target["ms"]=json!(ms);criteria=true;}
+    if condition.get("fixture").is_some() {
+        target["condition"]=condition;criteria=true;
+    }else if let Some(frame)=condition.get("after_frame").and_then(Value::as_u64) {target["frame"]=json!(target["frame"].as_u64().unwrap_or(0).max(frame));criteria=true;}
+    ensure!(criteria,"specify frames, beats, ms or an output condition");
+    wait_with(request,&target,timeout_ms)
+}
+
+/// 次の実フレームで、`payload` の fixture・attr の値がどう決まったかを返す
+pub fn explain(request:Requester,mut payload:Value,timeout_ms:u64)->anyhow::Result<Value> {
+    ensure!((1..=300000).contains(&timeout_ms),"invalid timeout-ms");payload["op"]=json!("trace_start");
+    let started=Instant::now();let timeout=Duration::from_millis(timeout_ms);
+    let start=request(&payload,timeout.min(Duration::from_secs(6)))?;
+    loop {
+        let remaining=timeout.saturating_sub(started.elapsed());ensure!(!remaining.is_zero(),"trace timed out");
+        let result=request(&json!({"op":"trace_result","ticket":start["ticket"]}),remaining.min(Duration::from_secs(6)))?;
+        if result["ready"]==true {return Ok(result["trace"].clone());}
+        std::thread::sleep(Duration::from_millis(25).min(timeout.saturating_sub(started.elapsed())));
+    }
 }
 
 #[cfg(test)]

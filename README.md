@@ -43,6 +43,7 @@ MIDIパッドやパソコンのキーボードで、DMX照明機材を操作す�
 | [スマホ・別のPCから操作する](docs/remote.md) | 操作パネル、サーバーとクライアント |
 | [Mac・Linux で使う](docs/platforms.md) | OS別の注意、NDI、デスクトップ環境の無い Linux、USB-DMX |
 | [CLI](docs/cli.md) | 起動中のアプリを操作し、DMXの値を検証する。AI や自動テスト向け |
+| [MCP](docs/mcp.md) | Claude Code などの AI のクライアントから、起動中のアプリを操作する |
 | [開発ガイド](docs/development.md) | ソースからのビルド、テスト、コードの構成 |
 | [今後の予定](docs/roadmap.md) | 機能の候補、3Dプレビュー、Model Context Protocol (MCP) |
 

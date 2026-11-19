@@ -20,7 +20,7 @@ dmxctl connect HOST[:PORT]
     クライアントから機材定義の安全の設定も変えるなら、サーバーに --remote-allow-safety-edit も付ける
 dmxctl carabiner install
     Ableton Link に参加する Carabiner を、配布元から取って、設定フォルダに入れる。Linkを使うときに1回だけ要る
-dmxctl serve|ctl|inspect|simulate|run|watch|log|diff ...
+dmxctl serve|ctl|mcp|inspect|simulate|run|watch|log|diff ...
     自動操作・検証用のCLI(JSONで返す)。詳しくは下
 
 以前の書き方(--headless / --apply-layout / --kmsdrm / DMXCTL_HEADLESS=1)も使えます。
