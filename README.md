@@ -44,7 +44,6 @@ MIDIパッドやパソコンのキーボードで、DMXの照明機材を操作�
 | [Mac・Linux で使う](docs/platforms.md) | OSごとの注意、NDI、デスクトップ環境の無い Linux、USB-DMX |
 | [CLI](docs/cli.md) | 起動中のアプリを操作し、DMXの値を検証する。AI や自動テスト向け |
 | [開発ガイド](docs/development.md) | ソースからのビルド、テスト、コードの地図 |
-| [今後の予定](docs/roadmap.md) | 機能の候補、3Dプレビュー、Model Context Protocol (MCP) |
 
 ## 開発
 
