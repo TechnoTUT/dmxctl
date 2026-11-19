@@ -144,6 +144,8 @@ pub struct App {
     perf: Option<Perf>,
     /// 確認用の画面保存(環境変数 DMXCTL_SHOT)
     shot: Option<crate::shot::Shot>,
+    /// サーバー・クライアントの切り替えの画面の状態
+    pub(crate) remote: crate::remote::RemoteUi,
 }
 
 struct Perf {
@@ -201,6 +203,7 @@ impl App {
             key_color_view: std::env::var_os("DMXCTL_KEY_COLOR").is_some(),
             perf: std::env::var_os("DMXCTL_PERF").map(|_| Perf { frames: 0, ui_time: Duration::ZERO, frame_cpu: 0.0, since: Instant::now(), text: String::new() }),
             shot: crate::shot::Shot::from_env(),
+            remote: Default::default(),
         };
         // 確認用: DMXCTL_TAB=タブ名 で開くタブ、DMXCTL_UNIVERSE=番号 でモニターのユニバースを選ぶ
         if let Ok(name) = std::env::var("DMXCTL_TAB")
@@ -284,6 +287,9 @@ impl App {
                         self.file_menu_no_desktop(ui);
                         return;
                     }
+                    ui.separator();
+                    self.connect_menu_item(ui);
+                    ui.separator();
                     if ui.button("別名で保存…").clicked() {
                         ui.close();
                         if let Some(p) = rfd::FileDialog::new().add_filter("プロジェクト", &["json"]).set_file_name("show.json").save_file() {
@@ -565,6 +571,8 @@ impl App {
         if ui.button("一覧を更新").clicked() {
             self.host.request_server_files();
         }
+        ui.separator();
+        self.disconnect_menu_item(ui);
         if let Some(path) = open {
             self.host.open_server_file(&path);
         }
@@ -659,6 +667,7 @@ impl App {
     pub fn frame(&mut self, ui: &mut egui::Ui, cpu_usage: Option<f32>) {
         self.host.control_tick();
         self.follow_host();
+        self.connect_dialog(ui.ctx());
         if self.host.shutdown_requested() {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
         }
@@ -681,6 +690,11 @@ impl App {
     /// 終了(ホストが安全な値を送ってから止める)
     pub fn shutdown(&mut self) {
         self.host.shutdown();
+        // 終了で機器を手放してから、サーバー・クライアントを切り替えた新しい起動を始める
+        if let Some(args) = self.remote.relaunch.take()
+            && let Err(e) = dmxctl_backend::entry::spawn_self(&args) {
+            eprintln!("起動し直せませんでした: {e}");
+        }
     }
 }
 
@@ -695,7 +709,7 @@ impl eframe::App for App {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        self.host.shutdown();
+        self.shutdown();
     }
 }
 

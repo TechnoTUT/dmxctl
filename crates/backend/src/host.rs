@@ -209,6 +209,25 @@ impl Host {
         Ok(host)
     }
 
+    /// 画面から、LANのクライアントの待ち受けを始める。安全の設定の変更は許可しない。
+    /// 認証が無いので、保存せず、起動のたびに停止した状態から始める
+    pub fn remote_start(&mut self, address: std::net::SocketAddr) -> anyhow::Result<()> {
+        anyhow::ensure!(self.client.is_none(), "クライアントでは、待ち受けを始められません");
+        self.remote = None;
+        self.remote = Some(crate::remote::RemoteServer::start(self.core.clone(), self.ctx.clone(), address, false)?);
+        Ok(())
+    }
+
+    /// 待ち受けを止める。つながっているクライアントも切れる
+    pub fn remote_stop(&mut self) {
+        self.remote = None;
+    }
+
+    /// 接続先のサーバーにつなげるかを確かめる。確かめたらすぐに切る
+    pub fn probe_server(target: &str, ctx: dmxctl_core::wake::Wake) -> anyhow::Result<()> {
+        crate::remote::Client::connect(target, ctx).map(|_| ())
+    }
+
     /// サーバーのPCの機器の一覧を頼み直す(クライアントのとき)
     pub fn request_devices(&self) {
         if let Some(c) = &self.client {

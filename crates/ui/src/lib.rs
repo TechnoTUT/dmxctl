@@ -18,6 +18,7 @@ pub mod output;
 pub mod pair;
 pub mod patch;
 pub mod profile;
+pub mod remote;
 pub mod sequence;
 pub mod show;
 #[cfg(test)]
