@@ -54,14 +54,14 @@ pub struct MidiMsg {
 
 pub struct Runtime {
     pub(crate) audit_depth: usize,
-    pub trace: Option<crate::backend::diagnostics::Trace>,
+    pub trace: Option<crate::core::trace::Trace>,
     pub trace_ticket: u64,
     pub revision: u64,
     pub revision_hash: Option<u64>,
     pub session: String,
     pub physical_output_enabled: bool,
     pub project_path: Option<std::path::PathBuf>,
-    pub remote_holds: HashMap<u64, crate::backend::controls::Hold>,
+    pub remote_holds: HashMap<u64, crate::core::hold::Hold>,
     pub frame_id: u64,
     /// Deadline for remote momentary controls; enforced by the output thread.
     pub flash_deadline: Option<Instant>,

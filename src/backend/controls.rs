@@ -1,18 +1,10 @@
 //! Replay GUI bindings and external inputs through the existing engine actions.
 use crate::core::{engine::{Core, MidiMsg}, project::{Action, PadMode, TriggerKind}};
+use crate::core::hold::{Feedback, Hold};
 use crate::core::io::osc::{Arg, Message};
 use anyhow::{Context, ensure, bail};
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
-
-pub struct Hold {
-    action: Action,
-    until: Instant,
-    feedback: Feedback,
-}
-
-#[derive(Clone)]
-enum Feedback { None, Note(u8), Key(u8) }
 
 fn continuous(action: &Action) -> bool {
     use crate::core::{motion::MotionOp, project::TempoOp};

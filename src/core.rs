@@ -8,6 +8,7 @@
 pub mod color;
 pub mod engine;
 pub mod fixture;
+pub mod hold;
 pub mod io;
 pub mod keys;
 pub mod layout;
@@ -16,6 +17,7 @@ pub mod led;
 pub mod look;
 pub mod motion;
 pub mod pixel;
+pub mod trace;
 pub mod project;
 pub mod recorder;
 #[cfg(test)]
