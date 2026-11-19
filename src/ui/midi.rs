@@ -107,7 +107,7 @@ impl App {
                 }
             }
             if osc_rgb.iter().any(Option::is_some) && ui.small_button("RGBをやめる").on_hover_text("パレットの色に戻します").clicked() {
-                lock(&self.host.core).live(crate::backend::live::LiveOp::ClearOscColor);
+                lock(&self.host.core).live(crate::core::live::LiveOp::ClearOscColor);
             }
             if !phrase.is_empty() {
                 ui.label(RichText::new(format!("フレーズ: {phrase}")).weak());
@@ -124,7 +124,7 @@ impl App {
             if let Some(l) = level {
                 ui.add(egui::ProgressBar::new(l.clamp(0.0, 1.0)).desired_width(80.0).text(format!("{:.0}%", l * 100.0)));
                 if ui.small_button("明るさをやめる").clicked() {
-                    lock(&self.host.core).live(crate::backend::live::LiveOp::ClearOscLevel);
+                    lock(&self.host.core).live(crate::core::live::LiveOp::ClearOscLevel);
                 }
             }
         });

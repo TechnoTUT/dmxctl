@@ -4,6 +4,7 @@ mod binding;
 mod color;
 mod engine;
 mod led;
+mod live;
 mod master;
 mod perf;
 mod pair;

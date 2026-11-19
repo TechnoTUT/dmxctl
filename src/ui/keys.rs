@@ -143,10 +143,10 @@ impl crate::ui::app::App {
         // 絵のクリック: 押している間だけ「押している」(フラッシュなど押している間だけのものも使える)
         if press != self.key_mouse {
             if let Some(old) = self.key_mouse.take() {
-                core.live(crate::backend::live::LiveOp::Key { number: old, pressed: false });
+                core.live(crate::core::live::LiveOp::Key { number: old, pressed: false });
             }
             if let Some(new) = press {
-                core.live(crate::backend::live::LiveOp::Key { number: new, pressed: true });
+                core.live(crate::core::live::LiveOp::Key { number: new, pressed: true });
                 self.key_mouse = Some(new);
             }
         }
@@ -177,7 +177,7 @@ fn motion_panel(ui: &mut egui::Ui, core: &mut Core) {
         ui.horizontal(|ui| {
             ui.label(RichText::new("動きの大きさ").small().color(theme::TEXT_DIM));
             if ui.add(egui::Slider::new(&mut size, 0.0..=100.0).suffix("%").fixed_decimals(0)).changed() {
-                core.live(crate::backend::live::LiveOp::Motion { op: MotionOp::Size, value: size / 100.0 });
+                core.live(crate::core::live::LiveOp::Motion { op: MotionOp::Size, value: size / 100.0 });
             }
         });
         // 画面にも、形・1周・揃え方・向きのボタン(キーボードと同じもの)
@@ -187,7 +187,7 @@ fn motion_panel(ui: &mut egui::Ui, core: &mut Core) {
                     let a = Action::Motion { op };
                     let on = crate::core::led::is_active(core, &a);
                     if ui.selectable_label(on, op.label()).clicked() {
-                        core.live(crate::backend::live::LiveOp::Motion { op, value: 0.0 });
+                        core.live(crate::core::live::LiveOp::Motion { op, value: 0.0 });
                     }
                 }
             });
@@ -296,7 +296,7 @@ fn points_editor(ui: &mut egui::Ui, core: &mut Core) {
             m.points = DEFAULT_POINTS;
         }
         if m.shape != Shape::Points && ui.button("「4点」で動かす").clicked() {
-            core.live(crate::backend::live::LiveOp::Motion { op: MotionOp::Shape(Shape::Points), value: 0.0 });
+            core.live(crate::core::live::LiveOp::Motion { op: MotionOp::Shape(Shape::Points), value: 0.0 });
             m.shape = Shape::Points;
         }
     });

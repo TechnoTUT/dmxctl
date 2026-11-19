@@ -29,7 +29,7 @@ pub(super) fn settings_panel(ui: &mut egui::Ui, core: &mut Core) -> bool {
                 ui.label(RichText::new("LEDバー").font(theme::bold(13.0)));
                 for n in [8, patched] {
                     if ui.selectable_label(using == n, format!("{n}本")).clicked() && using != n {
-                        core.live(crate::backend::live::LiveOp::SetBarCount { count: n });
+                        core.live(crate::core::live::LiveOp::SetBarCount { count: n });
                         changed = true;
                     }
                 }
@@ -89,7 +89,7 @@ pub(super) fn settings_panel(ui: &mut egui::Ui, core: &mut Core) -> bool {
                     TempoSource::Audio => "音声",
                 };
                 if ui.selectable_label(core.project.tempo_source == s, label).clicked() && core.project.tempo_source != s {
-                    core.live(crate::backend::live::LiveOp::SetTempoSource { source: s });
+                    core.live(crate::core::live::LiveOp::SetTempoSource { source: s });
                     changed = true;
                 }
             }
@@ -121,7 +121,7 @@ pub(super) fn settings_panel(ui: &mut egui::Ui, core: &mut Core) -> bool {
             for (id, name, armed) in lasers {
                 ui.horizontal(|ui| {
                     if arm_button(ui, armed).clicked() {
-                        core.live(crate::backend::live::LiveOp::SetArm { fixture: id, on: !armed });
+                        core.live(crate::core::live::LiveOp::SetArm { fixture: id, on: !armed });
                     }
                     ui.add(egui::Label::new(RichText::new(&name).small()).truncate());
                 });
@@ -150,7 +150,7 @@ pub(super) fn settings_panel(ui: &mut egui::Ui, core: &mut Core) -> bool {
                 ui.horizontal(|ui| {
                     for r in ColorRole::ALL {
                         if ui.selectable_label(role == r, RichText::new(r.label()).small()).clicked() && role != r {
-                            core.live(crate::backend::live::LiveOp::SetColorRole { fixture: id, role: r });
+                            core.live(crate::core::live::LiveOp::SetColorRole { fixture: id, role: r });
                             changed = true;
                         }
                     }

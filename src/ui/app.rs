@@ -459,7 +459,7 @@ impl App {
                     if let Some(code) = crate::core::keys::from_key(key) {
                         for k in [code, code + crate::core::keys::SHIFT] {
                             if c.rt.keys_down.contains(&k) {
-                                c.live(crate::backend::live::LiveOp::Key { number: k, pressed: false });
+                                c.live(crate::core::live::LiveOp::Key { number: k, pressed: false });
                             }
                         }
                     }
@@ -469,18 +469,18 @@ impl App {
                     continue;
                 }
                 match key {
-                    egui::Key::Escape => c.live(crate::backend::live::LiveOp::ToggleBlackout),
+                    egui::Key::Escape => c.live(crate::core::live::LiveOp::ToggleBlackout),
                     egui::Key::S if modifiers.command => save = true,
                     // デスクトップ環境の無い画面には閉じるボタンが無いので、Ctrl+Qで終了
                     egui::Key::Q if modifiers.command && no_desktop(ui.ctx()) => ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close),
                     _ if typing || modifiers.command || modifiers.alt || modifiers.ctrl => {}
-                    egui::Key::Space => c.live(crate::backend::live::LiveOp::Tap),
-                    egui::Key::Enter => c.live(crate::backend::live::LiveOp::Resync),
-                    egui::Key::ArrowLeft => c.live(crate::backend::live::LiveOp::StepPage { delta: -1 }),
-                    egui::Key::ArrowRight => c.live(crate::backend::live::LiveOp::StepPage { delta: 1 }),
+                    egui::Key::Space => c.live(crate::core::live::LiveOp::Tap),
+                    egui::Key::Enter => c.live(crate::core::live::LiveOp::Resync),
+                    egui::Key::ArrowLeft => c.live(crate::core::live::LiveOp::StepPage { delta: -1 }),
+                    egui::Key::ArrowRight => c.live(crate::core::live::LiveOp::StepPage { delta: 1 }),
                     k => {
                         if let Some(code) = crate::core::keys::from_key(k) {
-                            c.live(crate::backend::live::LiveOp::Key { number: if modifiers.shift { code + crate::core::keys::SHIFT } else { code }, pressed: true });
+                            c.live(crate::core::live::LiveOp::Key { number: if modifiers.shift { code + crate::core::keys::SHIFT } else { code }, pressed: true });
                         }
                     }
                 }
@@ -488,7 +488,7 @@ impl App {
             // キーを押したまま他のウィンドウへ移ると離したことが届かないので、押しているキーを全部離す
             if !focused {
                 for code in c.rt.keys_down.clone() {
-                    c.live(crate::backend::live::LiveOp::Key { number: code, pressed: false });
+                    c.live(crate::core::live::LiveOp::Key { number: code, pressed: false });
                 }
             }
         }

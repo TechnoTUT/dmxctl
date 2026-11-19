@@ -184,10 +184,10 @@ fn tempo_card(ui: &mut egui::Ui, core: &mut Core) {
             }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if ui.button("頭出し").on_hover_text("拍の位置を小節の頭に戻します(R)").clicked() {
-                    core.live(crate::backend::live::LiveOp::Resync);
+                    core.live(crate::core::live::LiveOp::Resync);
                 }
                 if ui.add(egui::Button::new(RichText::new("TAP").font(theme::bold(13.0))).min_size(vec2(56.0, 0.0))).on_hover_text("リズムに合わせて叩くとBPMが決まり、拍の位置も合います(Space)").clicked() {
-                    core.live(crate::backend::live::LiveOp::Tap);
+                    core.live(crate::core::live::LiveOp::Tap);
                 }
             });
         });
@@ -205,7 +205,7 @@ fn tempo_card(ui: &mut egui::Ui, core: &mut Core) {
                 .inner;
             let box_rect = resp.rect;
             if resp.on_hover_text("ドラッグかダブルクリックで変更").changed() {
-                core.live(crate::backend::live::LiveOp::SetBpm { bpm });
+                core.live(crate::core::live::LiveOp::SetBpm { bpm });
             }
             ui.add_space(4.0);
             let side = box_rect.height();

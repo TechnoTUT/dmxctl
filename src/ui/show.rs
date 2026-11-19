@@ -99,9 +99,9 @@ impl App {
         });
 
         match op {
-            Some(SceneOp::Recall(name)) => core.live(crate::backend::live::LiveOp::RecallScene { name }),
+            Some(SceneOp::Recall(name)) => core.live(crate::core::live::LiveOp::RecallScene { name }),
             Some(SceneOp::Update(i)) => {
-                core.live(crate::backend::live::LiveOp::RefreshScene { index: i });
+                core.live(crate::core::live::LiveOp::RefreshScene { index: i });
                 changed = true;
             }
             Some(SceneOp::Delete(i)) => {
@@ -263,7 +263,7 @@ impl App {
                 });
         }
         if let Some(name) = turned_on {
-            core.live(crate::backend::live::LiveOp::SetEffect { name: name.clone(), on: true });
+            core.live(crate::core::live::LiveOp::SetEffect { name: name.clone(), on: true });
         }
         if let Some(i) = remove {
             core.project.effects.remove(i);
@@ -491,7 +491,7 @@ impl App {
             }
         }
         if let Some(name) = turned_on {
-            core.live(crate::backend::live::LiveOp::SetPixelFx { name: name.clone(), on: true });
+            core.live(crate::core::live::LiveOp::SetPixelFx { name: name.clone(), on: true });
         }
         if let Some(i) = remove {
             core.project.pixel_fx.remove(i);

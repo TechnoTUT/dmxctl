@@ -70,10 +70,10 @@ impl Midi {
                     if let Some(k) = parse_clock(bytes) {
                         lock(&core2).clock_msg(k, Instant::now());
                     } else if let Some(m) = parse(bytes) {
-                        lock(&core2).live(crate::backend::live::LiveOp::Midi { kind: m.kind, channel: m.channel, number: m.number, value: m.value });
+                        lock(&core2).live(crate::core::live::LiveOp::Midi { kind: m.kind, channel: m.channel, number: m.number, value: m.value });
                         ctx2.request_repaint();
                     } else if let Some(f) = apcmini::parse_fader_report(bytes) {
-                        lock(&core2).live(crate::backend::live::LiveOp::FaderPositions { positions: f });
+                        lock(&core2).live(crate::core::live::LiveOp::FaderPositions { positions: f });
                         ctx2.request_repaint();
                     }
                 },

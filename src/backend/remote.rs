@@ -22,7 +22,7 @@
 
 use crate::core::engine::{lock, Core, Shared, EMERGENCY};
 use crate::core::fixture::{Library, Profile};
-use crate::backend::live::LiveOp;
+use crate::core::live::LiveOp;
 use crate::core::project::{Project, PAGES};
 use crate::backend::project_patch::{self, Change};
 use anyhow::{bail, ensure, Context as _};

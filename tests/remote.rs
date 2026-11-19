@@ -1,5 +1,6 @@
 //! サーバー(Host + --remote-listen)と、画面(App)のクライアント(connect)を同じプロセスでつなぐ
-use dmxctl::backend::{control::Launch, host::Host, live::LiveOp};
+use dmxctl::backend::{control::Launch, host::Host};
+use dmxctl::core::live::LiveOp;
 use dmxctl::core::{engine::lock, fixture::Library, project::Project};
 use std::time::{Duration, Instant};
 
