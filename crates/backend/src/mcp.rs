@@ -14,7 +14,7 @@ use std::io::{BufRead, Write};
 use std::time::Duration;
 
 /// 対応する MCP の版。クライアントが求めた版がこの中にあれば、それで答える
-const PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05"];
+const PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2024-11-05"];
 
 const INSTRUCTIONS: &str = "dmxctl の照明を操作する。まず status で状態を、fixture_list で機材と属性を確認する。\
 値は DMX(0〜255)。変更の後は output_check で、安全の処理を通った最終の出力を確かめる。\
@@ -60,6 +60,9 @@ fn error(id: Value, code: i64, message: &str) -> Value {
 
 /// 1つのメッセージを処理する。通知(id の無いもの)には答えない
 pub fn handle(request: Requester, message: &Value) -> Option<Value> {
+    if !message.is_object() {
+        return Some(error(Value::Null, -32600, "invalid request"));
+    }
     let id = message.get("id").cloned();
     let method = message["method"].as_str().unwrap_or("");
     let Some(id) = id else {
@@ -311,13 +314,13 @@ mod tests {
     #[test]
     fn initialize_lists_tools_and_ignores_notifications() {
         let (_, f) = fake();
-        let init = handle(&f, &rpc(1, "initialize", json!({"protocolVersion": "2025-03-26", "capabilities": {}, "clientInfo": {"name": "t", "version": "1"}}))).unwrap();
-        assert_eq!(init["result"]["protocolVersion"], "2025-03-26");
+        let init = handle(&f, &rpc(1, "initialize", json!({"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "t", "version": "1"}}))).unwrap();
+        assert_eq!(init["result"]["protocolVersion"], "2024-11-05");
         assert_eq!(init["result"]["serverInfo"]["name"], "dmxctl");
         assert!(init["result"]["capabilities"]["tools"].is_object());
         // 知らない版を求められたら、こちらの最新で答える
-        let other = handle(&f, &rpc(2, "initialize", json!({"protocolVersion": "1999-01-01"}))).unwrap();
-        assert_eq!(other["result"]["protocolVersion"], PROTOCOL_VERSIONS[0]);
+        let other = handle(&f, &rpc(2, "initialize", json!({"protocolVersion": "2025-03-26"}))).unwrap();
+        assert_eq!(other["result"]["protocolVersion"], "2025-06-18");
         assert!(handle(&f, &json!({"jsonrpc": "2.0", "method": "notifications/initialized"})).is_none());
         let list = handle(&f, &rpc(3, "tools/list", json!({}))).unwrap();
         let names: Vec<&str> = list["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
@@ -331,6 +334,8 @@ mod tests {
         }
         assert_eq!(handle(&f, &rpc(4, "ping", json!({}))).unwrap()["result"], json!({}));
         assert_eq!(handle(&f, &rpc(5, "resources/list", json!({}))).unwrap()["error"]["code"], -32601);
+        let batch = json!([rpc(6, "ping", json!({}))]);
+        assert_eq!(handle(&f, &batch).unwrap()["error"]["code"], -32600);
     }
 
     #[test]
