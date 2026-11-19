@@ -8,12 +8,13 @@ use serde_json::{json, Value};
 use std::{collections::BTreeMap, io::{BufRead, Write}, path::{Path, PathBuf}, sync::{Arc, Mutex, mpsc}, time::{Duration, Instant}};
 
 /// `dmxctl` の最初の引数がこれなら、CLIとして動かす
-pub const COMMANDS: &[&str] = &["serve","ctl","inspect","simulate","run","watch","log","diff","carabiner"];
+pub const COMMANDS: &[&str] = &["serve","ctl","mcp","inspect","simulate","run","watch","log","diff","carabiner"];
 
 pub const HELP: &str = r#"dmxctl carabiner install
 dmxctl inspect --project FILE [--fixtures DIR]
 dmxctl serve --project FILE [--listen 127.0.0.1:9190] [--output none|live] [--inputs none|configured] [--autosave]
 dmxctl ctl [--connect 127.0.0.1:9190] status|inspect|stop
+dmxctl mcp [--connect 127.0.0.1:9190]   (MCP のサーバー。AI のクライアントから標準入出力で使う。本体は先に serve か --control で起動しておく)
 dmxctl ctl fixture list
 dmxctl ctl button list
 dmxctl ctl button click|press|release|hold binding:ID [--hold-ms N]
@@ -113,6 +114,7 @@ pub fn run(args: Vec<String>) -> anyhow::Result<()> {
         return Ok(());
     }
     if args[0] == "ctl" { return crate::control::client(&args[1..]); }
+    if args[0] == "mcp" { return crate::mcp::run(&args[1..]); }
     let args = Args::parse(args)?;
     let command = args.positional.first().context("missing command")?.as_str();
     if command == "log" { return log_command(&args); }

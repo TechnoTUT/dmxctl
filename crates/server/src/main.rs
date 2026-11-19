@@ -10,7 +10,7 @@ dmxctl-server apply-layout
     保存してあるプロジェクトを、おすすめのMIDI配置にする(先にバックアップを残す)
 dmxctl-server carabiner install
     Ableton Link に参加する Carabiner を、配布元から取って、設定フォルダに入れる。Linkを使うときに1回だけ要る
-dmxctl-server serve|ctl|inspect|simulate|run|watch|log|diff ...
+dmxctl-server serve|ctl|mcp|inspect|simulate|run|watch|log|diff ...
     自動操作・検証用のCLI(JSONで返す)。詳しくは下
 
 画面を出す動かし方(引数なし・kmsdrm・connect)は、画面付きの dmxctl で使う。

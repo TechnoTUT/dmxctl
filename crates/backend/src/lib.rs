@@ -12,6 +12,7 @@ pub mod diagnostics;
 pub mod editing;
 pub mod entry;
 pub mod host;
+pub mod mcp;
 pub mod project_patch;
 pub mod recording;
 pub mod remote;

@@ -1,6 +1,6 @@
 # CLI
 
-`dmxctl` の `serve` / `ctl` / `inspect` / `simulate` などのサブコマンドは、起動中の GUI・画面なしの常駐本体を操作し、最終 DMX 値を検証するための CLI です。AI や自動テストから利用することを想定しています。GUI と同じ実行ファイルで、Mac では `DMX Controller.app/Contents/MacOS/dmxctl` です。`ctl` で常駐本体に接続し、`simulate` / `run` で独立した検証を行います。
+`dmxctl` の `serve` / `ctl` / `inspect` / `simulate` などのサブコマンドは、起動中の GUI・画面なしの常駐本体を操作し、最終 DMX 値を検証するための CLI です。AI や自動テストから利用することを想定しています。GUI と同じ実行ファイルで、Mac では `DMX Controller.app/Contents/MacOS/dmxctl` です。`ctl` で常駐本体に接続し、`simulate` / `run` で独立した検証を行います。AI のクライアントから MCP で操作するときは [MCP](mcp.md) を参照してください。
 
 ## 常駐本体へ接続する
 
