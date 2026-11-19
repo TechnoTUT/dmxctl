@@ -153,6 +153,17 @@ fn an_mcp_client_operates_the_running_application() {
     assert!(!failed, "{scenes}");
     assert!(scenes["current"].as_array().unwrap().iter().all(|scene| scene["name"] != "MCP"));
 
+    // 長い待機の途中でも、後続の要求とキャンセルを受け付ける
+    mcp.next += 1;
+    let wait_id = mcp.next;
+    mcp.send(json!({"jsonrpc": "2.0", "id": wait_id, "method": "tools/call",
+        "params": {"name": "wait", "arguments": {"ms": 15000, "timeout_ms": 1000}}}));
+    assert_eq!(mcp.rpc("ping", json!({}))["result"], json!({}));
+    mcp.send(json!({"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": wait_id}}));
+    let (failed, r) = mcp.call("wait", json!({"ms": 1500}));
+    assert!(!failed && r["matched"] == true, "{r}");
+
+
     // MCP を閉じても、本体は動き続ける
     drop(mcp.stdin.take());
     let deadline = Instant::now() + Duration::from_secs(5);
