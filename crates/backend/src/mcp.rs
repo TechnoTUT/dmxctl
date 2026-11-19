@@ -94,6 +94,11 @@ pub fn serve(
                         let poll = |payload: &Value, timeout: Duration| {
                             // キャンセル後も、本体の枠を空ける後片付け(trace_cancel)だけは送る
                             ensure!(!cancelled.load(Ordering::Relaxed) || payload["op"] == "trace_cancel", "wait cancelled");
+                            // 本体のトレースの枠は1つ。キャンセル済みのワーカーが後片付けを終える前に始めると、
+                            // another trace is pending になるので、終わるのを待ってから始める
+                            if payload["op"] == "trace_start" {
+                                wait_for_cancelled_workers(pending, &key);
+                            }
                             request(payload, timeout)
                         };
                         let reply = handle(&poll, &message);
@@ -119,6 +124,19 @@ pub fn serve(
         }
         Ok(())
     })
+}
+
+/// キャンセル済みのワーカー(自分以外)が後片付けを終えて抜けるまで待つ。
+/// ワーカーは次の問い合わせの前にキャンセルに気づき、後片付けを送って抜けるので、普通はすぐ終わる。
+/// 本体が応答しないときに固まらないよう、上限を設ける(本体への1回の問い合わせの上限と同じ6秒)
+fn wait_for_cancelled_workers(pending: &Mutex<BTreeMap<String, Arc<AtomicBool>>>, me: &str) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(6);
+    while pending.lock().unwrap().iter().any(|(key, cancelled)| key != me && cancelled.load(Ordering::Relaxed)) {
+        if std::time::Instant::now() >= deadline {
+            break;
+        }
+        thread::sleep(Duration::from_millis(2));
+    }
 }
 
 /// 待つことのあるツール。別のスレッドで処理し、その間も後続の要求とキャンセルを受け付ける
@@ -720,6 +738,97 @@ mod tests {
         assert_eq!(replies[0]["result"]["isError"], false, "次の explain はすぐ成功する: {text}");
         let log = &host.lock().unwrap().log;
         assert!(log.iter().any(|p| p["op"] == "trace_cancel" && p["ticket"] == 1), "{log:?}");
+    }
+
+    /// キャンセル通知と次の explain を続けて送っても、後片付けが終わってから次の trace_start が走る
+    #[test]
+    fn explain_right_after_a_cancel_waits_for_the_cleanup() {
+        use std::io::Write as _;
+        use std::sync::Mutex as M;
+        struct Host {
+            slot: Option<u64>,
+            next: u64,
+            log: Vec<String>,
+        }
+        let host = Arc::new(M::new(Host { slot: None, next: 0, log: Vec::new() }));
+        let fake = {
+            let host = host.clone();
+            move |p: &Value, _: Duration| -> anyhow::Result<Value> {
+                let op = p["op"].as_str().unwrap_or("").to_string();
+                let ticket = p["ticket"].as_u64();
+                host.lock().unwrap().log.push(format!("{op}:{}", ticket.unwrap_or(0)));
+                match op.as_str() {
+                    "trace_start" => {
+                        let mut h = host.lock().unwrap();
+                        ensure!(h.slot.is_none(), "another trace is pending");
+                        h.next += 1;
+                        let t = h.next;
+                        h.slot = Some(t);
+                        Ok(json!({"ticket": t}))
+                    }
+                    "trace_result" if ticket == Some(1) => {
+                        // 1件目の問い合わせは遅い(この間にキャンセルと次の explain が届く)
+                        std::thread::sleep(Duration::from_millis(150));
+                        Ok(json!({"ready": false}))
+                    }
+                    "trace_result" => {
+                        let mut h = host.lock().unwrap();
+                        ensure!(h.slot == ticket, "trace is no longer available");
+                        h.slot = None;
+                        Ok(json!({"ready": true, "trace": {}}))
+                    }
+                    "trace_cancel" => {
+                        let mut h = host.lock().unwrap();
+                        if h.slot == ticket {
+                            h.slot = None;
+                        }
+                        Ok(json!({}))
+                    }
+                    _ => Ok(json!({})),
+                }
+            }
+        };
+        let (reader, mut writer) = std::io::pipe().unwrap();
+        #[derive(Clone)]
+        struct Out(Arc<M<Vec<u8>>>);
+        impl std::io::Write for Out {
+            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(b);
+                Ok(b.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let out = Out(Arc::new(M::new(Vec::new())));
+        let server = {
+            let out = out.clone();
+            std::thread::spawn(move || serve(&fake, std::io::BufReader::new(reader), out))
+        };
+        let explain = |id: u64| json!({"jsonrpc": "2.0", "id": id, "method": "tools/call", "params": {"name": "explain", "arguments": {"fixture": 1, "attr": "pan", "timeout_ms": 60000}}});
+        writeln!(writer, "{}", explain(1)).unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        // 1件目が遅い問い合わせ(trace_result)に入るまで待つ
+        while !host.lock().unwrap().log.iter().any(|l| l == "trace_result:1") {
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        // キャンセルと次の explain を続けて送る(枠が空くのを待たない)
+        writeln!(writer, "{}\n{}", json!({"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 1}}), explain(2)).unwrap();
+        while out.0.lock().unwrap().is_empty() {
+            assert!(std::time::Instant::now() < deadline, "次の explain の返事が来ない");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        drop(writer);
+        server.join().unwrap().unwrap();
+        let text = String::from_utf8(out.0.lock().unwrap().clone()).unwrap();
+        let reply: Value = serde_json::from_str(text.lines().next().unwrap()).unwrap();
+        assert_eq!(reply["id"], 2);
+        assert_eq!(reply["result"]["isError"], false, "another trace is pending にならない: {text}");
+        let log = host.lock().unwrap().log.clone();
+        let cancel = log.iter().position(|l| l == "trace_cancel:1").expect("後片付けを送る");
+        let second = log.iter().rposition(|l| l.starts_with("trace_start")).unwrap();
+        assert!(cancel < second, "後片付けのあとに次の trace_start: {log:?}");
     }
 
     #[test]
