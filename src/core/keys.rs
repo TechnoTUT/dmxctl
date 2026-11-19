@@ -3,17 +3,15 @@
 //! 番号 = 段 × 16 + 左からの位置。段: 0=数字 / 1=QWERTY / 2=ASDF / 3=ZXCV。
 //! Shiftを押しながらのキーは別の割り当て(色の段): 番号に SHIFT を足す
 
-use eframe::egui::Key;
-
 /// 1段に並べるキーの数
 pub const COLS: usize = 10;
 
-/// 段ごとのキーと、キーに書いてある文字
-pub const ROWS: [[(Key, &str); COLS]; 4] = [
-    [(Key::Num1, "1"), (Key::Num2, "2"), (Key::Num3, "3"), (Key::Num4, "4"), (Key::Num5, "5"), (Key::Num6, "6"), (Key::Num7, "7"), (Key::Num8, "8"), (Key::Num9, "9"), (Key::Num0, "0")],
-    [(Key::Q, "Q"), (Key::W, "W"), (Key::E, "E"), (Key::R, "R"), (Key::T, "T"), (Key::Y, "Y"), (Key::U, "U"), (Key::I, "I"), (Key::O, "O"), (Key::P, "P")],
-    [(Key::A, "A"), (Key::S, "S"), (Key::D, "D"), (Key::F, "F"), (Key::G, "G"), (Key::H, "H"), (Key::J, "J"), (Key::K, "K"), (Key::L, "L"), (Key::Semicolon, ";")],
-    [(Key::Z, "Z"), (Key::X, "X"), (Key::C, "C"), (Key::V, "V"), (Key::B, "B"), (Key::N, "N"), (Key::M, "M"), (Key::Comma, ","), (Key::Period, "."), (Key::Slash, "/")],
+/// 段ごとの、キーに書いてある文字。キーそのものとの対応は、画面の側 `ui::keys` にある
+pub const ROWS: [[&str; COLS]; 4] = [
+    ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"],
+    ["Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"],
+    ["A", "S", "D", "F", "G", "H", "J", "K", "L", ";"],
+    ["Z", "X", "C", "V", "B", "N", "M", ",", ".", "/"],
 ];
 
 /// 段の名前(画面の左に出す)
@@ -30,16 +28,11 @@ pub const fn code(row: usize, col: usize) -> u8 {
     (row * 16 + col) as u8
 }
 
-/// キーから番号(割り当てのないキーはNone)
-pub fn from_key(k: Key) -> Option<u8> {
-    ROWS.iter().enumerate().find_map(|(r, row)| row.iter().position(|(x, _)| *x == k).map(|c| code(r, c)))
-}
-
 /// 番号から、キーに書いてある文字
 pub fn name(code: u8) -> String {
     let base = code % SHIFT;
     let (r, c) = ((base / 16) as usize, (base % 16) as usize);
-    let cap = ROWS.get(r).and_then(|row| row.get(c)).map(|x| x.1).unwrap_or("?");
+    let cap = ROWS.get(r).and_then(|row| row.get(c)).copied().unwrap_or("?");
     if code >= SHIFT { format!("Shift+{cap}") } else { cap.to_string() }
 }
 
@@ -58,14 +51,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn codes_round_trip() {
+    fn names_follow_the_labels() {
         for (r, row) in ROWS.iter().enumerate() {
-            for (c, (k, label)) in row.iter().enumerate() {
-                assert_eq!(from_key(*k), Some(code(r, c)));
+            for (c, label) in row.iter().enumerate() {
                 assert_eq!(name(code(r, c)), *label);
                 assert_eq!(name(code(r, c) + SHIFT), format!("Shift+{label}"));
             }
         }
-        assert_eq!(from_key(Key::Space), None);
+        assert_eq!(name(code(0, COLS)), "?");
     }
 }

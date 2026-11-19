@@ -471,7 +471,7 @@ impl App {
                 if !pressed {
                     // 押したキーは、文字入力中でも必ず離す(押している間だけのフラッシュなどが残らないように)
                     // Shiftを先に離しても、押したときの割り当て(色の段など)を離す
-                    if let Some(code) = crate::core::keys::from_key(key) {
+                    if let Some(code) = crate::ui::keys::from_key(key) {
                         for k in [code, code + crate::core::keys::SHIFT] {
                             if c.rt.keys_down.contains(&k) {
                                 c.live(crate::core::live::LiveOp::Key { number: k, pressed: false });
@@ -494,7 +494,7 @@ impl App {
                     egui::Key::ArrowLeft => c.live(crate::core::live::LiveOp::StepPage { delta: -1 }),
                     egui::Key::ArrowRight => c.live(crate::core::live::LiveOp::StepPage { delta: 1 }),
                     k => {
-                        if let Some(code) = crate::core::keys::from_key(k) {
+                        if let Some(code) = crate::ui::keys::from_key(k) {
                             c.live(crate::core::live::LiveOp::Key { number: if modifiers.shift { code + crate::core::keys::SHIFT } else { code }, pressed: true });
                         }
                     }

@@ -2,14 +2,27 @@
 //! 実際のキーの並びと同じ絵に、割り当てと「効いているか」を出す(キーを押しても、絵をクリックしても動く)
 
 use crate::core::engine::{lock, Core};
-use crate::core::keys::{self, COLS, ROWS, ROW_NAMES};
+use crate::core::keys::{self, code, COLS, ROWS, ROW_NAMES};
 use crate::core::motion::{MotionOp, POSITIONS, RATES, SHAPES, SPREADS};
 use crate::core::pixel::FACE_SETS;
 use crate::core::project::*;
 use crate::ui::theme::{self, alpha};
-use eframe::egui::{self, pos2, vec2, Align2, Color32, FontId, Rect, RichText, Sense, Stroke, StrokeKind};
+use eframe::egui::{self, Key, pos2, vec2, Align2, Color32, FontId, Rect, RichText, Sense, Stroke, StrokeKind};
 
 /// 段ごとの左へのずれ(キーの幅に対する割合。実際のキーボードと同じく、下の段ほど右へずれる)
+/// 段ごとのキー。文字は `core::keys::ROWS` と同じ並び
+pub const KEYS: [[Key; COLS]; 4] = [
+    [Key::Num1, Key::Num2, Key::Num3, Key::Num4, Key::Num5, Key::Num6, Key::Num7, Key::Num8, Key::Num9, Key::Num0],
+    [Key::Q, Key::W, Key::E, Key::R, Key::T, Key::Y, Key::U, Key::I, Key::O, Key::P],
+    [Key::A, Key::S, Key::D, Key::F, Key::G, Key::H, Key::J, Key::K, Key::L, Key::Semicolon],
+    [Key::Z, Key::X, Key::C, Key::V, Key::B, Key::N, Key::M, Key::Comma, Key::Period, Key::Slash],
+];
+
+/// キーから番号。割り当てのないキーは None
+pub fn from_key(k: Key) -> Option<u8> {
+    KEYS.iter().enumerate().find_map(|(r, row)| row.iter().position(|x| *x == k).map(|c| code(r, c)))
+}
+
 const STAGGER: [f32; 4] = [0.0, 0.5, 0.75, 1.25];
 
 impl crate::ui::app::App {
@@ -97,7 +110,7 @@ impl crate::ui::app::App {
                 title = format!("{title}\n「{}」", set.name);
             }
             ui.painter().text(pos2(area.left(), y + h / 2.0), Align2::LEFT_CENTER, title, FontId::proportional(12.0), theme::TEXT_DIM);
-            for (c, &(_, cap)) in row.iter().enumerate() {
+            for (c, &cap) in row.iter().enumerate() {
                 let code = keys::code(r, c) + offset;
                 let x = area.left() + label_w + (STAGGER[r] + c as f32) * (size + gap);
                 let rect = Rect::from_min_size(pos2(x, y), vec2(size, h));
@@ -304,5 +317,20 @@ fn points_editor(ui: &mut egui::Ui, core: &mut Core) {
         core.project.motion.points = m.points;
         core.project.motion.glide = m.glide;
         core.dirty = true;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keys_and_codes_round_trip() {
+        for (r, row) in KEYS.iter().enumerate() {
+            for (c, k) in row.iter().enumerate() {
+                assert_eq!(from_key(*k), Some(code(r, c)));
+            }
+        }
+        assert_eq!(from_key(Key::Space), None);
     }
 }
