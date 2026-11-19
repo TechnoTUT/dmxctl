@@ -114,6 +114,8 @@ fn an_mcp_client_operates_the_running_application() {
     assert!(!failed, "{status}");
     let (failed, fixtures) = mcp.call("fixture_list", json!({}));
     assert!(!failed, "{fixtures}");
+    let attrs = fixtures[0]["attrs"].as_array().expect("機材の属性一覧");
+    assert!(attrs.iter().any(|attr| attr == "dimmer"), "{fixtures}");
 
     // 値を変えて、反映を待ち、最終の出力を確かめる
     let (failed, r) = mcp.call("fixture_set", json!({"fixture": 1, "attr": "dimmer", "value": 200}));

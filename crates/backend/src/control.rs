@@ -200,11 +200,24 @@ impl Server {
                     "profiles":core.lib.profiles.iter().map(|p|p.as_ref()).collect::<Vec<_>>()}))
             }
             "fixtures" => {
+                let include_attrs = commands::flag(request, "include_attrs", false)?;
                 let core = engine::lock(&app.core);
-                Ok(json!(core.project.fixtures.iter().map(|f|json!({
-                    "id":f.id,"name":f.name,"profile":f.profile,"mode":f.mode,
-                    "universe":f.universe+1,"address":f.address,"enabled":f.enabled,"armed":f.armed,"limits":f.limits
-                })).collect::<Vec<_>>()))
+                let fixtures = core.project.fixtures.iter().map(|f| {
+                    let mut fixture = json!({
+                        "id":f.id,"name":f.name,"profile":f.profile,"mode":f.mode,
+                        "universe":f.universe+1,"address":f.address,"enabled":f.enabled,"armed":f.armed,"limits":f.limits
+                    });
+                    if include_attrs {
+                        let attrs = core.lib.mode(&f.profile, f.mode).into_iter()
+                            .flat_map(|mode| &mode.channels)
+                            .filter(|channel| channel.fine_of.is_none())
+                            .flat_map(|channel| [channel.attr.as_str(), dmxctl_core::fixture::split_pixel(&channel.attr).0])
+                            .collect::<std::collections::BTreeSet<_>>();
+                        fixture["attrs"] = json!(attrs);
+                    }
+                    fixture
+                }).collect::<Vec<_>>();
+                Ok(json!(fixtures))
             }
             "output" => snapshot(&engine::lock(&app.core), request),
             "controls" => Ok(engine::lock(&app.core).controls()),

@@ -212,7 +212,7 @@ fn call(request: Requester, name: &str, args: &Value) -> anyhow::Result<Value> {
     let attr = || -> anyhow::Result<&str> { args["attr"].as_str().context("attr is required") };
     match name {
         "status" => send(request, json!({"op": "status"})),
-        "fixture_list" => send(request, json!({"op": "fixtures"})),
+        "fixture_list" => send(request, json!({"op": "fixtures", "include_attrs": true})),
         "fixture_set" => {
             let value = args["value"].as_f64().context("value is required")?;
             ensure!(value.is_finite(), "value must be finite");
