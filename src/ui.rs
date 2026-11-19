@@ -1,6 +1,7 @@
 //! 画面層。eframe と KMS/DRM の画面、タブごとの描画、見た目。
 //!
-//! 実行中の状態は `backend::host::Host` を通して扱い、`core` を直接動かさない。
+//! 起動・保存・遠隔操作は `backend::host::Host` が受け持つ。画面は `Host` を1つ持ち、その `core` を読んで描画する。
+//! 実行中の状態を変更するときは `core::live::LiveOp` にして `Core::live` へ渡す。
 pub mod app;
 #[cfg(target_os = "linux")]
 pub mod kmsdrm;
