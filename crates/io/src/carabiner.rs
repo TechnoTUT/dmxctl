@@ -49,7 +49,7 @@ pub fn url() -> Option<String> {
 }
 
 fn dir() -> PathBuf {
-    crate::project::config_dir().join("carabiner")
+    dmxctl_model::project::config_dir().join("carabiner")
 }
 
 /// 入れた Carabiner の場所

@@ -190,7 +190,7 @@ fn run(port: u16, initial_bpm: f64, shared: Arc<Mutex<Shared>>, rx: mpsc::Receiv
                     child = None;
                 }
                 if child.is_none() && spawn_tries < 3 && autostart_allowed() {
-                    child = crate::io::carabiner::spawn(port);
+                    child = crate::carabiner::spawn(port);
                     if child.is_some() {
                         spawn_tries += 1;
                     }
