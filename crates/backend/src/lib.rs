@@ -10,6 +10,7 @@ pub mod control;
 pub mod controls;
 pub mod diagnostics;
 pub mod editing;
+pub mod entry;
 pub mod host;
 pub mod project_patch;
 pub mod recording;
