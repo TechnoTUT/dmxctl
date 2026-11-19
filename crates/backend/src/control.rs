@@ -289,7 +289,7 @@ impl Server {
                     "t_ms":core.now().saturating_duration_since(core.rt.t0).as_millis() as u64,
                     "configuration_version":core.version(),
                     "profiles":core.lib.profiles.iter().map(|p|p.as_ref()).collect::<Vec<_>>()}));
-                core.rt.recorder = Some(recording.recorder.clone());
+                core.rt.observe.set_recorder(Some(recording.recorder.clone()));
                 self.recording = Some(recording);
                 Ok(json!({"recording":true,"file":path}))
             }
@@ -303,7 +303,7 @@ impl Server {
         let recording = self.recording.take().context("no active recording")?;
         {
             let mut core = engine::lock(&app.core);
-            core.rt.recorder = None;
+            core.rt.observe.set_recorder(None);
             recording.recorder.emit(json!({"type":"complete","frame":core.rt.frame_id,
                 "t_ms":core.now().saturating_duration_since(core.rt.t0).as_millis() as u64,"outputs":core.rt.output_status}));
         }
@@ -319,7 +319,7 @@ impl Drop for Server {
 }
 
 fn log_command(core: &engine::Core, command: &Value, error: Option<String>) {
-    if let Some(recorder) = &core.rt.recorder {
+    if let Some(recorder) = core.rt.observe.recorder() {
         recorder.emit(json!({"type":if error.is_none(){"command"}else{"command_error"},"command":crate::editing::redact(command),
             "id":command.get("id"),"error":error,"applies_from_frame":recorder.next_frame(),
             "applies_from_engine_frame":core.rt.frame_id+1,

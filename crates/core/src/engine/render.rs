@@ -10,7 +10,7 @@ impl Core {
         if self.rt.flash_deadline.is_some_and(|deadline|now >= deadline) {
             self.rt.flash = None;
             self.rt.flash_deadline = None;
-            if let Some(recorder) = self.rt.recorder.as_ref() {
+            if let Some(recorder) = self.rt.observe.recorder() {
                 recorder.emit(serde_json::json!({"type":"command","source":"lease_expired",
                     "command":{"cmd":"flash","on":false},"applies_from_frame":recorder.next_frame(),
                     "applies_from_engine_frame":self.rt.frame_id+1,
@@ -55,8 +55,8 @@ impl Core {
             }
         }
 
-        if self.rt.trace.as_ref().is_some_and(|trace|trace.result.is_none()) {
-            let id=self.rt.trace.as_ref().unwrap().fixture;
+        if self.rt.observe.trace.as_ref().is_some_and(|trace|trace.result.is_none()) {
+            let id=self.rt.observe.trace.as_ref().unwrap().fixture;
             let effects:Vec<_>=self.project.effects.iter().filter(|e|e.enabled && self.resolve_ids(&e.sel).contains(&id)).collect();
             let details=serde_json::json!({"effects":effects});
             self.trace_stage("effects",Some(&vals),details);
@@ -98,7 +98,7 @@ impl Core {
             }
         }
 
-        if self.rt.trace.as_ref().is_some_and(|t|t.result.is_none()) {
+        if self.rt.observe.trace.as_ref().is_some_and(|t|t.result.is_none()) {
             let details=serde_json::json!({"master":self.rt.master,"dim":self.rt.dim,"osc_level":level,"auto_brightness":bright,"fixture_levels":self.rt.level});
             self.trace_stage("master",Some(&vals),details);
         }
@@ -132,7 +132,7 @@ impl Core {
             let Some(profile) = lib.get(&fx.profile) else { continue };
             let Some(mode) = profile.modes.get(fx.mode) else { continue };
             let v = &mut vals[i];
-            let requested = (self.rt.recorder.is_some() || self.rt.trace.as_ref().is_some_and(|t|t.fixture==fx.id && t.result.is_none())).then(||v.clone());
+            let requested = (self.rt.observe.is_recording() || self.rt.observe.trace.as_ref().is_some_and(|t|t.fixture==fx.id && t.result.is_none())).then(||v.clone());
             if v.len() != mode.channels.len() || fx.universe >= NUM_UNIVERSES || fx.address == 0 {
                 continue;
             }
@@ -151,13 +151,13 @@ impl Core {
                     }
                 }
             }
-            if let Some(trace)=self.rt.trace.as_mut().filter(|t|t.fixture==fx.id && t.result.is_none()) {
+            if let Some(trace)=self.rt.observe.trace.as_mut().filter(|t|t.fixture==fx.id && t.result.is_none()) {
                 trace.capture_single(fx.id,mode,v,"gates",serde_json::json!({"blackout":dark,"muted":muted,"armed":fx.armed,"needs_arm":profile.needs_arm}));
             }
             // 禁止の値(レーザーのオートショーなど)と、動いてよい範囲は、何をしていても最後に必ず直す
             let gated = requested.as_ref().map(|_| v.clone());
             guard_values(mode, &fx.limits, v);
-            if let Some(trace)=self.rt.trace.as_mut().filter(|t|t.fixture==fx.id && t.result.is_none()) {
+            if let Some(trace)=self.rt.observe.trace.as_mut().filter(|t|t.fixture==fx.id && t.result.is_none()) {
                 trace.capture_single(fx.id,mode,v,"safety",serde_json::json!({"limits":fx.limits}));
             }
             if let Some(before) = requested {
@@ -194,7 +194,7 @@ impl Core {
         }
         self.rt.frame_id += 1;
         self.trace_finish();
-        if let Some(recorder) = self.rt.recorder.clone() {
+        if let Some(recorder) = self.rt.observe.recorder().cloned() {
             recorder.frame(self, false);
         }
     }

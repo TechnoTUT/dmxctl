@@ -16,6 +16,7 @@ pub mod live;
 pub mod led;
 pub mod look;
 pub mod motion;
+pub mod observe;
 pub mod pixel;
 pub mod trace;
 pub mod wake;

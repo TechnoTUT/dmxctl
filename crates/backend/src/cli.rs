@@ -169,7 +169,7 @@ pub fn run(args: Vec<String>) -> anyhow::Result<()> {
     core.rt.t0 = origin;
     core.rt.blt_seen = origin;
     core.rt.last_beat_t = Some(origin);
-    core.rt.recorder = Some(recording.recorder.clone());
+    core.rt.observe.set_recorder(Some(recording.recorder.clone()));
     let shared = Arc::new(Mutex::new(core));
     let (tx, rx) = mpsc::sync_channel(256);
     if args.stdin {
@@ -224,14 +224,14 @@ pub fn run(args: Vec<String>) -> anyhow::Result<()> {
     {
         let mut core = engine::lock(&shared);
         recording.recorder.emit(json!({"type":"complete","t_ms":if command == "simulate" { ticks*25 } else { origin.elapsed().as_millis() as u64 },"outputs":core.rt.output_status}));
-        core.rt.recorder = None;
+        core.rt.observe.set_recorder(None);
     }
     recording.finish()
 }
 
 fn record_command(core: &mut Core, value: &Value, elapsed: u64) {
     let result = apply(core, value);
-    if let Some(recorder) = &core.rt.recorder {
+    if let Some(recorder) = core.rt.observe.recorder() {
         recorder.emit(json!({"type":if result.is_ok(){"command"}else{"command_error"},
             "id":value.get("id").cloned().unwrap_or_else(||json!(format!("command-{}",recorder.next_sequence()))),"t_ms":elapsed,
             "applies_from_frame":recorder.next_frame(),

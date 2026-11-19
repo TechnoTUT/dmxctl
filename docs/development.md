@@ -135,6 +135,7 @@ cargo test --release perf -- --ignored --nocapture                              
 | `crates/core/src/keys.rs` | キーボードの割り当て `TriggerKind::Key`。番号は 段×16+位置 |
 | `crates/core/src/color.rs` / `crates/core/src/look.rs` / `crates/core/src/pixel.rs` | 色 / フレーズの見た目 / LEDバーの模様のプリセット4セット |
 | `crates/core/src/led.rs` / `crates/core/src/layout.rs` | パッドLEDの計算 / APC mini mk2 のおすすめの MIDI 配置 |
+| `crates/core/src/observe.rs` | 実行の観測 `Observe`。`Runtime` の `observe` が持つ。記録の口と診断をまとめ、観測の有無をほかの実行中の値と混ぜない |
 | `crates/core/src/recorder.rs` / `crates/core/src/trace.rs` / `crates/core/src/hold.rs` | 実行の記録の口 / 指定した機材の合成の段階の記録 / 遠隔操作で押している間の記録。`Core` が保持するので、ここに置く。ファイルへの書き込みや問い合わせは `backend` 側 |
 | `crates/core/src/io/opendmx.rs` / `crates/core/src/io/output.rs` | USB-DMX / Art-Net の出力 |
 | `crates/core/src/io/ndi.rs` | NDI受信で、映像の平均色と音の色を取る。読み込みと呼び出しは、`crates/core/Cargo.toml` の `moip-ndi` にある moip-engine の `ndi` クレートで行う。上げるときは `git -C moip-engine checkout <コミット>` してから `git add moip-engine` |

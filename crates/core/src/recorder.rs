@@ -80,8 +80,8 @@ impl Core {
     /// External inputs are root operations; remotely replayed inputs already
     /// have a command event, so do not record their dispatch a second time.
     pub(crate) fn record_input(&self,command:Value) {
-        if self.rt.audit_depth!=0 {return;}
-        if let Some(recorder)=&self.rt.recorder {
+        if !self.rt.observe.is_root_input() {return;}
+        if let Some(recorder)=self.rt.observe.recorder() {
             recorder.emit(json!({"type":"command","source":"input","command":command,
                 "learning":self.rt.learn.is_some() || self.rt.osc_learn.is_some(),
                 "t_ms":self.now().saturating_duration_since(self.rt.t0).as_millis() as u64,
@@ -95,7 +95,7 @@ impl Core {
 
     /// 記録中だけ、比較用の状態を複製する(ロック中は複製だけ。JSONにするのはロックの外)
     pub fn history_snapshot(&self)->Option<HistorySnapshot> {
-        let recorder=self.rt.recorder.clone()?;
+        let recorder=self.rt.observe.recorder().cloned()?;
         Some(HistorySnapshot {
             project:self.project.clone(),
             profiles:self.lib.profiles.clone(),
@@ -109,7 +109,7 @@ impl Core {
     }
 
     pub fn record_observation(&self,before:Option<Value>,source:&str) {
-        let (Some(before),Some(after),Some(recorder))=(before,self.history_state(),&self.rt.recorder) else{return;};
+        let (Some(before),Some(after),Some(recorder))=(before,self.history_state(),self.rt.observe.recorder()) else{return;};
         if before==after {return;}
         // An observation spans a GUI frame, not an atomic engine operation.
         // Keep it separate from executable commands rather than inventing one.

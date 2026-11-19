@@ -57,31 +57,31 @@ impl Core {
         let mode=self.lib.mode(&f.profile,f.mode).context("unknown profile/mode")?;
         ensure!(!mode.attr_channels(attr).is_empty(),"unknown attribute");
         let now=self.now();
-        ensure!(self.rt.trace.as_ref().is_none_or(|t|now.saturating_duration_since(t.started)>Duration::from_secs(5)),"another trace is pending");
-        self.rt.trace_ticket=self.rt.trace_ticket.checked_add(1).context("trace ticket exhausted")?;
-        let ticket=self.rt.trace_ticket;
-        self.rt.trace=Some(Trace {ticket,fixture,attr:attr.into(),started:now,frame:None,stages:Vec::new(),result:None});
+        ensure!(self.rt.observe.trace.as_ref().is_none_or(|t|now.saturating_duration_since(t.started)>Duration::from_secs(5)),"another trace is pending");
+        self.rt.observe.trace_ticket=self.rt.observe.trace_ticket.checked_add(1).context("trace ticket exhausted")?;
+        let ticket=self.rt.observe.trace_ticket;
+        self.rt.observe.trace=Some(Trace {ticket,fixture,attr:attr.into(),started:now,frame:None,stages:Vec::new(),result:None});
         Ok(json!({"ticket":ticket,"from_frame":self.rt.frame_id+1}))
     }
     pub fn trace_result(&mut self,ticket:u64)->anyhow::Result<Value> {
-        let trace=self.rt.trace.as_ref().context("trace is no longer available")?;
+        let trace=self.rt.observe.trace.as_ref().context("trace is no longer available")?;
         ensure!(trace.ticket==ticket,"trace ticket does not match");
         if trace.result.is_none() {return Ok(json!({"ready":false}));}
-        let mut trace=self.rt.trace.take().unwrap();
+        let mut trace=self.rt.observe.trace.take().unwrap();
         Ok(json!({"ready":true,"trace":trace.result.take()}))
     }
     pub(crate) fn trace_begin(&mut self) {
-        if let Some(trace)=self.rt.trace.as_mut() {
+        if let Some(trace)=self.rt.observe.trace.as_mut() {
             if trace.result.is_none() {trace.stages.clear();trace.frame=Some(self.rt.frame_id+1);}
         }
         self.trace_stage("base",None,Value::Null);
     }
     pub(crate) fn trace_stage(&mut self,stage:&str,values:Option<&[Vec<u8>]>,details:Value) {
-        if let Some(trace)=self.rt.trace.as_mut() {trace.capture(&self.project,&self.lib,values,stage,details);}
+        if let Some(trace)=self.rt.observe.trace.as_mut() {trace.capture(&self.project,&self.lib,values,stage,details);}
     }
     pub(crate) fn trace_finish(&mut self) {
         let t_ms=self.now().saturating_duration_since(self.rt.t0).as_millis() as u64;
-        let Some(trace)=self.rt.trace.as_mut().filter(|t|t.result.is_none()) else{return;};
+        let Some(trace)=self.rt.observe.trace.as_mut().filter(|t|t.result.is_none()) else{return;};
         let Some(f)=self.project.fixtures.iter().find(|f|f.id==trace.fixture) else {
             trace.result=Some(json!({"frame":self.rt.frame_id,"error":"fixture removed"}));return;
         };
