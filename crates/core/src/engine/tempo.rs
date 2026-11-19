@@ -9,13 +9,7 @@ pub const CLOCK_TIMEOUT: Duration = Duration::from_millis(500);
 /// 音声検出を採用する確からしさの下限
 pub const AUDIO_MIN_CONF: f32 = 0.25;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ClockMsg {
-    Tick,
-    Start,
-    Continue,
-    Stop,
-}
+pub use crate::io::midi::ClockMsg;
 
 /// MIDIクロックの受信状態
 #[derive(Default)]

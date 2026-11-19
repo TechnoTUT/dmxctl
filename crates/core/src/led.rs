@@ -9,14 +9,13 @@ use crate::motion::MotionOp;
 use crate::io::apcmini::Ctl;
 use crate::engine::{lock, Core, Shared};
 use crate::project::*;
-use midir::MidiOutputConnection;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-pub type Out = Arc<Mutex<MidiOutputConnection>>;
+pub use dmxctl_io::midi::MidiOut as Out;
 
 /// 待機中の明るさ(IDLE_LEVELS に対応)を、フルカラー表示用の倍率にしたもの
 const IDLE_SCALE: [f32; 3] = [0.10, 0.25, 0.50];
@@ -330,7 +329,7 @@ fn run(core: Shared, out: Out, stop: Arc<AtomicBool>) {
     let mut errors = 0u32;
 
     let send = |msg: Vec<u8>, errors: &mut u32| {
-        if out.lock().unwrap_or_else(|e| e.into_inner()).send(&msg).is_err() {
+        if out.send(&msg).is_err() {
             *errors += 1;
         }
     };

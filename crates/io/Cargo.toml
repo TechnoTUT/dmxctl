@@ -8,6 +8,7 @@ description = "dmxctl の入出力層。USB-DMX・Art-Net の送出、Carabiner 
 dmxctl-model = { path = "../model" }
 anyhow = "1.0.104"
 libloading = "0.9.0"
+midir = "0.11.0"
 serialport = "4.10.1"
 # Carabiner のダウンロードで、チェックサムの確認と展開に使う
 sha2 = "0.10"

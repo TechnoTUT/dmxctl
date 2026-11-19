@@ -50,15 +50,7 @@ pub const TICK: Duration = Duration::from_millis(25);
 /// 出力スロット数の下限(DMX規格上の最小)
 const MIN_SLOTS: usize = 24;
 
-#[derive(Debug, Clone, Copy)]
-pub struct MidiMsg {
-    pub kind: TriggerKind,
-    /// 0..15
-    pub channel: u8,
-    pub number: u8,
-    /// ベロシティ/CC値。ノートオフは0
-    pub value: u8,
-}
+pub use crate::io::midi::MidiMsg;
 
 pub struct Core {
     pub project: Project,
