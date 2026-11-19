@@ -1,0 +1,16 @@
+[package]
+name = "dmxctl-server"
+version = "0.1.0"
+edition = "2024"
+description = "画面を持たない dmxctl。serve・headless・CLI だけを動作させる。コンテナで使う"
+
+[[bin]]
+name = "dmxctl-server"
+path = "src/main.rs"
+
+[dependencies]
+dmxctl-core = { path = "../core" }
+dmxctl-backend = { path = "../backend" }
+
+[dev-dependencies]
+serde_json = "1.0.151"

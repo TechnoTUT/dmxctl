@@ -650,6 +650,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "dmxctl-server"
+version = "0.1.0"
+dependencies = [
+ "dmxctl-backend",
+ "dmxctl-core",
+ "serde_json",
+]
+
+[[package]]
 name = "dmxctl-ui"
 version = "0.1.0"
 dependencies = [
