@@ -78,6 +78,12 @@ pub fn parse_launch(mode: &Mode, rest: &[String]) -> Launch {
     launch
 }
 
+/// 自分自身を、別の引数で起動し直す。呼ぶ側は、先に自分を終了させる。
+/// Windows と Mac の利用者が、端末で引数を付けずに `connect` などへ切り替えるために利用する
+pub fn spawn_self(args: &[String]) -> std::io::Result<()> {
+    std::process::Command::new(std::env::current_exe()?).args(args).spawn().map(|_| ())
+}
+
 /// 画面なしで動かす。落ちたとき・終了のシグナルで、安全な値を送ってから終わる。戻らない
 pub fn run_headless(launch: Launch) -> ! {
     dmxctl_core::engine::install_safety_hooks();

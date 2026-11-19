@@ -306,3 +306,13 @@ fn listen_addresses_need_an_ip() {
     assert!(parse_listen(":9400").is_err());
     assert!(parse_listen("nope").is_err());
 }
+
+#[test]
+fn probe_succeeds_only_while_the_server_listens() {
+    let (_core, server) = server();
+    let target = server.address.to_string();
+    crate::host::Host::probe_server(&target, dmxctl_core::wake::Wake::none()).unwrap();
+    // 待ち受けを止めたあとは、確認も失敗する
+    drop(server);
+    assert!(crate::host::Host::probe_server(&target, dmxctl_core::wake::Wake::none()).is_err());
+}

@@ -163,6 +163,7 @@ cargo test --release perf -- --ignored --nocapture                              
 |---|---|
 | `src/main.rs` / `crates/ui/src/app.rs` | 起動 / 画面。起動では最初の引数で動作方法を選択し、eframe か KMS/DRM かを決定する。`App::new`・`App::frame`・`App::shutdown` は eframe に依存しないので、どちらの土台からも呼べる |
 | `crates/ui/src/map.rs` | メイン画面の MIDI タブ。`crates/ui/src/map/` に、図の描画 `pad.rs` と右のパネル `stage.rs` / `settings.rs` がある |
+| `crates/ui/src/remote.rs` | 起動後にサーバーの待ち受けを始める欄と、「サーバーに接続…」の入力欄。接続は、確認してから `entry::spawn_self` で `connect` として起動し直す。待ち受けの設定は保存しない |
 | `crates/ui/src/keys.rs` | キーの絵を出すキーボードタブ |
 | `crates/ui/src/laser.rs` / `crates/ui/src/auto.rs` | レーザータブ / オートタブ。オートタブは、フレーズごとの見た目のプリセット `AutoPreset` / `PhraseLook` の表 |
 | `crates/ui/src/` の `binding.rs`・`control.rs`・`midi.rs`・`output.rs`・`pair.rs`・`patch.rs`・`profile.rs`・`sequence.rs`・`show.rs` | 残りのタブ。ファイル名がタブに対応する |

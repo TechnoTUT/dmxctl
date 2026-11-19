@@ -130,6 +130,7 @@ impl App {
         });
         ui.label(RichText::new("オート(曲の情報で自動・待機の色・フレーズのプリセット)の設定は「オート」タブ").small().weak());
         self.web_row(ui);
+        self.remote_row(ui);
         egui::CollapsingHeader::new("OSCで使えるアドレス").id_salt("osc_help").show(ui, |ui| {
             ui.label(
                 RichText::new(
