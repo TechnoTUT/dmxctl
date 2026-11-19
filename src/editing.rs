@@ -199,6 +199,53 @@ fn apply_with_policy(core:&mut Core,operations:&Value,dry_run:bool,remote:bool)-
     Ok(json!({"applied":!dry_run,"operations":results,"bindings":if dry_run{None}else{Some(core.controls())}}))
 }
 
+/// 画面から機材を消す。その機材を指す割り当てやエフェクトも一緒に片付けてから検証し、まとめて反映する。
+/// 一緒に消したものの名前を返す
+pub(crate) fn gui_delete_fixture(core:&mut Core,id:u32)->anyhow::Result<Vec<String>> {
+    ensure_idle(core)?;
+    let mut project=core.project.clone();
+    let removed=remove_fixture(&mut project,id)?;
+    validate(&project,&core.lib)?;
+    commit(core,project);
+    Ok(removed)
+}
+
+/// 割り当ての対象が、消す機材そのものか
+fn targets_fixture(action:&Action,id:u32)->bool {
+    match action {
+        Action::SetValue{sel,..}|Action::Level{sel}|Action::Mute{sel,..}|Action::Role{sel,..}|Action::Arm{sel,..}=>*sel==Selector::Fixture(id),
+        Action::Select{fixture,..}=>*fixture==id,
+        _=>false,
+    }
+}
+
+/// 機材と、その機材への参照をプロジェクトから取り除く。
+/// 機材だけを対象にしたエフェクトと割り当ては残しても動かないので消し、消したエフェクトを使う割り当てとオートの演出からも外す
+fn remove_fixture(project:&mut Project,id:u32)->anyhow::Result<Vec<String>> {
+    let index=project.fixture_index(id).context("unknown fixture")?;
+    project.fixtures.remove(index);
+    for g in &mut project.groups {g.fixtures.retain(|x|*x!=id);}
+    project.pairs.retain(|p|p.leader!=id && p.follower!=id);
+    for s in project.scenes.iter_mut().chain(project.positions.iter_mut()) {s.values.retain(|v|v.fixture!=id);}
+    let mut removed=Vec::new();
+    let mut effect_names=Vec::new();
+    project.effects.retain(|e|{let keep=e.sel!=Selector::Fixture(id);if !keep {effect_names.push(e.name.clone());}keep});
+    project.pixel_fx.retain(|e|{let keep=e.sel!=Selector::Fixture(id);if !keep {effect_names.push(e.name.clone());}keep});
+    // 同じ名前のエフェクトが残っていれば、名前での参照はそのまま使える
+    effect_names.retain(|name|!project.effects.iter().any(|e|&e.name==name) && !project.pixel_fx.iter().any(|e|&e.name==name));
+    effect_names.dedup();
+    removed.extend(effect_names.iter().map(|name|format!("エフェクト「{name}」")));
+    project.bindings.retain(|b|{
+        let keep=!targets_fixture(&b.action,id) && !matches!(&b.action,Action::Effect{name,..} if effect_names.contains(name));
+        if !keep {removed.push(format!("割り当て「{}」",b.name));}
+        keep
+    });
+    for preset in &mut project.auto.presets {
+        for look in preset.looks.values_mut() {look.effects.retain(|e|!effect_names.contains(e));}
+    }
+    Ok(removed)
+}
+
 pub fn safety_unchanged(old:&Project,new:&Project,lib:&Library)->anyhow::Result<()> {
     ensure!(old.motion.pan_front==new.motion.pan_front && old.motion.tilt_up==new.motion.tilt_up,"motion calibration is read-only from CLI");
     for f in &old.fixtures {
@@ -559,6 +606,52 @@ mod tests {
         assert!(apply(&mut c,&json!([{"entity":"fixture","op":"delete","key":1}]),false).is_err());
         apply(&mut c,&json!([{"entity":"group","op":"delete","key":"G"},{"entity":"fixture","op":"delete","key":1}]),false).unwrap();
         assert_eq!(c.project.fixtures.len(),1);
+    }
+    #[test]
+    fn gui_fixture_delete_clears_references_so_later_edits_still_work() {
+        let mut c=core();
+        apply(&mut c,&json!([
+            {"entity":"group","op":"create","data":{"name":"G","fixtures":[1,2]}},
+            {"entity":"effect","op":"create","data":{"name":"Solo","sel":{"Fixture":1},"attr":"dimmer"}},
+            {"entity":"effect","op":"create","data":{"name":"Shared","sel":{"Fixture":1},"attr":"dimmer"}},
+            {"entity":"effect","op":"create","data":{"name":"Shared","sel":{"Fixture":2},"attr":"dimmer"}},
+            {"entity":"pixel","op":"create","data":{"name":"Px","sel":{"Fixture":1}}},
+            {"entity":"binding","op":"create","data":{"name":"Dim","action":{"SetValue":{"sel":{"Fixture":1},"attr":"dimmer","mode":"Trigger","on":255,"off":0}}}},
+            {"entity":"binding","op":"create","data":{"name":"Pick","action":{"Select":{"fixture":1,"op":"Toggle"}}}},
+            {"entity":"binding","op":"create","data":{"name":"SoloFx","action":{"Effect":{"name":"Solo","mode":"Toggle"}}}},
+            {"entity":"binding","op":"create","data":{"name":"SharedFx","action":{"Effect":{"name":"Shared","mode":"Toggle"}}}},
+            {"entity":"binding","op":"create","data":{"name":"GroupDim","action":{"Level":{"sel":{"Group":"G"}}}}}
+        ]),false).unwrap();
+        let mut look=c.project.auto.presets[0].looks.values().next().unwrap().clone();
+        look.effects=vec!["Solo".into(),"Shared".into()];
+        let key=c.project.auto.presets[0].looks.keys().next().unwrap().clone();
+        c.project.auto.presets[0].looks.insert(key.clone(),look);
+        let before=c.project.bindings.len();
+
+        let removed=gui_delete_fixture(&mut c,1).unwrap();
+        assert!(c.project.fixture_index(1).is_none());
+        assert_eq!(c.project.groups[0].fixtures,vec![2]);
+        assert!(c.project.effects.iter().all(|e|e.name=="Shared" && e.sel==Selector::Fixture(2)));
+        assert!(c.project.pixel_fx.is_empty());
+        let names:Vec<_>=c.project.bindings.iter().map(|b|b.name.as_str()).collect();
+        for gone in ["Dim","Pick","SoloFx"] {assert!(!names.contains(&gone),"{gone} should be removed");}
+        for kept in ["SharedFx","GroupDim"] {assert!(names.contains(&kept),"{kept} should be kept");}
+        assert_eq!(c.project.bindings.len(),before-3);
+        assert_eq!(c.project.auto.presets[0].looks[&key].effects,vec!["Shared".to_string()]);
+        assert!(removed.iter().any(|r|r.contains("Solo")) && removed.iter().any(|r|r.contains("Dim")));
+        apply(&mut c,&json!([{"entity":"group","op":"create","data":{"name":"After"}}]),false).unwrap();
+    }
+    #[test]
+    fn starter_fixture_can_be_deleted_from_the_patch_tab() {
+        // 配布している初期プロジェクトには、機材1を指す割り当て「パッド56」が入っている
+        let (lib,_)=Library::load(Path::new("none"));
+        let project:Project=serde_json::from_str(include_str!("../config/project.json")).unwrap();
+        let mut c=Core::new(project,Arc::new(lib));
+        assert!(c.project.bindings.iter().any(|b|targets_fixture(&b.action,1)));
+        let removed=gui_delete_fixture(&mut c,1).unwrap();
+        assert!(removed.iter().any(|r|r.contains("パッド56")));
+        crate::editing::gui_apply(&mut c,&json!([{"entity":"fixture","op":"create","data":{"profile":"stage-evolution/minispot30"}}])).unwrap();
+        crate::editing::gui_apply(&mut c,&json!([{"entity":"group","op":"create","data":{"name":"G"}}])).unwrap();
     }
     #[test]
     fn safety_and_binding_identity_cannot_be_replaced_by_edits() {
