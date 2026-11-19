@@ -125,7 +125,7 @@ cargo test --release perf -- --ignored --nocapture                              
 
 | ファイル | 中身 |
 |---|---|
-| `crates/core/src/engine.rs` | 共有状態の `Core`、値の合成 `render`、出力ループ |
+| `crates/core/src/engine.rs` | 共有状態の `Core`。合成と出力の部品は `engine/` の `runtime.rs`・`render.rs`・`guard.rs`・`safety.rs`・`output_loop.rs`・`glide.rs` に分けてある。順に、実行中の状態 / ユニバースごとのフレームの合成 / 出力の直前の値の補正 / 異常時の安全なフレーム / 40Hzの出力スレッド / OSCで受けた値の追従 |
 | `crates/core/src/engine/` | `Core` の操作を分野ごとに分けたもの。`binding.rs` は MIDIの受信と割り当ての実行、`tempo.rs` は BPM・Link・MIDIクロック・音声・チェイス、`palette.rs` は色とメイン/サブ色、`scene.rs` はシーン・位置・フェード、`pair.rs` はペア |
 | `crates/core/src/engine/auto.rs` | オート。OSCで曲の色・明るさ・フレーズが届いているかを見て、届かないときは待機の見た目を出力の直前、フラッシュの後に重ねる。フレーズのプリセットの見た目を当てる `apply_look` と、BLTの様子を返す `blt_state` もここ |
 | `crates/core/src/motion.rs` / `crates/core/src/engine/motion.rs` | ムービングの動きを、形×1周の長さ×揃え方×向きで傾きとして計算する / それを `render` の中、エフェクトの後でパン/チルトに書き込む |
@@ -148,7 +148,7 @@ cargo test --release perf -- --ignored --nocapture                              
 |---|---|
 | `crates/backend/src/host.rs` | 画面によらずに動作する部分の `Host`。Core・出力ループ・MIDI/OSC/Link/NDI/音声/操作パネル・自動操作の窓口・保存を持つ。画面は `Host` を1つ持ち、headless と serve は `Host` だけで動作する |
 | `crates/backend/src/project_patch.rs` | 画面の1フレームで変わったプロジェクトの差分 `Change` を作って当てる。クライアントの編集をサーバーへ送信するのに使う |
-| `crates/backend/src/remote.rs` | `--remote-listen` のサーバーと `dmxctl connect` のクライアントの通信。食い違いを防ぐ仕組みは先頭のコメントにある |
+| `crates/backend/src/remote.rs` | `--remote-listen` のサーバーと `dmxctl connect` のクライアントの通信。`remote/` の `state.rs`・`server.rs`・`client.rs` に分けてある。食い違いを防ぐ仕組みは先頭のコメントにある |
 | `crates/backend/src/cli.rs` / `crates/backend/src/control.rs` / `crates/backend/src/commands.rs` / `crates/backend/src/editing.rs` / `crates/backend/src/recording.rs` / `crates/backend/src/diagnostics.rs` | 自動操作・検証用の [CLI](cli.md)。順に、サブコマンド / 制御用の接続 / 操作 / 設定の編集と検証 / 記録のファイル書き込み / `explain` などの診断 |
 | `crates/backend/src/controls.rs` | 制御用の接続やパネルから、割り当てを押したり離したりする操作 |
 | `crates/backend/src/web.rs` / `crates/backend/src/web/panel.html` | ブラウザの操作パネル。std の TCP で最小限の HTTP を話す。`GET /` でページ、`GET /api/state` で様子、`POST /api/cmd` で操作。合言葉は `X-Pin` ヘッダー |
@@ -208,7 +208,7 @@ cargo test --release perf -- --ignored --nocapture                              
 - **USB-DMX が開けない、Resource busy と表示される**: QLC+ など別の照明ソフトが利用していないか確認する
 - **NDI のライブラリは同梱しない**: 配布条件のためです。インストール済みの NDI Tools、Linux では NDI SDK のものを読み込みます。探す順は `DMXCTL_NDI_LIB` → macOS の NDI Tools のアプリの中 → `NDI_RUNTIME_DIR_V6`/`V5` → 各OSの標準の場所 です。後ろの2つは moip-engine の `ndi` クレートが探します
 - **FTDI の D2XX ライブラリは同梱しない**: 配布条件のためです。利用者が FTDI の配布元から導入したものを、実行時に読み込みます。探す順は `DMXCTL_D2XX_LIB` → 設定フォルダに置いたもの → 各OSの標準の場所 です。Windows は FTDI ドライバの `ftd2xx.dll` を利用します
-- **レーザーの安全処理**: 場所は `crates/core/src/engine.rs` の `guard_values` と `emergency_stop` です。機材定義の `forbid` で禁止したオートショー・サウンド・パン/チルトの自動の動きと、機材ごとの `limits` で決めた動いてよい範囲は、出力の直前に必ず補正します。内蔵の定義を上書きしても `forbid` は引き継ぎます。異常終了時・終了シグナル・シャットダウン・Mac/Linux で画面を通らずに `exit()` したときは、レーザーOFF・明るさ0の安全なフレームを約0.3秒送信してから終了します。Windows のシャットダウンは、見えないウィンドウで `WM_ENDSESSION` を受信して検知します。`watch_windows_shutdown` です。`exit()` のときは `atexit` を使います
+- **レーザーの安全処理**: 場所は `crates/core/src/engine/guard.rs` の `guard_values` と、`crates/core/src/engine/safety.rs` の `emergency_stop` です。機材定義の `forbid` で禁止したオートショー・サウンド・パン/チルトの自動の動きと、機材ごとの `limits` で決めた動いてよい範囲は、出力の直前に必ず補正します。内蔵の定義を上書きしても `forbid` は引き継ぎます。異常終了時・終了シグナル・シャットダウン・Mac/Linux で画面を通らずに `exit()` したときは、レーザーOFF・明るさ0の安全なフレームを約0.3秒送信してから終了します。Windows のシャットダウンは、見えないウィンドウで `WM_ENDSESSION` を受信して検知します。`watch_windows_shutdown` です。`exit()` のときは `atexit` を使います
 - **KMS/DRM**: 「画面を開けませんでした」と表示されて画面が出ないときは、`video` グループに所属しているか、デスクトップ環境など他のアプリが画面を使っていないかを確認する。キー・マウスが効かないときは `input` グループ
 - **ムービングのチルト**: 128が真上です。動きのプリセットはチルトを大きく振る作りです
 - 実行中のアプリは5秒ごとに設定を自動保存するため、`project.json` を直接書き換えるときは先にアプリを閉じる
