@@ -1,0 +1,10 @@
+//! 機器・プロトコルの入出力。NDI受信・OSC受信・USB-DMX送出・Art-Net送出・MIDI・音声・Ableton Link。
+pub mod apcmini;
+pub mod audio;
+pub mod carabiner;
+pub mod link;
+pub mod midi;
+pub mod ndi;
+pub mod opendmx;
+pub mod osc;
+pub mod output;

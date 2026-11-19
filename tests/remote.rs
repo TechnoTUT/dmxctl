@@ -1,5 +1,6 @@
 //! サーバー(Host + --remote-listen)と、画面(App)のクライアント(connect)を同じプロセスでつなぐ
-use dmxctl::{control::Launch, engine::lock, fixture::Library, host::Host, live::LiveOp, project::Project};
+use dmxctl::backend::{control::Launch, host::Host, live::LiveOp};
+use dmxctl::core::{engine::lock, fixture::Library, project::Project};
 use std::time::{Duration, Instant};
 
 fn project_dir() -> std::path::PathBuf {
@@ -24,11 +25,11 @@ fn a_gui_client_follows_the_server_and_sends_operations() {
     let address = server.remote.as_ref().unwrap().address;
 
     let ctx = eframe::egui::Context::default();
-    let mut app = dmxctl::app::App::with_options(&ctx, false, Launch {
+    let mut app = dmxctl::ui::app::App::with_options(&ctx, false, Launch {
         inputs: false, connect: Some(address.to_string()), ..Default::default()
     }).unwrap();
     assert!(app.host.is_client());
-    let frames = |app: &mut dmxctl::app::App, until: &mut dyn FnMut(&mut dmxctl::app::App) -> bool| {
+    let frames = |app: &mut dmxctl::ui::app::App, until: &mut dyn FnMut(&mut dmxctl::ui::app::App) -> bool| {
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
             let mut out = ctx.run_ui(Default::default(), |ui| app.frame(ui, None));
@@ -87,11 +88,11 @@ fn a_gui_client_opens_server_files_and_files_from_its_own_pc() {
     }).unwrap();
     let address = server.remote.as_ref().unwrap().address;
     let ctx = eframe::egui::Context::default();
-    let mut app = dmxctl::app::App::with_options(&ctx, false, Launch {
+    let mut app = dmxctl::ui::app::App::with_options(&ctx, false, Launch {
         inputs: false, connect: Some(address.to_string()), ..Default::default()
     }).unwrap();
     // サーバーが Host のループで読み込み、クライアントは画面のフレームで受け取る
-    let run = |app: &mut dmxctl::app::App, server: &mut Host, until: &mut dyn FnMut(&mut dmxctl::app::App, &mut Host) -> bool| {
+    let run = |app: &mut dmxctl::ui::app::App, server: &mut Host, until: &mut dyn FnMut(&mut dmxctl::ui::app::App, &mut Host) -> bool| {
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
             server.control_tick();
