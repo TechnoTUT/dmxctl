@@ -5,46 +5,14 @@
 //! 受信はこのスレッドで行い、結果(色)はCoreの`rt.ndi`に書く。照明への反映はエンジンが行う
 
 use crate::engine::{lock, Shared};
-use serde::{Deserialize, Serialize};
+
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-/// メイン色/サブ色を、何から作るか
-#[derive(schemars::JsonSchema, Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
-pub enum LiveSource {
-    /// 使わない(パッド・フェーダーで決めた色)
-    #[default]
-    Off,
-    /// 音: 低音=赤 / 中音=緑 / 高音=青
-    Audio,
-    /// 映像の平均の色
-    Video,
-}
-
-impl LiveSource {
-    pub fn label(self) -> &'static str {
-        match self {
-            LiveSource::Off => "使わない",
-            LiveSource::Audio => "音(低=赤 中=緑 高=青)",
-            LiveSource::Video => "映像の平均色",
-        }
-    }
-}
-
-/// NDIの設定(保存する)
-#[derive(schemars::JsonSchema, Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-#[serde(default)]
-pub struct NdiCfg {
-    /// 受信する
-    pub enabled: bool,
-    /// 受信するNDIソースの名前(「PC名 (ソース名)」)
-    pub source: String,
-    pub main: LiveSource,
-    pub sub: LiveSource,
-}
+pub use crate::project::{LiveSource, NdiCfg};
 
 /// 受信の結果(保存しない)
 #[derive(Debug, Clone, Default)]

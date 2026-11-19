@@ -1,0 +1,15 @@
+[package]
+name = "dmxctl-model"
+version = "0.1.0"
+edition = "2024"
+description = "dmxctl のモデル層。保存する設定・機材定義・色・動き・キーの表。機器にも画面にも依存しない"
+
+[dependencies]
+anyhow = "1.0.104"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+serde_path_to_error = "0.1"
+schemars = "1.2"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

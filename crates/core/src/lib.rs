@@ -5,22 +5,18 @@
 //! - 機器・プロトコルとのやりとり (`io`: NDI・OSC・DMX・Art-Net・MIDI・音声・Link)
 //!
 //! この層から `backend` と `ui` は参照しない。向きは `ui` → `backend` → `core` だけ。
-pub mod color;
+// モデル層。パスを変えずに使えるよう、そのまま再公開する
+pub use dmxctl_model::{color, fixture, keys, layout, motion, pixel, project};
+
 pub mod engine;
-pub mod fixture;
 pub mod hold;
 pub mod io;
-pub mod keys;
-pub mod layout;
 pub mod live;
 pub mod led;
 pub mod look;
-pub mod motion;
 pub mod observe;
-pub mod pixel;
 pub mod trace;
 pub mod wake;
-pub mod project;
 pub mod recorder;
 #[cfg(test)]
 mod tests;

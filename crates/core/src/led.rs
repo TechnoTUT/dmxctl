@@ -18,68 +18,10 @@ use std::time::{Duration, Instant};
 
 pub type Out = Arc<Mutex<MidiOutputConnection>>;
 
-// パレットの色(ベロシティ)。仕様書の「Velocity to RGB Color Chart」より
-pub const C_WHITE: u8 = 3;
-pub const C_RED: u8 = 5;
-pub const C_ORANGE: u8 = 9;
-pub const C_YELLOW: u8 = 13;
-pub const C_GREEN: u8 = 21;
-pub const C_LIGHT_BLUE: u8 = 37;
-pub const C_BLUE: u8 = 45;
-pub const C_VIOLET: u8 = 49;
-pub const C_MAGENTA: u8 = 53;
-pub const C_PINK: u8 = 57;
-
-/// 明るさ(MIDIチャンネル)
-pub const LV_100: u8 = 6;
-/// 待機中の明るさの選択肢: 10% / 25% / 50%
-pub const IDLE_LEVELS: [u8; 3] = [0, 1, 2];
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Led {
-    Off,
-    /// パッド: 色(パレット番号)と明るさ(MIDIチャンネル)
-    Rgb { color: u8, level: u8 },
-    /// ボタン: 1=点灯 / 2=点滅
-    Single(u8),
-    /// パッド: 実際の色(RGB各0〜255。明るさは値に含める)。full=効いている(最大の明るさ)
-    True { rgb: [u8; 3], full: bool },
-}
-
 /// 待機中の明るさ(IDLE_LEVELS に対応)を、フルカラー表示用の倍率にしたもの
 const IDLE_SCALE: [f32; 3] = [0.10, 0.25, 0.50];
 
-impl Led {
-    /// 送るMIDIメッセージ。パレットの色はNote On、実際の色はSysEx(RGB LED Color Lighting, 0x24)
-    pub fn message(self, note: u8) -> Vec<u8> {
-        match self {
-            Led::Off => vec![0x90, note, 0],
-            Led::Rgb { color, level } => vec![0x90 | (level & 0x0F), note, color],
-            Led::Single(v) => vec![0x90, note, v],
-            Led::True { rgb, .. } => {
-                // 開始パッド・終了パッド + RGBを各8bit(上位1bit/下位7bit)= 8バイト
-                let mut m = vec![0xF0, 0x47, 0x7F, 0x4F, 0x24, 0x00, 0x08, note, note];
-                for c in rgb {
-                    m.push(c >> 7);
-                    m.push(c & 0x7F);
-                }
-                m.push(0xF7);
-                m
-            }
-        }
-    }
-
-    /// 効いている(最大の明るさで光っている)か
-    #[cfg(test)]
-    pub fn is_full(self) -> bool {
-        match self {
-            Led::Rgb { level, .. } => level == LV_100,
-            Led::True { full, .. } => full,
-            Led::Single(v) => v == 2,
-            Led::Off => false,
-        }
-    }
-}
+pub use crate::io::apcmini::{C_BLUE, C_GREEN, C_LIGHT_BLUE, C_MAGENTA, C_ORANGE, C_PINK, C_RED, C_VIOLET, C_WHITE, C_YELLOW, IDLE_LEVELS, LV_100, Led};
 
 /// 割り当ての「実際の色」(色を指定するパッド、機材の選択、メイン/サブ入れ替え)。
 /// `looks`=機材ごとの今の出力の色

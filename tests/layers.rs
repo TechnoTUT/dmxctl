@@ -32,6 +32,16 @@ fn assert_without(krate: &str, forbidden: &[&str]) {
 /// 画面を出すためのクレート。画面の層にだけ置く
 const GUI: [&str; 6] = ["eframe", "egui", "egui_glow", "glow", "sdl2", "rfd"];
 
+/// 機器とやりとりするためのクレート。モデル層には置かない
+const DEVICE: [&str; 6] = ["cpal", "midir", "serialport", "libloading", "moip-ndi", "sha2"];
+
+#[test]
+fn model_depends_on_nothing_above_it() {
+    assert_without("model", &["dmxctl-core", "dmxctl-backend", "dmxctl-ui"]);
+    assert_without("model", &GUI);
+    assert_without("model", &DEVICE);
+}
+
 #[test]
 fn core_depends_on_neither_upper_layers_nor_gui() {
     assert_without("core", &["dmxctl-backend", "dmxctl-ui"]);

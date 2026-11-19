@@ -391,7 +391,7 @@ pub enum Action {
     /// ARM(レーザーなど、許可するまで安全値を出し続ける機材の出力を許可する)
     Arm { sel: Selector, mode: PadMode },
     /// NDI(映像の平均色・音の色)をメイン色/サブ色に使う。同じものをもう一度押すと使わない
-    LiveColor { role: crate::color::ColorRole, source: crate::io::ndi::LiveSource },
+    LiveColor { role: crate::color::ColorRole, source: LiveSource },
     /// メイン⇄サブの自動入れ替えの間隔(拍)。押すと自動入れ替えもONにする
     SwapBeats { beats: f32 },
     /// LEDバーを何本使うか(パッチの順に先頭から。残りは使わない)
@@ -753,7 +753,7 @@ pub struct Project {
     /// 色を指定するパッドを、APC mini mk2 のフルカラー(SysEx)で実際の色に光らせる
     pub led_true_color: bool,
     /// NDI(映像の平均色・音の色)をメイン色/サブ色に使う設定
-    pub ndi: crate::io::ndi::NdiCfg,
+    pub ndi: NdiCfg,
     /// ムービングの動き(形・1周の長さ・揃え方・向き)
     pub motion: crate::motion::Motion,
 }
@@ -792,7 +792,7 @@ impl Default for Project {
             pixel_fx: Vec::new(),
             fade_secs: 3.0,
             led_true_color: true,
-            ndi: crate::io::ndi::NdiCfg::default(),
+            ndi: NdiCfg::default(),
             motion: crate::motion::Motion::default(),
         }
     }
@@ -1157,4 +1157,40 @@ mod tests {
             }
         }
     }
+}
+
+// ---------------------------------------------------------------- NDIの設定(保存する)
+
+/// メイン色/サブ色を、何から作るか
+#[derive(schemars::JsonSchema, Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub enum LiveSource {
+    /// 使わない(パッド・フェーダーで決めた色)
+    #[default]
+    Off,
+    /// 音: 低音=赤 / 中音=緑 / 高音=青
+    Audio,
+    /// 映像の平均の色
+    Video,
+}
+
+impl LiveSource {
+    pub fn label(self) -> &'static str {
+        match self {
+            LiveSource::Off => "使わない",
+            LiveSource::Audio => "音(低=赤 中=緑 高=青)",
+            LiveSource::Video => "映像の平均色",
+        }
+    }
+}
+
+/// NDIの設定(保存する)
+#[derive(schemars::JsonSchema, Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct NdiCfg {
+    /// 受信する
+    pub enabled: bool,
+    /// 受信するNDIソースの名前(「PC名 (ソース名)」)
+    pub source: String,
+    pub main: LiveSource,
+    pub sub: LiveSource,
 }

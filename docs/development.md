@@ -112,10 +112,11 @@ cargo test --release perf -- --ignored --nocapture                              
 
 ## コードの地図
 
-ソースは3つの層を、別々のクレートに分けています。参照してよい向きは `ui` → `backend` → `core` だけです。逆向きの参照はコンパイルが通らず、`tests/layers.rs` が、`core` に画面のクレートが入り込んでいないかを調べます。層ごとに別々に保守できるので、画面を修正するときに出力の中身を、機器の対応を追加するときに画面を読む必要はありません。
+ソースは4つのクレートに分けています。参照してよい向きは `ui` → `backend` → `core` → `model` だけです。逆向きの参照はコンパイルが通らず、`tests/layers.rs` が、モデルに機器のクレートが、`core` に画面のクレートが入り込んでいないかを調べます。層ごとに別々に保守できるので、画面を修正するときに出力の中身を、機器の対応を追加するときに画面を読む必要はありません。
 
 | 層 | 役割 |
 |---|---|
+| `crates/model/` | 保存する設定・機材定義・色・動き・キーの表。機器にも画面にも依存しないデータと規則 |
 | `crates/core/` | 設定の形、値の合成、機器とプロトコルの入出力。NDI・OSC・USB-DMX・Art-Net・MIDI・音声・Link はここ |
 | `crates/backend/` | 画面なしで動作する部分。起動と保存、遠隔操作、ブラウザの操作パネル、自動操作用のCLI |
 | `crates/ui/` | 画面。eframe と KMS/DRM、タブごとの描画、見た目 |
@@ -128,19 +129,19 @@ cargo test --release perf -- --ignored --nocapture                              
 | `crates/core/src/engine.rs` | 共有状態の `Core`。合成と出力の部品は `engine/` の `runtime.rs`・`render.rs`・`guard.rs`・`safety.rs`・`output_loop.rs`・`glide.rs` に分けてある。順に、実行中の状態 / ユニバースごとのフレームの合成 / 出力の直前の値の補正 / 異常時の安全なフレーム / 40Hzの出力スレッド / OSCで受けた値の追従 |
 | `crates/core/src/engine/` | `Core` の操作を分野ごとに分けたもの。`binding.rs` は MIDIの受信と割り当ての実行、`tempo.rs` は BPM・Link・MIDIクロック・音声・チェイス、`palette.rs` は色とメイン/サブ色、`scene.rs` はシーン・位置・フェード、`pair.rs` はペア |
 | `crates/core/src/engine/auto.rs` | オート。OSCで曲の色・明るさ・フレーズが届いているかを見て、届かないときは待機の見た目を出力の直前、フラッシュの後に重ねる。フレーズのプリセットの見た目を当てる `apply_look` と、BLTの様子を返す `blt_state` もここ |
-| `crates/core/src/motion.rs` / `crates/core/src/engine/motion.rs` | ムービングの動きを、形×1周の長さ×揃え方×向きで傾きとして計算する / それを `render` の中、エフェクトの後でパン/チルトに書き込む |
+| `crates/model/src/motion.rs` / `crates/core/src/engine/motion.rs` | ムービングの動きを、形×1周の長さ×揃え方×向きで傾きとして計算する / それを `render` の中、エフェクトの後でパン/チルトに書き込む |
 | `crates/core/src/live.rs` | 画面・MIDI から実行中の状態を変更する操作 `LiveOp`。必ず `Core::live` を通す。クライアントでは、トレイト `LiveForward` を通してサーバーへ送信する |
-| `crates/core/src/project.rs` | 保存する設定 `project.json` と、割り当ての種類 `Action` |
-| `crates/core/src/fixture.rs` | 機材定義。内蔵のものはリポジトリの `fixtures/` から取り込む |
-| `crates/core/src/keys.rs` | キーボードの割り当て `TriggerKind::Key`。番号は 段×16+位置 |
-| `crates/core/src/color.rs` / `crates/core/src/look.rs` / `crates/core/src/pixel.rs` | 色 / フレーズの見た目 / LEDバーの模様のプリセット4セット |
-| `crates/core/src/led.rs` / `crates/core/src/layout.rs` | パッドLEDの計算 / APC mini mk2 のおすすめの MIDI 配置 |
+| `crates/model/src/project.rs` | 保存する設定 `project.json` と、割り当ての種類 `Action` |
+| `crates/model/src/fixture.rs` | 機材定義。内蔵のものはリポジトリの `fixtures/` から取り込む |
+| `crates/model/src/keys.rs` | キーボードの割り当て `TriggerKind::Key`。番号は 段×16+位置 |
+| `crates/model/src/color.rs` / `crates/core/src/look.rs` / `crates/model/src/pixel.rs` | 色 / フレーズの見た目 / LEDバーの模様のプリセット4セット |
+| `crates/core/src/led.rs` / `crates/model/src/layout.rs` | パッドLEDの計算 / APC mini mk2 のおすすめの MIDI 配置 |
 | `crates/core/src/observe.rs` | 実行の観測 `Observe`。`Runtime` の `observe` が持つ。記録の口と診断をまとめ、観測の有無をほかの実行中の値と混ぜない |
 | `crates/core/src/recorder.rs` / `crates/core/src/trace.rs` / `crates/core/src/hold.rs` | 実行の記録の口 / 指定した機材の合成の段階の記録 / 遠隔操作で押している間の記録。`Core` が保持するので、ここに置く。ファイルへの書き込みや問い合わせは `backend` 側 |
 | `crates/core/src/io/opendmx.rs` / `crates/core/src/io/output.rs` | USB-DMX / Art-Net の出力 |
 | `crates/core/src/io/ndi.rs` | NDI受信で、映像の平均色と音の色を取る。読み込みと呼び出しは、`crates/core/Cargo.toml` の `moip-ndi` にある moip-engine の `ndi` クレートで行う。上げるときは `git -C moip-engine checkout <コミット>` してから `git add moip-engine` |
 | `crates/core/src/io/osc.rs` | OSC の受信と、アドレスごとの操作 |
-| `crates/core/src/io/midi.rs` / `crates/core/src/io/apcmini.rs` | MIDI 機器の入出力 / APC mini mk2 のパッド・ボタン・フェーダーの番号。AKAI の Communications Protocol v1.0 に基づく |
+| `crates/core/src/io/midi.rs` / `crates/model/src/apcmini.rs` | MIDI 機器の入出力 / APC mini mk2 のパッド・ボタン・フェーダーの番号。AKAI の Communications Protocol v1.0 に基づく |
 | `crates/core/src/io/audio.rs` / `crates/core/src/io/link.rs` / `crates/core/src/io/carabiner.rs` | 音声の入力 / Ableton Link / Link の窓口の Carabiner への接続とダウンロード |
 
 ### backend

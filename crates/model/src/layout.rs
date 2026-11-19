@@ -6,7 +6,7 @@
 //! 下の列(トラックボタン): 機種ごとの消灯(LEDバー全部・ムービング・その他の機種・レーザー)
 //! フェーダー: LEDバーの明るさ・速さ・斜め / 機種ごとの明るさ / メイン・サブの色相 / マスター=全体光量
 
-use crate::io::apcmini::{pad_note, Ctl};
+use crate::apcmini::{pad_note, Ctl};
 use crate::color::{ColorTarget, PaletteOp};
 use crate::fixture::Library;
 use crate::pixel::{PixelParam, FACE_SETS};
@@ -300,7 +300,7 @@ pub fn apply(p: &mut Project, lib: &Library) -> Report {
     }
     // 6段目: NDIの色とテンポ
     use crate::color::ColorRole;
-    use crate::io::ndi::LiveSource;
+    use crate::project::LiveSource;
     let sync: Vec<Labeled> = vec![
         ("NDI:メイン=映像".into(), Action::LiveColor { role: ColorRole::Main, source: LiveSource::Video }),
         ("NDI:メイン=音".into(), Action::LiveColor { role: ColorRole::Main, source: LiveSource::Audio }),

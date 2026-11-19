@@ -5,6 +5,7 @@ edition = "2024"
 description = "dmxctl のコア層。設定の形・値の合成・機器とプロトコルの入出力。画面にも遠隔操作にも依存しない"
 
 [dependencies]
+dmxctl-model = { path = "../model" }
 anyhow = "1.0.104"
 cpal = "0.18.2"
 libloading = "0.9.0"
