@@ -33,7 +33,7 @@ NDI のライブラリ `libndi.so.6` は、配布条件のためイメージに�
 
 **使用許諾に注意してください。** 取得すると、NDI SDK の使用許諾に同意したことになります。同意する主体は、このスクリプトを実行する利用者です。許諾には、コンテナやクラウドでの利用に関する条件が含まれています。自分の利用が条件に合うかを、先に確認してください。同意しない限りスクリプトは何も取得せず、`--accept-license` か `NDI_ACCEPT_LICENSE=yes` を付けたときだけ取得します。
 
-取得するのは、動作中の CPU に合うライブラリと使用許諾の文書だけです。取得した場所が `/data` の下なので、PVC やボリュームに残り、次の起動からは取得を省略します。
+取得するのは、動作中の CPU に合うライブラリと使用許諾の文書だけです。arm64 では Raspberry Pi 4 向けのビルドを選びますが、arm64 のイメージで読み込めることは、まだ確認していません。ダウンロード元は環境変数 `NDI_SDK_URL` で差し替えられ、ハッシュの照合はしません。信頼できる取得元だけを指定してください。取得した場所が `/data` の下なので、PVC やボリュームに残り、次の起動からは取得を省略します。
 
 ### Podman と Docker
 
@@ -43,7 +43,14 @@ NDI のライブラリ `libndi.so.6` は、配布条件のためイメージに�
 podman run --rm -v "$PWD/data:/data:Z" --entrypoint dmxctl-fetch-ndi dmxctl:0.1.0 --accept-license
 ```
 
-そのあとは、通常どおり `/data` を指定して起動します。
+そのあとの起動では、次の2点が必要です。
+
+- 起動時に `--inputs configured` を付ける。`serve` は既定で入力をすべて無効にするため、付けないと NDI の受信が始まりません。
+- `project.json` で `ndi.enabled` を `true` にする。
+
+```
+podman run … dmxctl:0.1.0 serve --project /data/project.json --listen 127.0.0.1:9190 --inputs configured
+```
 
 ### Kubernetes
 
@@ -53,6 +60,8 @@ podman run --rm -v "$PWD/data:/data:Z" --entrypoint dmxctl-fetch-ndi dmxctl:0.1.
 components:
   - components/ndi
 ```
+
+`NDI_ACCEPT_LICENSE` を `"no"` のまま追加すると、initContainer が失敗して Pod が `Init:CrashLoopBackOff` になり、dmxctl 本体も起動しません。同意しないときは、追加しないでください。`deployment.yaml` は `--inputs configured` を付けているので、Kubernetes では、`project.json` の `ndi.enabled` だけ有効にすれば足ります。
 
 Pod の起動のたびに initContainer が動作しますが、PVC にライブラリがあれば、何もせずに終了します。初回だけ、Pod からインターネットへの接続が必要です。インターネットへ出られない環境では、ライブラリを手で `/data/ndi/libndi.so.6` に置いてください。
 

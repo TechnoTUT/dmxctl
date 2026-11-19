@@ -60,5 +60,6 @@ LIB="$(find "$WORK/NDI SDK for Linux/lib/$ARCH" -name 'libndi.so.*.*.*' | head -
 [ -n "$LIB" ] || { echo "libndi not found in the SDK" >&2; exit 1; }
 cp "$LIB" "$DIR/$(basename "$LIB")"
 ln -sf "$(basename "$LIB")" "$DIR/libndi.so.6"
+rm -rf "$DIR/licenses"
 cp -r "$WORK/NDI SDK for Linux/licenses" "$DIR/licenses"
 echo "installed: $DIR/libndi.so.6 ($(basename "$LIB"))"
