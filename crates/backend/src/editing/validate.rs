@@ -1,8 +1,17 @@
 //! プロジェクトの検証と、検証済みのプロジェクトの反映。
 use super::*;
 
+/// ARM・レーザーの合図の割り当て(押すと ARM されたり、レーザーが出たりする)。id ごとに、中身を JSON で比べる
+fn safety_bindings(project:&Project)->anyhow::Result<std::collections::BTreeMap<u64,Value>> {
+    project.bindings.iter().filter(|b|matches!(b.action,Action::Arm{..}|Action::Laser{..}))
+        .map(|b|Ok((b.id,serde_json::to_value(b)?))).collect()
+}
+
 pub fn safety_unchanged(old:&Project,new:&Project,lib:&Library)->anyhow::Result<()> {
     ensure!(old.motion.pan_front==new.motion.pan_front && old.motion.tilt_up==new.motion.tilt_up,"motion calibration is read-only from CLI");
+    // ARM・レーザーの合図の割り当ては、作成・変更・削除のどれもできない。よく押すパッドを差し替えると、
+    // 人が押したときに意図せず ARM されたり、レーザーが出たりするため。画面の割り当ての編集で扱う
+    ensure!(safety_bindings(old)?==safety_bindings(new)?,"ARM and laser cue bindings are read-only from CLI (edit them in the GUI)");
     for f in &old.fixtures {
         let mode=lib.mode(&f.profile,f.mode).context("unknown profile/mode")?;
         let protected=lib.get(&f.profile).is_some_and(|p|p.needs_arm) || !f.limits.is_empty() || mode.channels.iter().any(|c|!c.forbid.is_empty());

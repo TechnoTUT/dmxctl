@@ -72,7 +72,7 @@ pub fn serve(
                     }
                     continue;
                 }
-                if message["jsonrpc"] == "2.0" && message["method"] == "tools/call" && message["params"]["name"] == "wait"
+                if message["jsonrpc"] == "2.0" && message["method"] == "tools/call" && is_waiting_tool(&message["params"]["name"])
                     && let Some(id) = message.get("id")
                 {
                     let key = id.to_string();
@@ -82,7 +82,7 @@ pub fn serve(
                         continue;
                     }
                     if waits.len() >= MAX_WAITS {
-                        write_reply(&output, tool_reply(id.clone(), Err(anyhow::anyhow!("too many pending wait requests"))))?;
+                        write_reply(&output, tool_reply(id.clone(), Err(anyhow::anyhow!("too many pending wait/explain requests"))))?;
                         continue;
                     }
                     let cancelled = Arc::new(AtomicBool::new(false));
@@ -118,6 +118,11 @@ pub fn serve(
         }
         Ok(())
     })
+}
+
+/// 待つことのあるツール。別のスレッドで処理し、その間も後続の要求とキャンセルを受け付ける
+fn is_waiting_tool(name: &Value) -> bool {
+    name == "wait" || name == "explain"
 }
 
 fn write_reply(output: &Mutex<impl Write>, reply: Value) -> std::io::Result<()> {
@@ -219,14 +224,28 @@ fn tools() -> Vec<Value> {
     }
     vec![
         tool("status", "本体の状態(BPM・拍・出力先・入力・送信するかどうか・設定の版など)", json!({}), &[]),
-        tool("fixture_list", "機材の一覧(ID・名前・機種・属性)", json!({}), &[]),
+        tool(
+            "fixture_list",
+            "機材の一覧(ID・名前・機種・属性)。LED バーなどのピクセルの属性は、red・green などのまとめた名前と、pixels(ピクセル数)で返す。まとめた名前は fixture_set・output_check・output_snapshot でそのまま使える",
+            json!({}),
+            &[],
+        ),
         tool(
             "fixture_set",
             "機材1台の属性の基準値を変える(DMX 0〜255)。禁止の値・動いてよい範囲は、出力の直前に本体が必ず直す",
             json!({"fixture": fixture, "attr": attr, "value": {"type": "number", "description": "DMX の値"}}),
             &["fixture", "attr", "value"],
         ),
-        tool("control_list", "画面・MIDI と同じ割り当て(ボタン・スライダー)の一覧。ID は binding:番号", json!({}), &[]),
+        tool(
+            "control_list",
+            "画面・MIDI と同じ割り当て(ボタン・スライダー)の一覧。ID は binding:番号。既定は ID・名前・種類・ページだけ。動作の中身も見るときは detail: true",
+            json!({
+                "page": {"type": "integer", "minimum": 0, "description": "このページ(0始まり)の割り当てと、全ページ共通の割り当てだけ"},
+                "query": {"type": "string", "description": "名前にこの文字を含むものだけ"},
+                "detail": {"type": "boolean", "description": "動作・きっかけ(MIDI・OSC)の中身も返す"},
+            }),
+            &[],
+        ),
         tool(
             "control_press",
             "割り当てを押す・離す・スライダーを動かす。click=少し押して離す、press/hold=hold_ms の間押す(期限で必ず離れる)、release=離す、set=スライダーを value(0〜1)にする",
@@ -246,9 +265,9 @@ fn tools() -> Vec<Value> {
         ),
         tool(
             "output_snapshot",
-            "安全の処理を通った最終の出力の値(DMX)。fixture・attrs で絞れる",
+            "機材1台の、安全の処理を通った最終の出力の値(DMX)。values は属性名と値の対応。attrs で絞れる(LED バーの red などのまとめた名前も可)",
             json!({"fixture": fixture, "attrs": {"type": "array", "items": {"type": "string"}}}),
-            &[],
+            &["fixture"],
         ),
         tool("output_check", "最終の出力が条件を満たすか確かめる(passed と実際の値を返す)", condition, &["fixture", "attr"]),
         tool("wait", "フレーム数・拍数・時間、または出力の条件(fixture・attr と equals/min/max)を満たすまで待つ", wait_props, &[]),
@@ -277,6 +296,89 @@ fn tools() -> Vec<Value> {
         ),
         tool("project_save", "今の設定をプロジェクトのファイルに保存する", json!({}), &[]),
     ]
+}
+
+/// `red.12` → (`red`, Some(12))。ピクセルの属性でなければ (名前, None)
+fn split_pixel(attr: &str) -> (&str, Option<u32>) {
+    match attr.rsplit_once('.') {
+        Some((base, n)) if !base.is_empty() => n.parse().map_or((attr, None), |n| (base, Some(n))),
+        _ => (attr, None),
+    }
+}
+
+/// 機材の一覧を軽くする: ピクセルの属性(red.1〜red.90 など)を、まとめた名前とピクセル数にする
+fn compact_fixtures(mut list: Value) -> Value {
+    for f in list.as_array_mut().into_iter().flatten() {
+        let Some(attrs) = f["attrs"].as_array() else { continue };
+        let mut names = std::collections::BTreeSet::new();
+        let mut pixels = std::collections::BTreeSet::new();
+        for a in attrs.iter().filter_map(Value::as_str) {
+            match split_pixel(a) {
+                (base, Some(n)) => {
+                    names.insert(base.to_string());
+                    pixels.insert(n);
+                }
+                (name, None) => {
+                    names.insert(name.to_string());
+                }
+            }
+        }
+        f["attrs"] = json!(names);
+        if !pixels.is_empty() {
+            f["pixels"] = json!(pixels.len());
+        }
+    }
+    list
+}
+
+/// 割り当ての一覧を軽くする。既定は ID・名前・種類・ページ・押しているかだけ
+fn compact_controls(list: Value, page: Option<u64>, query: Option<&str>, detail: bool) -> Value {
+    let items = list.as_array().into_iter().flatten().filter(|c| {
+        page.is_none_or(|p| c["page"].is_null() || c["page"].as_u64() == Some(p)) && query.is_none_or(|q| c["name"].as_str().is_some_and(|n| n.contains(q)))
+    });
+    json!(items
+        .map(|c| {
+            if detail {
+                return c.clone();
+            }
+            let action = c["action"].as_object().and_then(|o| o.keys().next().cloned()).or_else(|| c["action"].as_str().map(String::from));
+            let mut short = json!({"id": c["id"], "name": c["name"], "kind": c["kind"], "action": action, "page": c["page"]});
+            for k in ["pressed", "remote_held"] {
+                if c[k] == true {
+                    short[k] = json!(true);
+                }
+            }
+            if c["remote_allowed"] == false {
+                short["remote_allowed"] = json!(false);
+            }
+            short
+        })
+        .collect::<Vec<_>>())
+}
+
+/// 機材1台の出力を、属性名と値の対応にする(チャンネルごとの番地などを省く)
+fn compact_snapshot(snap: Value) -> Value {
+    let channels = snap["channels"].as_array().cloned().unwrap_or_default();
+    let mut values = serde_json::Map::new();
+    for c in &channels {
+        let attr = c["attr"].as_str().unwrap_or("?").to_string();
+        match values.get_mut(&attr) {
+            // 同じ属性名のチャンネルが複数あるとき(16bit の細かい値など)は、並べる
+            Some(Value::Array(list)) => list.push(c["value"].clone()),
+            Some(prev) => *prev = json!([prev.clone(), c["value"].clone()]),
+            None => {
+                values.insert(attr, c["value"].clone());
+            }
+        }
+    }
+    let first = channels.first();
+    json!({
+        "frame": snap["frame"],
+        "t_ms": snap["t_ms"],
+        "universe": first.map(|c| c["universe"].clone()),
+        "first_address": first.map(|c| c["address"].clone()),
+        "values": values,
+    })
 }
 
 fn condition_of(args: &Value) -> Value {
@@ -308,13 +410,18 @@ fn call(request: Requester, name: &str, args: &Value) -> anyhow::Result<Value> {
     let attr = || arg(args, "attr", "a string", Value::as_str);
     match name {
         "status" => send(request, json!({"op": "status"})),
-        "fixture_list" => send(request, json!({"op": "fixtures", "include_attrs": true})),
+        "fixture_list" => Ok(compact_fixtures(send(request, json!({"op": "fixtures", "include_attrs": true}))?)),
         "fixture_set" => {
             let value = arg(args, "value", "a number", Value::as_f64)?;
             ensure!(value.is_finite(), "value must be finite");
             send(request, json!({"op": "command", "command": {"cmd": "set", "fixture": fixture()?, "attr": attr()?, "value": value}}))
         }
-        "control_list" => send(request, json!({"op": "controls"})),
+        "control_list" => {
+            let page = optional(args, "page", "a non-negative integer", Value::as_u64)?;
+            let query = optional(args, "query", "a string", Value::as_str)?;
+            let detail = optional(args, "detail", "a boolean", Value::as_bool)?.unwrap_or(false);
+            Ok(compact_controls(send(request, json!({"op": "controls"}))?, page, query, detail))
+        }
         "control_press" => {
             let mut command = json!({"cmd": "button", "control": arg(args, "control", "a string like binding:3", Value::as_str)?,
                 "event": arg(args, "event", "one of click/press/hold/release/set", Value::as_str)?});
@@ -331,14 +438,12 @@ fn call(request: Requester, name: &str, args: &Value) -> anyhow::Result<Value> {
             send(request, json!({"op": "command", "command": command}))
         }
         "output_snapshot" => {
-            let mut payload = json!({"op": "output"});
-            if let Some(f) = args.get("fixture") {
-                payload["fixture"] = f.clone();
-            }
+            // 全機材の出力は本番の設定で数百KBになるので、MCP では機材1台ずつにする
+            let mut payload = json!({"op": "output", "fixture": fixture()?});
             if let Some(a) = args.get("attrs") {
                 payload["attrs"] = a.clone();
             }
-            send(request, payload)
+            Ok(compact_snapshot(send(request, payload)?))
         }
         "output_check" => {
             fixture()?;
@@ -481,6 +586,45 @@ mod tests {
         assert_eq!(handle(&f, &rpc(2, "tools/call", json!({"name": "status", "arguments": [1]}))).unwrap()["error"]["code"], -32602);
         assert_eq!(handle(&f, &rpc(3, "tools/call", json!({}))).unwrap()["error"]["message"], "params.name is required");
         assert_eq!(handle(&f, &rpc(4, "tools/call", json!({"name": 7}))).unwrap()["error"]["message"], "params.name must be a string");
+    }
+
+    #[test]
+    fn large_lists_are_compacted_for_ai_clients() {
+        // LED バー: red.1〜red.90 などは、まとめた名前とピクセル数に
+        let mut attrs: Vec<String> = vec!["dimmer".into(), "red".into()];
+        for n in 1..=90 {
+            for c in ["red", "green", "blue", "white"] {
+                attrs.push(format!("{c}.{n}"));
+            }
+        }
+        let list = compact_fixtures(json!([{"id": 11, "attrs": attrs}, {"id": 1, "attrs": ["pan", "tilt", "dimmer"]}]));
+        assert_eq!(list[0]["attrs"], json!(["blue", "dimmer", "green", "red", "white"]));
+        assert_eq!(list[0]["pixels"], 90);
+        assert_eq!(list[1]["attrs"], json!(["dimmer", "pan", "tilt"]));
+        assert!(list[1].get("pixels").is_none());
+        assert_eq!(split_pixel("color.wheel"), ("color.wheel", None), "数字でない後ろは、ピクセルの番号ではない");
+
+        let controls = json!([
+            {"id": "binding:1", "name": "フラッシュ 白", "kind": "button", "page": null, "action": {"Flash": {"white": true}}, "pressed": false, "remote_allowed": true, "trigger": {"kind": "Note"}},
+            {"id": "binding:2", "name": "ARM", "kind": "button", "page": 1, "action": {"Arm": {}}, "pressed": false, "remote_allowed": false},
+            {"id": "binding:3", "name": "円", "kind": "button", "page": 0, "action": {"Motion": {}}, "pressed": true, "remote_allowed": true},
+        ]);
+        let short = compact_controls(controls.clone(), None, None, false);
+        assert_eq!(short[0], json!({"id": "binding:1", "name": "フラッシュ 白", "kind": "button", "action": "Flash", "page": null}));
+        assert_eq!(short[1]["remote_allowed"], false);
+        assert_eq!(short[2]["pressed"], true);
+        // ページ0: そのページと全ページ共通
+        let page0: Vec<_> = compact_controls(controls.clone(), Some(0), None, false).as_array().unwrap().iter().map(|c| c["id"].clone()).collect();
+        assert_eq!(page0, vec![json!("binding:1"), json!("binding:3")]);
+        assert_eq!(compact_controls(controls.clone(), None, Some("フラッシュ"), false).as_array().unwrap().len(), 1);
+        assert_eq!(compact_controls(controls.clone(), None, None, true), controls, "detail は今までどおり");
+
+        let snap = compact_snapshot(json!({"frame": 5, "t_ms": 9, "channels": [
+            {"attr": "pan", "universe": 1, "address": 1, "value": 128, "fixture": 1},
+            {"attr": "pan", "universe": 1, "address": 2, "value": 7, "fixture": 1},
+            {"attr": "dimmer", "universe": 1, "address": 6, "value": 255, "fixture": 1},
+        ]}));
+        assert_eq!(snap, json!({"frame": 5, "t_ms": 9, "universe": 1, "first_address": 1, "values": {"pan": [128, 7], "dimmer": 255}}));
     }
 
     #[test]
