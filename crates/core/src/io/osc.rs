@@ -249,7 +249,7 @@ impl Core {
     }
 
     pub fn handle_osc(&mut self, m: &Message) {
-        if self.rt.recorder.is_some() && self.rt.audit_depth==0 {
+        if self.rt.observe.is_recording() && self.rt.observe.is_root_input() {
             let args:Vec<serde_json::Value>=m.args.iter().map(|a|match a {
                 Arg::Int(v)=>serde_json::json!(v),Arg::Float(v)=>serde_json::json!(v),
                 Arg::Str(v)=>serde_json::json!(v),Arg::Bool(v)=>serde_json::json!(v),

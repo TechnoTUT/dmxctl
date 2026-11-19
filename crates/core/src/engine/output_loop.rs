@@ -63,7 +63,7 @@ pub(super) fn run(core: Shared, stop: Arc<AtomicBool>, output_enabled: bool) {
                     c.rt.frames = frames.clone();
                     c.rt.frame_id += 1;
                     c.rt.safety_events.clear();
-                    if let Some(recorder) = c.rt.recorder.clone() {
+                    if let Some(recorder) = c.rt.observe.recorder().cloned() {
                         recorder.frame(&c, true);
                     }
                 }

@@ -177,7 +177,7 @@ mod tests {
         let value=|stage:&str|stages.iter().find(|s|s["stage"]==stage).unwrap()["channels"][0]["value"].as_f64().unwrap();
         assert_eq!(value("base"),50.0);assert_eq!(value("effects"),140.0);assert_eq!(value("safety"),90.0);assert_eq!(value("output"),90.0);
         assert!(result["trace"]["safety"].as_array().unwrap().iter().any(|s|s["reason"]=="limits"));
-        assert!(c.rt.trace.is_none());assert!(c.rt.recorder.is_none());
+        assert!(!c.rt.observe.is_tracing());assert!(!c.rt.observe.is_recording());
     }
     #[test]
     fn blackout_and_disabled_output_are_distinct_in_trace() {

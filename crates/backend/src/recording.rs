@@ -67,11 +67,11 @@ mod tests {
         let (lib,_)=dmxctl_core::fixture::Library::load(Path::new("none"));
         let mut c=Core::new(dmxctl_core::project::Project::starter(&lib),Arc::new(lib));
         c.project.web_pin="secret-history-pin".into();
-        c.rt.recorder=Some(recording.recorder.clone());
+        c.rt.observe.set_recorder(Some(recording.recorder.clone()));
         c.handle_key(16,true);
         crate::commands::apply(&mut c,&json!({"cmd":"input","source":"key","number":16,"pressed":false})).unwrap();
         let before=c.history_state();c.project.bpm=125.0;c.record_observation(before,"gui_frame");
-        c.rt.recorder=None;recording.finish().unwrap();
+        c.rt.observe.set_recorder(None);recording.finish().unwrap();
         let text=std::fs::read_to_string(&path).unwrap();
         assert!(!text.contains("secret-history-pin"));
         let events:Vec<Value>=text.lines().map(|s|serde_json::from_str(s).unwrap()).collect();

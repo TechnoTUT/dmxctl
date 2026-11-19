@@ -2,9 +2,6 @@
 use super::*;
 
 pub struct Runtime {
-    pub audit_depth: usize,
-    pub trace: Option<crate::trace::Trace>,
-    pub trace_ticket: u64,
     pub revision: u64,
     pub revision_hash: Option<u64>,
     pub session: String,
@@ -16,7 +13,8 @@ pub struct Runtime {
     pub flash_deadline: Option<Instant>,
     /// Automation can supply a monotonic clock without changing the GUI clock.
     pub virtual_now: Option<Instant>,
-    pub recorder: Option<crate::recorder::Recorder>,
+    /// 記録と診断
+    pub observe: crate::observe::Observe,
     pub safety_events: Vec<serde_json::Value>,
     pub blackout: bool,
     pub fades: Vec<Fade>,
@@ -153,7 +151,6 @@ pub struct Runtime {
 impl Runtime {
     pub(super) fn new() -> Self {
         Runtime {
-            audit_depth: 0,
             blackout: false,
             fades: Vec::new(),
             pad_state: HashMap::new(),
@@ -179,8 +176,6 @@ impl Runtime {
             output_status: Vec::new(),
             output_gen: 0,
             frame_id: 0,
-            trace: None,
-            trace_ticket: 0,
             revision: 0,
             revision_hash: None,
             session: format!("{}-{}",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos()),
@@ -193,7 +188,7 @@ impl Runtime {
             remote_emergency: false,
             flash_deadline: None,
             virtual_now: None,
-            recorder: None,
+            observe: Default::default(),
             safety_events: Vec::new(),
             t0: Instant::now(),
             page: 0,

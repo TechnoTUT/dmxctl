@@ -15,9 +15,9 @@ pub(crate) fn flag(value:&Value,key:&str,default:bool)->anyhow::Result<bool> {
 }
 
 pub(crate) fn apply(core: &mut Core, value: &Value) -> anyhow::Result<()> {
-    core.rt.audit_depth += 1;
+    core.rt.observe.enter_command();
     let result=apply_inner(core,value);
-    core.rt.audit_depth -= 1;
+    core.rt.observe.leave_command();
     result
 }
 

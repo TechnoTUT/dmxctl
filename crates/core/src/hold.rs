@@ -55,7 +55,7 @@ impl Core {
         self.apply_action(index,hold.action,0.0,false);
         if index==usize::MAX {self.rt.pad_state.remove(&index);}
         match hold.feedback {Feedback::None=>{},Feedback::Note(n)=>self.rt.notes_down[n as usize]=false,Feedback::Key(n)=>self.rt.keys_down.retain(|&k|k!=n)}
-        if let Some(recorder)=&self.rt.recorder {
+        if let Some(recorder)=self.rt.observe.recorder() {
             recorder.emit(json!({"type":"command","source":source,"command":{"cmd":"button","control":format!("binding:{id}"),"event":"release"},
                 "applies_from_frame":recorder.next_frame(),"applies_from_engine_frame":self.rt.frame_id+1,
                 "t_ms":self.now().saturating_duration_since(self.rt.t0).as_millis() as u64}));
