@@ -11,7 +11,7 @@
 - `ctl` コマンドで様子を確認する・操作する
 
 できないこと・注意点
-- **NDI は利用できません。** NDI のライブラリは配布条件のため、イメージに含めていません。
+- **NDI のライブラリは、イメージに含めていません。** 配布条件のためです。利用者が公式サイトから取得すると使えます。手順は「NDI を使う」を確認してください。
 - **USB-DMX は利用しません。** このイメージは Art-Net の出力だけを想定しています。
 - **MIDI と音の入力は利用しません。** 入力は OSC と操作パネルだけです。
 - **Ableton Link と PRO DJ LINK は届きません。** これらは同じ L2 ネットワークが必要です。Pod の標準ネットワークでは届きません。照明の VLAN lbar へ直接出力する設定は、Infra 側で VLAN 30 のブリッジを作成してから行います。
@@ -21,9 +21,52 @@
 | ファイル | 役割 |
 |---|---|
 | `Containerfile` | ビルドと実行のイメージ。画面を持たない `dmxctl-server` をビルドし、イメージの中では `dmxctl` の名前で入れる。実行するのは `dmxctl serve` だけ |
+| `deploy/container/fetch-ndi.sh` | イメージの中で `dmxctl-fetch-ndi` になる。NDI の公式サイトからライブラリを取得して `/data/ndi` に置く |
+| `deploy/kubernetes/components/ndi/` | NDI を使うときの追加分。起動前にライブラリを取得する initContainer を足す |
 | `.dockerignore` | ビルドに送信しないもの。`target/` などは数 GB あるため除外する |
 | `deploy/kubernetes/` | Kubernetes のマニフェスト。`kubectl apply -k` で配置できる |
 | `deploy/kubernetes/argocd-application.example.yaml` | Infra の Argo CD に登録する Application の例 |
+
+## NDI を使う
+
+NDI のライブラリ `libndi.so.6` は、配布条件のためイメージに含めていません。代わりに、利用者がイメージ内の `dmxctl-fetch-ndi` で NDI の公式サイトから取得し、`/data/ndi` に置きます。dmxctl は起動時にそこを探します。ライブラリが無くても起動はでき、NDI だけが使えません。
+
+**使用許諾に注意してください。** 取得すると、NDI SDK の使用許諾に同意したことになります。同意する主体は、このスクリプトを実行する利用者です。許諾には、コンテナやクラウドでの利用に関する条件が含まれています。自分の利用が条件に合うかを、先に確認してください。同意しない限りスクリプトは何も取得せず、`--accept-license` か `NDI_ACCEPT_LICENSE=yes` を付けたときだけ取得します。
+
+取得するのは、動作中の CPU に合うライブラリと使用許諾の文書だけです。取得した場所が `/data` の下なので、PVC やボリュームに残り、次の起動からは取得を省略します。
+
+### Podman と Docker
+
+`/data` を保存するボリュームに対して、一度だけ取得します。
+
+```
+podman run --rm -v "$PWD/data:/data:Z" --entrypoint dmxctl-fetch-ndi dmxctl:0.1.0 --accept-license
+```
+
+そのあとは、通常どおり `/data` を指定して起動します。
+
+### Kubernetes
+
+`deploy/kubernetes/components/ndi/kustomization.yaml` の `NDI_ACCEPT_LICENSE` を、使用許諾に同意するときだけ `"yes"` に書き換えます。次に、`deploy/kubernetes/kustomization.yaml` へ追加して適用します。
+
+```yaml
+components:
+  - components/ndi
+```
+
+Pod の起動のたびに initContainer が動作しますが、PVC にライブラリがあれば、何もせずに終了します。初回だけ、Pod からインターネットへの接続が必要です。インターネットへ出られない環境では、ライブラリを手で `/data/ndi/libndi.so.6` に置いてください。
+
+### 確認と、ソースの指定
+
+起動後に `kubectl -n dmxctl logs deploy/dmxctl` で、NDI のライブラリが見つからないというログが無いことを確認します。
+
+コンテナには Avahi のデーモンが無く、Pod のネットワークではマルチキャストも届かないため、NDI のソースは自動では見つかりません。送信側の IPアドレスを、NDI の設定ファイル `/data/.ndi/ndi-config.v1.json` に書いて指定します。
+
+```json
+{ "ndi": { "networks": { "ips": "192.168.11.20" } } }
+```
+
+この設定ファイルの指定は NDI のライブラリの仕様によるもので、dmxctl のコンテナでは、まだ実機で確認していません。
 
 ## イメージを作る
 

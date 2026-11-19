@@ -1,0 +1,32 @@
+# NDI を使うための追加分。既定の構成には含まれない。
+# 使うときは、deploy/kubernetes/kustomization.yaml に次を足す。
+#   components:
+#   - components/ndi
+# 先に NDI SDK の使用許諾を読み、同意するときだけ、下の NDI_ACCEPT_LICENSE を "yes" に書き換える。
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+patches:
+- target:
+    kind: Deployment
+    name: dmxctl
+  patch: |-
+    - op: add
+      path: /spec/template/spec/initContainers/-
+      value:
+        name: ndi
+        image: registry.svc.technotut.net/dmxctl:0.1.0
+        imagePullPolicy: IfNotPresent
+        command: ["dmxctl-fetch-ndi"]
+        env:
+        - name: NDI_ACCEPT_LICENSE
+          value: "no"
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        - name: tmp
+          mountPath: /tmp

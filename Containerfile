@@ -2,7 +2,8 @@
 # 作り方。リポジトリの直下で次を実行する:  podman build -t dmxctl:0.1.0 -f Containerfile .
 # 動かし方と Kubernetes の例は docs/container.md と deploy/kubernetes/ を見る。
 #
-# NDI のライブラリは配布条件のため入れない。NDI の映像・音の取り込みは、このイメージでは使えない。
+# NDI のライブラリは配布条件のため入れない。利用者が `dmxctl-fetch-ndi` で NDI の公式サイトから取得すると、NDI の映像・音の取り込みが使える。
+# 取得の手順は docs/container.md の「NDI を使う」を見る。
 
 # ---- 1. ビルド ----
 FROM docker.io/library/rust:1-trixie AS build
@@ -28,10 +29,12 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 # ---- 2. 実行 ----
 FROM docker.io/library/debian:trixie-slim
 
-# 実行に要る共有ライブラリ。ALSA は音と MIDI の土台で、udev とともに起動時に読み込まれるので入れておく
+# 実行に要る共有ライブラリ。ALSA は音と MIDI の土台で、udev とともに起動時に読み込まれるので入れておく。
+# Avahi は後から取得する NDI のライブラリが必須とするもの、curl は `dmxctl-fetch-ndi` がダウンロードに利用するもの
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       libasound2t64 libudev1 libstdc++6 libcap2 tzdata \
+      libavahi-client3 libavahi-common3 curl ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
 # 権限を落として動かす。UID 10001 は Infra の plmux と同じ数字にしている
@@ -41,9 +44,13 @@ RUN groupadd --gid 10001 dmxctl \
  && chown dmxctl:dmxctl /data
 
 COPY --from=build /dmxctl /usr/local/bin/dmxctl
+COPY deploy/container/fetch-ndi.sh /usr/local/bin/dmxctl-fetch-ndi
 
+# NDI のライブラリは /data/ndi から読み込む。無ければ NDI を使わないだけで、起動は妨げない
 ENV TZ=Asia/Tokyo \
-    HOME=/data
+    HOME=/data \
+    DMXCTL_NDI_DIR=/data/ndi \
+    DMXCTL_NDI_LIB=/data/ndi
 
 USER 10001:10001
 WORKDIR /data
