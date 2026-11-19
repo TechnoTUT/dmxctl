@@ -36,6 +36,16 @@ impl Default for RemoteUi {
     }
 }
 
+/// 起動し直すときに引き継ぐ引数。最初の起動の `--project` などを残し、`connect 接続先` だけを除く。
+/// クライアントへ切り替えたときも持ち回るので、通常の起動へ戻したときに同じプロジェクトで開く
+fn inherited_args() -> Vec<String> {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    match args.first().map(String::as_str) {
+        Some("connect") => args.into_iter().skip(2).collect(),
+        _ => args,
+    }
+}
+
 impl App {
     /// 別のPCの画面から操作させるための待ち受け。保存せず、起動のたびに停止から始める
     pub(crate) fn remote_row(&mut self, ui: &mut egui::Ui) {
@@ -89,9 +99,13 @@ impl App {
 
     /// クライアントのファイルメニューの項目。通常の起動へ戻す
     pub(crate) fn disconnect_menu_item(&mut self, ui: &mut egui::Ui) {
+        // 画面を手放す前に新しい起動が始まり、DRM を取得できないので、デスクトップ環境の無い画面では出さない
+        if crate::app::no_desktop(ui.ctx()) {
+            return;
+        }
         if ui.button("サーバーから切断して通常起動に戻す").on_hover_text("このウィンドウを閉じて、サーバーに接続しない通常の起動をやり直します").clicked() {
             ui.close();
-            self.remote.relaunch = Some(Vec::new());
+            self.remote.relaunch = Some(inherited_args());
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
         }
     }
@@ -102,7 +116,8 @@ impl App {
         if let Some(rx) = &dialog.probing {
             match rx.try_recv() {
                 Ok(Ok(())) => {
-                    let args = vec!["connect".to_string(), dialog.target.trim().to_string()];
+                    let mut args = vec!["connect".to_string(), dialog.target.trim().to_string()];
+                    args.extend(inherited_args());
                     self.remote.connect = None;
                     self.remote.relaunch = Some(args);
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
