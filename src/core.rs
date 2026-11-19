@@ -18,6 +18,7 @@ pub mod look;
 pub mod motion;
 pub mod pixel;
 pub mod trace;
+pub mod wake;
 pub mod project;
 pub mod recorder;
 #[cfg(test)]

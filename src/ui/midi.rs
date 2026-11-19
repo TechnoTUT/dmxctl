@@ -211,7 +211,7 @@ impl App {
                 }
             } else if ui.add_enabled(!self.midi_choice.is_empty(), egui::Button::new("接続")).clicked() {
                 let name = self.midi_choice.clone();
-                match self.host.midi.connect(&self.host.core, ctx.clone(), &name) {
+                match self.host.midi.connect(&self.host.core, crate::ui::app::wake_of(&ctx), &name) {
                     Ok(()) => {
                         let mut c = lock(&self.host.core);
                         c.project.midi_input = name;

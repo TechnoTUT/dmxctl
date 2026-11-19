@@ -10,7 +10,6 @@ use crate::core::engine::{lock, Core, Engine, Shared};
 use crate::core::fixture::Library;
 use crate::core::io::midi::{self, Midi};
 use crate::core::project::*;
-use eframe::egui;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -41,7 +40,7 @@ pub struct Host {
     ndi: Option<crate::core::io::ndi::NdiService>,
     audio: Option<crate::core::io::audio::AudioService>,
     /// 描き直しを頼む先(画面なしでは使われないContext)
-    pub ctx: egui::Context,
+    pub ctx: crate::core::wake::Wake,
     /// プロジェクトを読み直した回数(画面は、変わったら編集中の選択などを捨てる)
     pub(crate) reloads: u64,
     /// サービスの設定を反映した回数(画面は、変わったらOSCポートの編集欄などを今の値に戻す)
@@ -53,7 +52,7 @@ pub struct Host {
 }
 
 impl Host {
-    pub fn start(ctx: &egui::Context, options: crate::backend::control::Launch) -> anyhow::Result<Self> {
+    pub fn start(ctx: &crate::core::wake::Wake, options: crate::backend::control::Launch) -> anyhow::Result<Self> {
         if let Some(target) = options.connect.clone() {
             return Self::connect(ctx, options, &target);
         }
@@ -141,7 +140,7 @@ impl Host {
     }
 
     /// サーバーにつなぐクライアントのホスト。Core はサーバーの写しで、出力ループ・外部との連携・保存は動かさない
-    fn connect(ctx: &egui::Context, mut options: crate::backend::control::Launch, target: &str) -> anyhow::Result<Self> {
+    fn connect(ctx: &crate::core::wake::Wake, mut options: crate::backend::control::Launch, target: &str) -> anyhow::Result<Self> {
         let (mut client, initial) = crate::backend::remote::Client::connect(target, ctx.clone())?;
         let core: Shared = Arc::new(Mutex::new(Core::new(initial.project, Arc::new(initial.lib))));
         client.attach(core.clone());
@@ -183,7 +182,7 @@ impl Host {
                 while !crate::core::engine::EMERGENCY.load(std::sync::atomic::Ordering::SeqCst) {
                     std::thread::sleep(Duration::from_millis(50));
                 }
-                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                ctx.request_close();
                 ctx.request_repaint();
                 std::thread::sleep(Duration::from_secs(1));
                 std::process::exit(0);
@@ -483,7 +482,7 @@ impl Host {
 
     /// Runs the same Host and Engine as the GUI, without forcing BLT/auto settings.
     pub fn serve(options: crate::backend::control::Launch) -> anyhow::Result<()> {
-        let ctx = egui::Context::default();
+        let ctx = crate::core::wake::Wake::none();
         let mut host = Self::start(&ctx, options)?;
         let address = host.control.as_ref().map(|server|server.address);
         println!("{}",serde_json::json!({"ready":true,"listen":address,"remote_listen":host.remote.as_ref().map(|r|r.address),"project":host.project_path,
@@ -500,7 +499,7 @@ impl Host {
     /// 画面を出さずに動かす(`dmxctl headless`)。モニターの無いPCで、Beat Link Triggerと一緒に置いてオートで動かす用。
     /// OSC受信・テンポの元(Ableton Link)・オートを必ずONにする。終了は SIGTERM / Ctrl+C(安全な値を送ってから終わる)
     pub fn run_headless(options: crate::backend::control::Launch) -> ! {
-        let ctx = egui::Context::default();
+        let ctx = crate::core::wake::Wake::none();
         let mut host = Self::start(&ctx, options).unwrap_or_else(|error| {
             eprintln!("{error}");
             std::process::exit(1);

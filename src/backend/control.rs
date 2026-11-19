@@ -94,7 +94,7 @@ pub(crate) struct Server {
 }
 
 impl Server {
-    pub fn start(address: SocketAddr, ctx: eframe::egui::Context) -> anyhow::Result<Self> {
+    pub fn start(address: SocketAddr, ctx: crate::core::wake::Wake) -> anyhow::Result<Self> {
         ensure!(address.ip().is_loopback(), "control server must bind to loopback");
         let listener = TcpListener::bind(address).context("cannot start control server")?;
         let address = listener.local_addr()?;

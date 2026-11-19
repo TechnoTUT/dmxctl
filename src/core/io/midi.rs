@@ -49,7 +49,7 @@ pub struct Midi {
 
 impl Midi {
     /// `ctx`は入力があった瞬間に画面を更新させるためのもの(普段は低頻度の更新で済ませる)
-    pub fn connect(&mut self, core: &Shared, ctx: eframe::egui::Context, name: &str) -> Result<(), String> {
+    pub fn connect(&mut self, core: &Shared, ctx: crate::core::wake::Wake, name: &str) -> Result<(), String> {
         self.disconnect();
         let mut input = MidiInput::new("dmxctl").map_err(|e| e.to_string())?;
         // フェーダー位置の応答(SysEx)とMIDIクロックを受け取るため、無視するのはアクティブセンシングだけ

@@ -24,7 +24,7 @@ pub struct WebServer {
 
 impl WebServer {
     /// `ctx`は操作したときに画面を更新させるためのもの
-    pub fn start(core: Shared, ctx: Option<eframe::egui::Context>, port: u16) -> Result<WebServer, String> {
+    pub fn start(core: Shared, ctx: Option<crate::core::wake::Wake>, port: u16) -> Result<WebServer, String> {
         let listener = TcpListener::bind(("0.0.0.0", port)).map_err(|e| format!("ポート{port}を開けません: {e}"))?;
         listener.set_nonblocking(true).map_err(|e| e.to_string())?;
         let stop = Arc::new(AtomicBool::new(false));
@@ -131,7 +131,7 @@ fn respond(stream: &mut TcpStream, status: &str, ctype: &str, body: &[u8]) {
     let _ = stream.write_all(body);
 }
 
-fn serve(mut stream: TcpStream, core: &Shared, ctx: Option<&eframe::egui::Context>) {
+fn serve(mut stream: TcpStream, core: &Shared, ctx: Option<&crate::core::wake::Wake>) {
     let _ = stream.set_nonblocking(false);
     let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));

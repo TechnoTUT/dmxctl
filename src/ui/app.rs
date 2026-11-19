@@ -23,6 +23,21 @@ pub fn no_desktop(ctx: &egui::Context) -> bool {
 
 /// 動いているもの(拍で動く点・色の追従・フェード・モニター)を描き直す間隔。約30fps。
 /// (eguiは頼んだ時刻より1フレーム分(1/60秒)早めに描くので、33msに1/60秒を足して頼む)
+/// 画面の `egui::Context` を、`core`・`backend` が使う `Wake` にする
+pub fn wake_of(ctx: &egui::Context) -> crate::core::wake::Wake {
+    let (a, b) = (ctx.clone(), ctx.clone());
+    crate::core::wake::Wake::new(
+        move |after| match after {
+            Some(d) => a.request_repaint_after(d),
+            None => a.request_repaint(),
+        },
+        move || {
+            b.send_viewport_cmd(egui::ViewportCommand::Close);
+            b.request_repaint();
+        },
+    )
+}
+
 pub const SMOOTH: Duration = Duration::from_millis(50);
 
 /// このウィンドウが前面か。前面でない(映像ソフトなどを前に出している)ときは、描き直しを減らしてCPUを譲る。
@@ -142,7 +157,7 @@ impl App {
         egui_ctx.data_mut(|d| d.insert_temp(no_desktop_id(), no_desktop));
         crate::ui::theme::setup_fonts(egui_ctx);
         crate::ui::theme::apply(egui_ctx);
-        let host = Host::start(egui_ctx, options.clone())?;
+        let host = Host::start(&wake_of(egui_ctx), options.clone())?;
         let osc_port_edit = lock(&host.core).project.osc_port;
         let mut app = App {
             midi_choice: host.initial_midi.clone(),

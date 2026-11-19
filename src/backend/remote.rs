@@ -387,7 +387,7 @@ pub struct RemoteServer {
 impl RemoteServer {
     /// LANのクライアントを待ち受ける
     /// `allow_safety_edit`: クライアントから、機材定義の安全の設定を変えることを許す(`--remote-allow-safety-edit`)
-    pub fn start(core: Shared, ctx: eframe::egui::Context, address: SocketAddr, allow_safety_edit: bool) -> anyhow::Result<Self> {
+    pub fn start(core: Shared, ctx: crate::core::wake::Wake, address: SocketAddr, allow_safety_edit: bool) -> anyhow::Result<Self> {
         let listener = TcpListener::bind(address).with_context(|| format!("クライアントの待ち受けを始められません({address})"))?;
         let address = listener.local_addr()?;
         listener.set_nonblocking(true)?;
@@ -455,7 +455,7 @@ fn refuse(stream: TcpStream, msg: &str) {
     });
 }
 
-fn serve_conn(stream: TcpStream, core: &Shared, ctx: &eframe::egui::Context, events: &ServerEvents, conns: &Mutex<Vec<Arc<Conn>>>, allow_safety_edit: bool) -> anyhow::Result<()> {
+fn serve_conn(stream: TcpStream, core: &Shared, ctx: &crate::core::wake::Wake, events: &ServerEvents, conns: &Mutex<Vec<Arc<Conn>>>, allow_safety_edit: bool) -> anyhow::Result<()> {
     // macOS/BSD では accept した接続がリスナーのノンブロッキングを引き継ぐ
     stream.set_nonblocking(false)?;
     stream.set_nodelay(true)?;
@@ -808,7 +808,7 @@ pub struct Client {
     stop: Arc<AtomicBool>,
     pending: Option<(TcpStream, BufReader<TcpStream>, Value)>,
     supervisor: Option<JoinHandle<()>>,
-    ctx: eframe::egui::Context,
+    ctx: crate::core::wake::Wake,
     /// 画面の1フレームの前のプロジェクトとラーンの状態
     before: Option<(Value, (Option<usize>, Option<usize>))>,
 }
@@ -855,7 +855,7 @@ fn project_from(server: &Value, local: Option<&Project>) -> anyhow::Result<Proje
 
 impl Client {
     /// サーバーにつなぎ、プロジェクトと機材定義を受け取る。続きの同期は `attach` で始める
-    pub fn connect(target: &str, ctx: eframe::egui::Context) -> anyhow::Result<(Self, Initial)> {
+    pub fn connect(target: &str, ctx: crate::core::wake::Wake) -> anyhow::Result<(Self, Initial)> {
         let (writer, reader, v) = handshake(target, 0)?;
         let confirmed = v["project"].clone();
         let mut project = project_from(&confirmed, None)?;
@@ -1161,7 +1161,7 @@ fn run_connection(
     sync: &Mutex<ClientSync>,
     link: &Link,
     stop: &AtomicBool,
-    ctx: &eframe::egui::Context,
+    ctx: &crate::core::wake::Wake,
 ) -> Option<String> {
     let alive = Arc::new(AtomicBool::new(true));
     let sender = {
@@ -1267,12 +1267,12 @@ mod tests {
         let (lib, _) = Library::load(std::path::Path::new("/nonexistent"));
         let project = Project::starter(&lib);
         let core: Shared = Arc::new(Mutex::new(Core::new(project, Arc::new(lib))));
-        let server = RemoteServer::start(core.clone(), eframe::egui::Context::default(), "127.0.0.1:0".parse().unwrap(), false).unwrap();
+        let server = RemoteServer::start(core.clone(), crate::core::wake::Wake::none(), "127.0.0.1:0".parse().unwrap(), false).unwrap();
         (core, server)
     }
 
     fn client(server: &RemoteServer) -> (Shared, Client) {
-        let (mut client, initial) = Client::connect(&server.address.to_string(), eframe::egui::Context::default()).unwrap();
+        let (mut client, initial) = Client::connect(&server.address.to_string(), crate::core::wake::Wake::none()).unwrap();
         let core: Shared = Arc::new(Mutex::new(Core::new(initial.project, Arc::new(initial.lib))));
         client.attach(core.clone());
         (core, client)
@@ -1288,7 +1288,7 @@ mod tests {
     fn server_with(project: Project) -> (Shared, RemoteServer) {
         let (lib, _) = Library::load(std::path::Path::new("/nonexistent"));
         let core: Shared = Arc::new(Mutex::new(Core::new(project, Arc::new(lib))));
-        let server = RemoteServer::start(core.clone(), eframe::egui::Context::default(), "127.0.0.1:0".parse().unwrap(), false).unwrap();
+        let server = RemoteServer::start(core.clone(), crate::core::wake::Wake::none(), "127.0.0.1:0".parse().unwrap(), false).unwrap();
         (core, server)
     }
 
@@ -1389,7 +1389,7 @@ mod tests {
         let (_core, server) = server();
         let mut clients: Vec<_> = (0..MAX_CLIENTS).map(|_| client(&server)).collect();
         assert!(wait(|| server.clients() == MAX_CLIENTS));
-        let error = Client::connect(&server.address.to_string(), eframe::egui::Context::default()).err().expect("over the limit");
+        let error = Client::connect(&server.address.to_string(), crate::core::wake::Wake::none()).err().expect("over the limit");
         assert!(error.to_string().contains("多すぎます"), "{error}");
         clients.clear();
     }
@@ -1468,7 +1468,7 @@ mod tests {
         let mut project = Project::starter(&lib);
         project.fixtures[0].name = "after restart".into();
         let new_core: Shared = Arc::new(Mutex::new(Core::new(project, Arc::new(lib))));
-        let _server = RemoteServer::start(new_core.clone(), eframe::egui::Context::default(), address, false).unwrap();
+        let _server = RemoteServer::start(new_core.clone(), crate::core::wake::Wake::none(), address, false).unwrap();
         assert!(wait(|| {
             frame(&mut client, &core, |_| {});
             client.connected() && lock(&core).project.fixtures[0].name == "after restart"
@@ -1485,7 +1485,7 @@ mod tests {
         let (lib, _) = Library::load(&dir);
         let project = Project::starter(&lib);
         let server_core: Shared = Arc::new(Mutex::new(Core::new(project, Arc::new(lib))));
-        let server = RemoteServer::start(server_core.clone(), eframe::egui::Context::default(), "127.0.0.1:0".parse().unwrap(), false).unwrap();
+        let server = RemoteServer::start(server_core.clone(), crate::core::wake::Wake::none(), "127.0.0.1:0".parse().unwrap(), false).unwrap();
         let (core, client) = client(&server);
         // つないだときに、サーバーのPCの機器の一覧が届く
         assert!(wait(|| client.devices().is_some()));
@@ -1520,7 +1520,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let (lib, _) = Library::load(&dir);
         let server_core: Shared = Arc::new(Mutex::new(Core::new(Project::starter(&lib), Arc::new(lib))));
-        let server = RemoteServer::start(server_core.clone(), eframe::egui::Context::default(), "127.0.0.1:0".parse().unwrap(), allow_safety_edit).unwrap();
+        let server = RemoteServer::start(server_core.clone(), crate::core::wake::Wake::none(), "127.0.0.1:0".parse().unwrap(), allow_safety_edit).unwrap();
         let (core, client) = client(&server);
         let mut laser = (*lock(&core).lib.profiles[0]).clone();
         laser.id = "test/laser".into();

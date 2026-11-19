@@ -458,7 +458,7 @@ pub struct OscServer {
 
 impl OscServer {
     /// `ctx`は受信したときに画面を更新させるためのもの(映像ソフトから連続で来ても、画面の更新は0.25秒に1回まで)
-    pub fn start(core: Shared, ctx: Option<eframe::egui::Context>, port: u16) -> Result<OscServer, String> {
+    pub fn start(core: Shared, ctx: Option<crate::core::wake::Wake>, port: u16) -> Result<OscServer, String> {
         let sock = UdpSocket::bind(("0.0.0.0", port)).map_err(|e| format!("ポート{port}を開けません: {e}"))?;
         sock.set_read_timeout(Some(Duration::from_millis(200))).map_err(|e| e.to_string())?;
         let stop = Arc::new(AtomicBool::new(false));

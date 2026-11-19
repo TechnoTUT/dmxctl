@@ -222,7 +222,7 @@ pub struct NdiService {
 }
 
 impl NdiService {
-    pub fn start(core: Shared, ctx: Option<eframe::egui::Context>) -> NdiService {
+    pub fn start(core: Shared, ctx: Option<crate::core::wake::Wake>) -> NdiService {
         let stop = Arc::new(AtomicBool::new(false));
         let s2 = stop.clone();
         let handle = std::thread::Builder::new().name("ndi".into()).spawn(move || run(core, ctx, s2)).ok();
@@ -244,7 +244,7 @@ fn set_state(core: &Shared, f: impl FnOnce(&mut NdiState)) {
     f(&mut lock(core).rt.ndi);
 }
 
-fn run(core: Shared, ctx: Option<eframe::egui::Context>, stop: Arc<AtomicBool>) {
+fn run(core: Shared, ctx: Option<crate::core::wake::Wake>, stop: Arc<AtomicBool>) {
     if let Err(e) = moip_ndi::init_with_paths(&extra_lib_paths()) {
         eprintln!("NDI: {e}");
         let msg = load_error_status(e.kind(), e.detail(), &e.to_string());

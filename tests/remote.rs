@@ -18,7 +18,7 @@ fn project_dir() -> std::path::PathBuf {
 #[test]
 fn a_gui_client_follows_the_server_and_sends_operations() {
     let dir = project_dir();
-    let server_ctx = eframe::egui::Context::default();
+    let server_ctx = dmxctl::core::wake::Wake::none();
     let mut server = Host::start(&server_ctx, Launch {
         project: Some(dir.join("project.json")), output: false, inputs: false, autosave: false,
         remote_listen: Some("127.0.0.1:0".parse().unwrap()), ..Default::default()
@@ -82,7 +82,7 @@ fn a_gui_client_opens_server_files_and_files_from_its_own_pc() {
     let mut other = Project::starter(&lib);
     other.fixtures[0].name = "from other.json".into();
     other.save(&dir.join("other.json")).unwrap();
-    let server_ctx = eframe::egui::Context::default();
+    let server_ctx = dmxctl::core::wake::Wake::none();
     let mut server = Host::start(&server_ctx, Launch {
         project: Some(dir.join("project.json")), output: false, inputs: false, autosave: false,
         remote_listen: Some("127.0.0.1:0".parse().unwrap()), ..Default::default()
