@@ -149,7 +149,8 @@ fn momentary_flash_expires_even_when_the_client_disconnects() {
     let until_bright=|bright:bool|{
         let deadline=std::time::Instant::now()+Duration::from_secs(5);
         while std::time::Instant::now()<deadline {
-            let value=host.request(json!({"op":"output","fixture":1,"attrs":["dimmer"]}))["channels"][0]["value"].clone();
+            let output=host.request(json!({"op":"output","fixture":1,"attrs":["dimmer"]}));
+            let value=output["channels"][0]["value"].as_u64().expect("missing dimmer output");
             if (value==255)==bright {return true;}
             std::thread::sleep(Duration::from_millis(20));
         }
