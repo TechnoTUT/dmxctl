@@ -106,6 +106,8 @@ cargo test --release perf -- --ignored --nocapture                              
 | `DMXCTL_NO_MIDI=1` | MIDI機器に自動でつながない。本番と2つ起動するときに使う |
 | `DMXCTL_SHOT=保存先.png` + `DMXCTL_TAB=タブ名` / `DMXCTL_PAGE=2` / `DMXCTL_SIZE=1280x800` / `DMXCTL_UNIVERSE=2` | 画面を撮って保存して終了する。見た目の確認用で、KMS/DRM でも使える。`DMXCTL_SHOT_FRAMES=150` で、撮るまでのフレーム数を延ばせる。操作を入れてから撮るときに使う |
 | `DMXCTL_KEY_COLOR=1` | キーボードタブを色の段で開く |
+
+機材画面の撮影では `DMXCTL_TAB=機材` または `パッチ` でパッチを、`ペア` でペアを開けます。レーザー調整は `レーザー調整` または従来の `レーザー` で開けます。
 | `DMXCTL_PERF=1` | 画面下に、描画の回数/秒と1回あたりの時間を出す |
 | `DMXCTL_KMSDRM=1` / `=0` / `dmxctl kmsdrm` | Linux で、KMS/DRM で必ず起動する / 使わない。指定が無ければ `DISPLAY` と `WAYLAND_DISPLAY` が無いときに使う |
 | `DMXCTL_SCALE=1.5` | KMS/DRM の画面の拡大率。指定が無ければ画面の大きさから自動で決める |
@@ -141,7 +143,7 @@ cargo test --release perf -- --ignored --nocapture                              
 | `src/opendmx.rs` / `src/output.rs` | USB-DMX / Art-Net の出力 |
 | `src/keys.rs` / `src/ui_keys.rs` | キーボードの割り当て `TriggerKind::Key`。番号は 段×16+位置 / キーの絵を出すキーボードタブ |
 | `src/ui_map.rs` | メイン画面のMIDIタブ。`src/ui_map/` に、図の描画 `pad.rs` と右のパネル `stage.rs` / `settings.rs` がある |
-| `src/ui_laser.rs` / `src/ui_auto.rs` | レーザータブ / オートタブ。オートタブは、フレーズごとの見た目のプリセット `AutoPreset` / `PhraseLook` の表 |
+| `src/ui_laser.rs` / `src/ui_auto.rs` | 機材画面のレーザー調整 / オートタブ。オートタブは、フレーズごとの見た目のプリセット `AutoPreset` / `PhraseLook` の表 |
 | `src/theme.rs` | 色・フォントなどの見た目 |
 | `src/kmsdrm.rs` / `src/kmsdrm/` | Linuxだけ。デスクトップ環境の無い画面に、SDL2 の KMSDRM と OpenGL ES の egui_glow で描くループ / キーの変換・タッチ |
 | `Containerfile` / `.dockerignore` / `deploy/kubernetes/` | コンテナのイメージと Kubernetes のマニフェスト。画面を使わず `dmxctl serve` だけを動かす。手順は [コンテナで動かす](container.md) |

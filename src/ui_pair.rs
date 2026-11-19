@@ -35,7 +35,7 @@ impl App {
                 changed = true;
             }
             if !ok {
-                ui.colored_label(WARN, "機材が2台以上必要です(「パッチ」タブで追加。同じ機種を2台入れると左右反転が使えます)");
+                ui.colored_label(WARN, "機材が2台以上必要です(「機材」のパッチで追加。同じ機種を2台入れると左右反転が使えます)");
             }
         });
         ui.separator();

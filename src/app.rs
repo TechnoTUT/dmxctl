@@ -50,7 +50,7 @@ pub enum Tab {
 }
 
 /// タブ。先頭の`LIVE_TABS`個が本番で使う画面、残りが準備・設定
-const TABS: [(Tab, &str); 14] = [
+const TABS: [(Tab, &str); 12] = [
     (Tab::Map, "MIDI"),
     (Tab::Keys, "キーボード"),
     (Tab::Control, "コントロール"),
@@ -58,15 +58,14 @@ const TABS: [(Tab, &str); 14] = [
     (Tab::Scenes, "シーン"),
     (Tab::Sequence, "BPM/チェイス"),
     (Tab::Auto, "オート"),
-    (Tab::Pairs, "ペア"),
-    (Tab::Laser, "レーザー"),
-    (Tab::Patch, "パッチ"),
+    (Tab::Patch, "機材"),
     (Tab::Profiles, "機材定義"),
     (Tab::Output, "出力"),
     (Tab::Midi, "MIDI設定"),
     (Tab::Monitor, "モニター"),
 ];
-const LIVE_TABS: usize = 8;
+const LIVE_TABS: usize = 7;
+const FIXTURE_SECTIONS: [(Tab, &str); 3] = [(Tab::Patch, "パッチ"), (Tab::Pairs, "ペア"), (Tab::Laser, "レーザー調整")];
 
 pub const RED: Color32 = crate::theme::DANGER;
 pub const WARN: Color32 = crate::theme::WARN;
@@ -108,7 +107,7 @@ pub struct App {
     /// キーボードのF/Gでフラッシュ中(離したら止める)
     /// キーボードタブの絵をマウスで押しているキー
     pub(crate) key_mouse: Option<u8>,
-    /// キーボードタブで、色の段(Shift)を出したままにする
+    /// キーボードタブで色の段を選んでいるか
     pub(crate) key_color_view: bool,
     /// ホストの読み直し・サービス反映の回数(変わったら、画面の編集中の値を捨てる)
     seen_reloads: u64,
@@ -178,9 +177,11 @@ impl App {
             shot: crate::shot::Shot::from_env(),
         };
         // 確認用: DMXCTL_TAB=タブ名 で開くタブ、DMXCTL_UNIVERSE=番号 でモニターのユニバースを選ぶ
-        if let Ok(name) = std::env::var("DMXCTL_TAB")
-            && let Some((t, _)) = TABS.iter().find(|(_, label)| *label == name) {
-            app.tab = *t;
+        if let Ok(name) = std::env::var("DMXCTL_TAB") {
+            let name = if name == "レーザー" { "レーザー調整" } else { name.as_str() };
+            if let Some((t, _)) = TABS.iter().chain(&FIXTURE_SECTIONS).find(|(_, label)| *label == name) {
+                app.tab = *t;
+            }
         }
         app.clock_ports = app.midi_ports.clone();
         if let Some(u) = std::env::var("DMXCTL_UNIVERSE").ok().and_then(|v| v.parse::<usize>().ok()) {
@@ -238,7 +239,8 @@ impl App {
                     ui.separator();
                     ui.add_space(8.0);
                 }
-                if tab_button(ui, self.tab == *t, label).clicked() {
+                let in_fixtures = *t == Tab::Patch && matches!(self.tab, Tab::Patch | Tab::Pairs | Tab::Laser);
+                if tab_button(ui, self.tab == *t || in_fixtures, label).clicked() && !in_fixtures {
                     self.tab = *t;
                 }
             }
@@ -477,7 +479,8 @@ impl App {
                     egui::Key::ArrowRight => c.live(crate::live::LiveOp::StepPage { delta: 1 }),
                     k => {
                         if let Some(code) = crate::keys::from_key(k) {
-                            c.live(crate::live::LiveOp::Key { number: if modifiers.shift { code + crate::keys::SHIFT } else { code }, pressed: true });
+                            let color_layer = modifiers.shift || (self.tab == Tab::Keys && self.key_color_view);
+                            c.live(crate::live::LiveOp::Key { number: if color_layer { code + crate::keys::SHIFT } else { code }, pressed: true });
                         }
                     }
                 }
@@ -612,10 +615,20 @@ impl App {
         egui::CentralPanel::default().show(ui, |ui| match self.tab {
             Tab::Control => self.tab_control(ui),
             Tab::Map => self.tab_map(ui),
-            Tab::Patch => self.tab_patch(ui),
+            Tab::Patch | Tab::Pairs | Tab::Laser => {
+                ui.horizontal(|ui| {
+                    for (tab, label) in FIXTURE_SECTIONS {
+                        ui.selectable_value(&mut self.tab, tab, label);
+                    }
+                });
+                ui.separator();
+                match self.tab {
+                    Tab::Pairs => self.tab_pairs(ui),
+                    Tab::Laser => self.tab_laser(ui),
+                    _ => self.tab_patch(ui),
+                }
+            }
             Tab::Profiles => self.tab_profiles(ui),
-            Tab::Pairs => self.tab_pairs(ui),
-            Tab::Laser => self.tab_laser(ui),
             Tab::Keys => self.tab_keys(ui),
             Tab::Auto => self.tab_auto(ui),
             Tab::Scenes => self.tab_scenes(ui),

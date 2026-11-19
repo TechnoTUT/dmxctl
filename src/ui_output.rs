@@ -42,14 +42,14 @@ impl App {
         let statuses = core.rt.output_status.clone();
         let dim = |t: &str| RichText::new(t).small().color(crate::theme::TEXT_DIM);
 
-        egui::ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
+        egui::ScrollArea::both().auto_shrink([false; 2]).show(ui, |ui| {
             crate::theme::card().show(ui, |ui| {
                 egui::Grid::new("outputs").num_columns(7).spacing([14.0, 8.0]).striped(true).show(ui, |ui| {
                     ui.label(dim("有効"));
                     ui.label(dim("種類"));
                     ui.label(dim("ユニバース"));
                     ui.label(dim("送り先"));
-                    ui.label(dim("Art-Net U"));
+                    ui.add(egui::Label::new(dim("Art-Net ユニバース")).extend());
                     ui.label(dim("状態"));
                     ui.label("");
                     ui.end_row();
@@ -63,11 +63,19 @@ impl App {
                         }
                         match &mut o.kind {
                             OutputKind::ArtNet { ip, art_universe } => {
-                                let r = ui.add(egui::TextEdit::singleline(ip).desired_width(140.0)).on_hover_text("ノードのIP。全体に流す場合は 255.255.255.255");
-                                if r.lost_focus() {
-                                    apply = true;
-                                }
-                                apply |= ui.add(egui::DragValue::new(art_universe).range(0..=32767)).changed();
+                                ui.horizontal(|ui| {
+                                    let r = ui.add(egui::TextEdit::singleline(ip).desired_width(140.0).min_size(egui::vec2(140.0, 0.0)))
+                                        .on_hover_text("ノードのIPアドレス。全体に流す場合は 255.255.255.255");
+                                    let port = format!("UDP {}", crate::output::ART_NET_PORT);
+                                    ui.label(dim(&port));
+                                    apply |= r.lost_focus();
+                                });
+                                apply |= ui.scope(|ui| {
+                                    ui.spacing_mut().interact_size.x = 72.0;
+                                    ui.add(egui::DragValue::new(art_universe).range(0..=32767))
+                                        .on_hover_text("Art-Net の送信先ユニバース番号。0〜32767")
+                                        .changed()
+                                }).inner;
                             }
                             OutputKind::OpenDmxSerial { port } => {
                                 ui.horizontal(|ui| {

@@ -29,7 +29,7 @@ impl crate::app::App {
             }
             return;
         }
-        // Shiftを押している間は、絵も色の段に変わる(ボタンで色の段を出したままにもできる)
+        // 色の段は選択したまま使える。Shift でも一時的に切り替わる
         let shift = ui.input(|i| i.modifiers.shift);
         ui.horizontal(|ui| {
             ui.label(RichText::new("段ごとに種類がそろえてあります。キーを押すか、絵をクリックしてください。光っているキーが今効いているもの。").small().color(theme::TEXT_DIM));
@@ -37,7 +37,7 @@ impl crate::app::App {
             if ui.selectable_label(!self.key_color_view && !shift, "通常の段").clicked() {
                 self.key_color_view = false;
             }
-            if ui.selectable_label(self.key_color_view || shift, "色の段(Shift)").clicked() {
+            if ui.selectable_label(self.key_color_view || shift, "色の段").clicked() {
                 self.key_color_view = true;
             }
         });

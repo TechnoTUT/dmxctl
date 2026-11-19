@@ -4,6 +4,8 @@ use crate::opendmx::{LinkKind, OpenDmx};
 use crate::project::{OutputCfg, OutputKind};
 use std::net::{SocketAddr, UdpSocket};
 
+pub(crate) const ART_NET_PORT: u16 = 6454;
+
 pub trait Output: Send {
     /// `len`は実際に使っているスロット数
     fn send(&mut self, frame: &[u8; 512], len: usize);
@@ -51,7 +53,7 @@ pub struct ArtNet {
 
 impl ArtNet {
     pub fn new(ip: &str, art_universe: u16) -> Result<Self, String> {
-        let dest: SocketAddr = format!("{}:6454", ip.trim()).parse().map_err(|_| format!("IPアドレスが不正です: {ip}"))?;
+        let dest: SocketAddr = format!("{}:{ART_NET_PORT}", ip.trim()).parse().map_err(|_| format!("IPアドレスが不正です: {ip}"))?;
         let sock = UdpSocket::bind("0.0.0.0:0").map_err(|e| e.to_string())?;
         sock.set_broadcast(true).map_err(|e| e.to_string())?;
         sock.set_nonblocking(true).map_err(|e| e.to_string())?;

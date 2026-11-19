@@ -38,17 +38,29 @@ impl App {
                 (c.rt.dim, c.rt.dim_target, c.project.fade_secs)
             };
             let text = if target < 0.5 {
-                if dim > 0.001 { format!("暗転中 {:.0}%", dim * 100.0) } else { "暗転中 - 戻す".to_string() }
+                if dim > 0.001 { "暗転中" } else { "暗転解除" }
             } else if dim < 0.999 {
-                format!("復帰中 {:.0}%", dim * 100.0)
+                "復帰中"
             } else {
-                "暗転".to_string()
+                "暗転"
             };
-            let mut btn = egui::Button::new(RichText::new(text).color(if target < 0.5 { Color32::WHITE } else { theme::TEXT }));
-            if target < 0.5 {
-                btn = btn.fill(theme::mix(theme::WIDGET, theme::WARN, 0.55));
+            let background = ui.painter().add(egui::Shape::Noop);
+            let gauge = ui.painter().add(egui::Shape::Noop);
+            let btn = egui::Button::new(RichText::new(text).color(theme::TEXT)).frame(false);
+            let response = ui.add_sized(vec2(94.0, 28.0), btn)
+                .on_hover_text("右の秒数をかけて全体を暗転します。もう一度押すと同じ秒数で復帰します。");
+            let visuals = ui.style().interact(&response);
+            let rect = response.rect;
+            ui.painter().set(background, egui::Shape::rect_filled(rect, visuals.corner_radius, visuals.bg_fill));
+            let width = rect.width() * (1.0 - dim.clamp(0.0, 1.0));
+            if width > 0.0 {
+                let fill = egui::Rect::from_min_size(rect.min, vec2(width, rect.height()));
+                ui.painter().set(gauge, egui::Shape::rect_filled(fill, visuals.corner_radius, theme::mix(theme::WIDGET, theme::WARN, 0.4)));
             }
-            if ui.add(btn).on_hover_text("全体の明るさを、右の秒数をかけて0にします(暗転しきるとレーザーも止まります)。もう一度押すと、同じ秒数で戻ります(D)").clicked() {
+            if response.has_focus() {
+                ui.painter().rect_stroke(rect, visuals.corner_radius, egui::Stroke::new(1.0, theme::ACCENT), egui::StrokeKind::Inside);
+            }
+            if response.clicked() {
                 lock(&self.host.core).live(crate::live::LiveOp::ToggleFade { secs });
             }
             let mut s = secs;
@@ -83,7 +95,7 @@ impl App {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let bo = lock(&self.host.core).rt.blackout;
                 let (text, fill, stroke) = if bo {
-                    ("BLACKOUT中 ・ 解除", theme::DANGER, theme::DANGER)
+                    ("BLACKOUT解除", theme::DANGER, theme::DANGER)
                 } else {
                     ("BLACKOUT", theme::mix(theme::BAR, theme::DANGER, 0.22), theme::mix(theme::BAR, theme::DANGER, 0.6))
                 };
