@@ -1,0 +1,22 @@
+[package]
+name = "dmxctl-core"
+version = "0.1.0"
+edition = "2024"
+description = "dmxctl のコア層。設定の形・値の合成・機器とプロトコルの入出力。画面にも遠隔操作にも依存しない"
+
+[dependencies]
+dmxctl-model = { path = "../model" }
+dmxctl-io = { path = "../io" }
+anyhow = "1.0.104"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+serde_path_to_error = "0.1"
+schemars = "1.2"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+
+[features]
+# 他のクレートのテストが使う、Carabiner のふりをするサーバーなどを公開する
+test-support = ["dmxctl-io/test-support"]

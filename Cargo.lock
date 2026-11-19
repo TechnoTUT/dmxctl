@@ -611,25 +611,88 @@ dependencies = [
 name = "dmxctl"
 version = "0.1.0"
 dependencies = [
- "anyhow",
- "cpal",
+ "dmxctl-backend",
+ "dmxctl-core",
+ "dmxctl-ui",
  "eframe",
- "egui_glow",
- "flate2",
- "glow",
- "libc",
- "libloading 0.9.0",
- "midir",
- "ndi",
- "rfd",
+ "serde_json",
+]
+
+[[package]]
+name = "dmxctl-backend"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dmxctl-core",
  "schemars",
- "sdl2",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "dmxctl-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dmxctl-io",
+ "dmxctl-model",
+ "libc",
+ "schemars",
  "serde",
  "serde_json",
  "serde_path_to_error",
+]
+
+[[package]]
+name = "dmxctl-io"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cpal",
+ "dmxctl-model",
+ "flate2",
+ "libloading 0.9.0",
+ "midir",
+ "ndi",
  "serialport",
  "sha2",
  "zip",
+]
+
+[[package]]
+name = "dmxctl-model"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "libc",
+ "schemars",
+ "serde",
+ "serde_json",
+ "serde_path_to_error",
+]
+
+[[package]]
+name = "dmxctl-server"
+version = "0.1.0"
+dependencies = [
+ "dmxctl-backend",
+ "dmxctl-core",
+ "serde_json",
+]
+
+[[package]]
+name = "dmxctl-ui"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dmxctl-backend",
+ "dmxctl-core",
+ "eframe",
+ "egui_glow",
+ "glow",
+ "rfd",
+ "sdl2",
+ "serde_json",
 ]
 
 [[package]]

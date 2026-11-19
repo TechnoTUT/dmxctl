@@ -1,4 +1,4 @@
-use dmxctl::{engine::{Core, guard_values}, fixture::Library, project::Project};
+use dmxctl::core::{engine::{Core, guard_values}, fixture::Library, project::Project};
 use serde_json::{Value, json};
 use std::{path::{Path, PathBuf}, process::Command, sync::{Arc, atomic::{AtomicU64, Ordering}}};
 
@@ -154,7 +154,7 @@ fn guard_preserves_limits_when_safe_replacement_is_outside() {
 
 #[test]
 fn explicit_output_sends_and_logs_safe_shutdown_frames() {
-    use dmxctl::project::{OutputCfg, OutputKind};
+    use dmxctl::core::project::{OutputCfg, OutputKind};
     let receiver = std::net::UdpSocket::bind("127.0.0.1:6454").expect("loopback Art-Net test port is required");
     receiver.set_read_timeout(Some(std::time::Duration::from_millis(100))).unwrap();
     let dir = Sandbox::new();
@@ -198,7 +198,7 @@ fn impossible_limits_and_blackout_conflicts_are_rejected() {
 
 #[test]
 fn serve_defaults_to_no_inputs_and_gui_ignores_unknown_args() {
-    use dmxctl::control::Launch;
+    use dmxctl_backend::control::Launch;
     let args=|a:&[&str]|a.iter().map(|s|s.to_string()).collect::<Vec<_>>();
     let serve=Launch::parse(&args(&["--project","p.json"]),true).unwrap();
     assert!(!serve.inputs && !serve.output && !serve.autosave);

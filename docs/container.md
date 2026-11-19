@@ -20,7 +20,7 @@
 
 | ファイル | 役割 |
 |---|---|
-| `Containerfile` | ビルドと実行のイメージ。実行するのは `dmxctl serve` だけ |
+| `Containerfile` | ビルドと実行のイメージ。画面を持たない `dmxctl-server` をビルドし、イメージの中では `dmxctl` の名前で入れる。実行するのは `dmxctl serve` だけ |
 | `.dockerignore` | ビルドに送信しないもの。`target/` などは数 GB あるため除外する |
 | `deploy/kubernetes/` | Kubernetes のマニフェスト。`kubectl apply -k` で配置できる |
 | `deploy/kubernetes/argocd-application.example.yaml` | Infra の Argo CD に登録する Application の例 |
