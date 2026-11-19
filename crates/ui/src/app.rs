@@ -699,6 +699,23 @@ impl App {
 }
 
 impl eframe::App for App {
+    /// 毎フレームの `ui` の前と、ウィンドウが隠れている(最小化・ほかのウィンドウの裏)間に再描画を頼まれたときに呼ばれる。
+    /// 隠れている間 eframe は `ui` を呼ばないので、画面に頼らない処理はここでも行う
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // 制御の窓口(`ctl`・MCP)と、LAN のクライアントから頼まれた保存などを処理する。
+        // 隠れていても応答する(`frame` でも呼ぶが、2回目は空の待ち行列を見るだけ)
+        self.host.control_tick();
+        if self.host.shutdown_requested() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+        // レーザータブの「押下中のみ出力」を押したままウィンドウが手前でなくなったら、離したことにする
+        // (隠れている間は離したことを受け取れないので、レーザーが出たままにならないように)
+        if self.laser_gui_hold && !ctx.input(|i| i.focused) {
+            self.laser_gui_hold = false;
+            dmxctl_core::engine::lock(&self.host.core).live(dmxctl_core::live::LiveOp::SetLaserHold { on: false });
+        }
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         // レーザータブの「押下中のみ出力」を押したままタブを替えても、離したら止める
         if self.laser_gui_hold && !ui.input(|i| i.pointer.any_down()) {

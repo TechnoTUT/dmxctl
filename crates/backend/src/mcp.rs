@@ -166,7 +166,9 @@ pub fn handle(request: Requester, message: &Value) -> Option<Value> {
         "ping" => json!({}),
         "tools/list" => json!({"tools": tools()}),
         "tools/call" => {
-            let name = message["params"]["name"].as_str().unwrap_or("");
+            let Some(name) = message["params"]["name"].as_str() else {
+                return Some(error(id, -32602, "params.name is required"));
+            };
             let args = message["params"].get("arguments").cloned().unwrap_or_else(|| json!({}));
             if !tools().iter().any(|t| t["name"] == name) {
                 return Some(error(id, -32602, &format!("unknown tool: {name}")));
@@ -287,21 +289,31 @@ fn send(request: Requester, payload: Value) -> anyhow::Result<Value> {
     request(&payload, Duration::from_secs(6))
 }
 
+/// 引数を読む。無いときと、型が違うときで理由を分ける(AI が読んで直せるように)
+fn arg<'a, T>(args: &'a Value, key: &str, kind: &str, get: impl Fn(&'a Value) -> Option<T>) -> anyhow::Result<T> {
+    let v = args.get(key).with_context(|| format!("{key} is required"))?;
+    get(v).with_context(|| format!("{key} must be {kind}"))
+}
+
+fn optional<'a, T>(args: &'a Value, key: &str, kind: &str, get: impl Fn(&'a Value) -> Option<T>) -> anyhow::Result<Option<T>> {
+    args.get(key).map(|v| get(v).with_context(|| format!("{key} must be {kind}"))).transpose()
+}
+
 fn call(request: Requester, name: &str, args: &Value) -> anyhow::Result<Value> {
-    let fixture = || -> anyhow::Result<u64> { args["fixture"].as_u64().context("fixture is required") };
-    let attr = || -> anyhow::Result<&str> { args["attr"].as_str().context("attr is required") };
+    let fixture = || arg(args, "fixture", "a non-negative integer (fixture_list の id)", Value::as_u64);
+    let attr = || arg(args, "attr", "a string", Value::as_str);
     match name {
         "status" => send(request, json!({"op": "status"})),
         "fixture_list" => send(request, json!({"op": "fixtures", "include_attrs": true})),
         "fixture_set" => {
-            let value = args["value"].as_f64().context("value is required")?;
+            let value = arg(args, "value", "a number", Value::as_f64)?;
             ensure!(value.is_finite(), "value must be finite");
             send(request, json!({"op": "command", "command": {"cmd": "set", "fixture": fixture()?, "attr": attr()?, "value": value}}))
         }
         "control_list" => send(request, json!({"op": "controls"})),
         "control_press" => {
-            let mut command = json!({"cmd": "button", "control": args["control"].as_str().context("control is required")?,
-                "event": args["event"].as_str().context("event is required")?});
+            let mut command = json!({"cmd": "button", "control": arg(args, "control", "a string like binding:3", Value::as_str)?,
+                "event": arg(args, "event", "one of click/press/hold/release/set", Value::as_str)?});
             for k in ["hold_ms", "value"] {
                 if let Some(v) = args.get(k) {
                     command[k] = v.clone();
@@ -332,14 +344,14 @@ fn call(request: Requester, name: &str, args: &Value) -> anyhow::Result<Value> {
             send(request, payload)
         }
         "wait" => {
-            let frames = args.get("frames").map(|v| v.as_u64().context("frames must be an integer")).transpose()?;
-            let beats = args.get("beats").map(|v| v.as_f64().context("beats must be a number")).transpose()?;
-            let ms = args.get("ms").map(|v| v.as_u64().context("ms must be an integer")).transpose()?;
-            let timeout = args.get("timeout_ms").map(|v| v.as_u64().context("timeout_ms must be an integer")).transpose()?.unwrap_or(5000);
+            let frames = optional(args, "frames", "a positive integer", Value::as_u64)?;
+            let beats = optional(args, "beats", "a number", Value::as_f64)?;
+            let ms = optional(args, "ms", "a non-negative integer", Value::as_u64)?;
+            let timeout = optional(args, "timeout_ms", "a positive integer", Value::as_u64)?.unwrap_or(5000);
             crate::diagnostics::wait(request, frames, beats, ms, condition_of(args), timeout)
         }
         "explain" => {
-            let timeout = args.get("timeout_ms").map(|v| v.as_u64().context("timeout_ms must be an integer")).transpose()?.unwrap_or(5000);
+            let timeout = optional(args, "timeout_ms", "a positive integer", Value::as_u64)?.unwrap_or(5000);
             crate::diagnostics::explain(request, json!({"fixture": fixture()?, "attr": attr()?}), timeout)
         }
         "schema" => send(request, json!({"op": "schema", "entity": args["entity"].as_str().unwrap_or("project")})),
@@ -447,12 +459,17 @@ mod tests {
         let r = call("command", json!({"command": {"cmd": "input", "source": "osc", "address": "/dmx/laser", "args": [1]}}));
         assert_eq!(r["result"]["isError"], true);
         assert!(r["result"]["content"][0]["text"].as_str().unwrap().contains("laser"));
-        // 引数の不足
-        assert_eq!(call("fixture_set", json!({"fixture": 1}))["result"]["isError"], true);
+        // 引数の不足と型の違いは、理由を分けて返す
+        let text = |r: &Value| r["result"]["content"][0]["text"].as_str().unwrap().to_string();
+        assert_eq!(text(&call("fixture_set", json!({"fixture": 1, "attr": "pan"}))), "value is required");
+        assert_eq!(text(&call("fixture_set", json!({"fixture": 1, "attr": "pan", "value": "80"}))), "value must be a number");
+        assert!(text(&call("fixture_set", json!({"fixture": -1, "attr": "pan", "value": 1}))).starts_with("fixture must be a non-negative integer"));
+        assert_eq!(text(&call("wait", json!({"frames": "2"}))), "frames must be a positive integer");
         assert_eq!(call("command", json!({"command": "blackout"}))["result"]["isError"], true);
         // 知らないツール・おかしな引数は、プロトコルのエラー
         assert_eq!(call("stop", json!({}))["error"]["code"], -32602);
         assert_eq!(handle(&f, &rpc(2, "tools/call", json!({"name": "status", "arguments": [1]}))).unwrap()["error"]["code"], -32602);
+        assert_eq!(handle(&f, &rpc(3, "tools/call", json!({}))).unwrap()["error"]["message"], "params.name is required");
     }
 
     #[test]
