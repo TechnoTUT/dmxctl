@@ -14,6 +14,7 @@
 - **入れ方**: テンポの元を Link にして、「Carabinerをダウンロードして入れる」を押します。画面を使わないPCでは `dmxctl carabiner install` で入れます。配布元の GitHub から取り、確かめた値と合ったときだけ、設定フォルダの `carabiner/` に置きます。自動では取りません。Windows・Mac・Linux 用があります。Linux は x86_64 と arm64 です
 - **起動**: 入れた後は、Link を使うとき、このアプリが自動で Carabiner を起動し、終わるときに止めます。すでに誰かが Carabiner を動かしていれば、それにつなぐだけです。自分で入れた Carabiner を使うなら、先に起動しておいてください
 - Carabiner につながっていないときは、「BPM/チェイス」タブに「Carabinerにつながっていません」と出ます。その間は、内部の時計で拍が進みます。つながるようになれば、自動で切り替わります
+- つなぎ直したときに Link の仲間がいなければ、切断前のテンポに戻します。仲間がいれば、そのセッションのテンポに合わせます
 - **Beat Link Trigger を使っているとき**: BLT も Carabiner を使います。BLT が Carabiner を動かしていれば、このアプリはそれにそのままつながるので、別に起動する必要はありません
 - Windows では、Carabiner や OSC を初めて有効にしたときにファイアウォールの確認が出ます。別のPCとつなぐ場合は「許可」が必要です。Linux でファイアウォールを有効にしている場合は [Linux で使う](platforms.md#linux-で使う) を見てください
 - TouchDesigner では、Ableton Link CHOP の `Enable` をONにするだけで、このアプリとテンポ・拍が揃います。Beat CHOP などで作った映像の動きと、照明のBPM同期エフェクト・チェイスが同じ拍で動きます

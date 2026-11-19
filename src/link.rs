@@ -179,14 +179,18 @@ fn run(port: u16, initial_bpm: f64, shared: Arc<Mutex<Shared>>, rx: mpsc::Receiv
     // 入れてある Carabiner を、このアプリが起動したとき、その子プロセス
     let mut child: Option<std::process::Child> = None;
     let mut spawn_tries = 0;
-    let mut first = true;
+    let mut resume_bpm = initial_bpm;
     while !stop.load(Ordering::Relaxed) {
         match TcpStream::connect_timeout(&addr, Duration::from_millis(500)) {
             Ok(stream) => {
                 // つながっていない間にたまった操作は、古いので捨てる
                 while rx.try_recv().is_ok() {}
-                session(stream, initial_bpm, &mut first, &shared, &rx, &stop);
-                *lock(&shared) = Shared::default();
+                session(stream, resume_bpm, &shared, &rx, &stop);
+                let mut g = lock(&shared);
+                if let Some(snap) = g.snap {
+                    resume_bpm = snap.bpm;
+                }
+                *g = Shared::default();
             }
             Err(_) => {
                 while rx.try_recv().is_ok() {}
@@ -221,7 +225,7 @@ fn run(port: u16, initial_bpm: f64, shared: Arc<Mutex<Shared>>, rx: mpsc::Receiv
 }
 
 /// 1回のつながりの間、状態を聞き続ける。切れたら戻る
-fn session(mut stream: TcpStream, initial_bpm: f64, first: &mut bool, shared: &Mutex<Shared>, rx: &mpsc::Receiver<String>, stop: &AtomicBool) {
+fn session(mut stream: TcpStream, resume_bpm: f64, shared: &Mutex<Shared>, rx: &mpsc::Receiver<String>, stop: &AtomicBool) {
     let _ = stream.set_nodelay(true);
     let _ = stream.set_read_timeout(Some(Duration::from_millis(20)));
     let _ = stream.set_write_timeout(Some(Duration::from_millis(200)));
@@ -229,6 +233,7 @@ fn session(mut stream: TcpStream, initial_bpm: f64, first: &mut bool, shared: &M
     let mut chunk = [0u8; 1024];
     let mut last_poll: Option<Instant> = None;
     let mut last_status = Instant::now();
+    let mut first = true;
     while !stop.load(Ordering::Relaxed) && last_status.elapsed() < STALE {
         while let Ok(line) = rx.try_recv() {
             if stream.write_all(line.as_bytes()).is_err() {
@@ -251,23 +256,23 @@ fn session(mut stream: TcpStream, initial_bpm: f64, first: &mut bool, shared: &M
             let line: Vec<u8> = inbox.drain(..=i).collect();
             let Some(mut snap) = parse_status(&String::from_utf8_lossy(&line)) else { continue };
             last_status = snap.at;
+            // 仲間がいないときは、接続前のテンポを送ってから状態を受け取る。
+            if first {
+                first = false;
+                let bpm = resume_bpm.clamp(BPM_RANGE.0, BPM_RANGE.1);
+                if snap.peers == 0 && (snap.bpm - bpm).abs() > 0.01 {
+                    if stream.write_all(format!("bpm {bpm:.3}\n").as_bytes()).is_err() {
+                        return;
+                    }
+                    continue;
+                }
+            }
             let mut g = lock(shared);
             if g.hold_until.is_some_and(|t| Instant::now() < t) {
                 continue;
             }
             snap.at = Instant::now();
             g.snap = Some(snap);
-            drop(g);
-            // 初めて状態を受け取ったときだけ初期化する。再接続では操作中のテンポを保つ
-            if *first {
-                *first = false;
-                if snap.peers == 0 && (snap.bpm - initial_bpm).abs() > 0.01 {
-                    let bpm = initial_bpm.clamp(BPM_RANGE.0, BPM_RANGE.1);
-                    if stream.write_all(format!("bpm {bpm:.3}\n").as_bytes()).is_err() {
-                        return;
-                    }
-                }
-            }
         }
     }
 }
@@ -345,6 +350,15 @@ pub(crate) mod fake {
 
         pub fn set_responding(&self, responding: bool) {
             lock(&self.st).responding = responding;
+        }
+
+        pub fn restart(&self, bpm: f64, peers: u64) {
+            let mut s = lock(&self.st);
+            s.bpm = bpm;
+            s.peers = peers;
+            s.beat0 = 0.0;
+            s.t0 = Instant::now();
+            s.responding = true;
         }
 
         pub fn connections(&self) -> usize {
@@ -549,5 +563,26 @@ mod tests {
         std::thread::sleep(Duration::from_millis(250));
         assert!((fake.bpm() - 90.0).abs() < 1e-3, "再接続で起動時のテンポに戻った");
         assert!((l.state().unwrap().0 - 90.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn restores_tempo_after_restart_only_without_peers() {
+        for (peers, expected_bpm) in [(0, 90.0), (1, 120.0)] {
+            let fake = FakeCarabiner::new(120.0, 0);
+            let l = Link::connect(fake.port, 120.0).unwrap();
+            assert!(wait(|| l.connected()));
+            l.set_tempo(90.0);
+            assert!(wait(|| fake.bpm() == 90.0));
+
+            fake.set_responding(false);
+            assert!(wait(|| fake.connections() >= 2));
+            assert!(!l.connected());
+            fake.restart(120.0, peers);
+
+            assert!(wait(|| l.connected()));
+            assert_eq!(l.peers(), peers);
+            assert_eq!(l.state().unwrap().0, expected_bpm);
+            assert_eq!(fake.bpm(), expected_bpm);
+        }
     }
 }
