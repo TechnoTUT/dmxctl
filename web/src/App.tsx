@@ -42,7 +42,7 @@ export function App() {
             ? 'border-emerald-200 bg-emerald-50 text-emerald-600 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-400'
             : 'border-rose-200 bg-rose-50 text-rose-600 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-400'}`}>
             <span className={`size-2 rounded-full ${online ? 'animate-pulse bg-emerald-500' : 'bg-rose-500'}`} />
-            <span className="hidden sm:inline">{online ? 'Online' : 'Offline'}</span>
+            {online ? '接続中' : '未接続'}
           </div>
           <button
             onClick={toggle}
