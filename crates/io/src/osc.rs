@@ -162,7 +162,13 @@ impl OscListener {
     /// メッセージを受けるたびに `on_receive(受けたメッセージ, ここまでに受けた件数)` を呼ぶ。
     /// 呼ぶのは受信のスレッドで、重い処理や長い待ちは入れない
     pub fn start(port: u16, mut on_receive: impl FnMut(&[Message], u64) + Send + 'static) -> Result<OscListener, String> {
+        Self::start_with_port(port, move |messages, count, _| on_receive(messages, count))
+    }
+
+    /// ポートに 0 を指定すると OS が選び、受信時に実際のポートを通知する
+    pub fn start_with_port(port: u16, mut on_receive: impl FnMut(&[Message], u64, u16) + Send + 'static) -> Result<OscListener, String> {
         let sock = UdpSocket::bind(("0.0.0.0", port)).map_err(|e| format!("ポート{port}を開けません: {e}"))?;
+        let port = sock.local_addr().map_err(|e| e.to_string())?.port();
         sock.set_read_timeout(Some(Duration::from_millis(200))).map_err(|e| e.to_string())?;
         let stop = Arc::new(AtomicBool::new(false));
         let s2 = stop.clone();
@@ -178,7 +184,7 @@ impl OscListener {
                         continue;
                     }
                     count += msgs.len() as u64;
-                    on_receive(&msgs, count);
+                    on_receive(&msgs, count, port);
                 }
             })
             .map_err(|e| e.to_string())?;
