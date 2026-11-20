@@ -1,6 +1,7 @@
 #!/bin/bash
 # Mac・LinuxからWindows用の dmxctl.exe を作る(MinGW-w64 を使う)。
 # 必要なもの: Rust、MinGW-w64(Mac: brew install mingw-w64 / Debian・Ubuntu: sudo apt install mingw-w64)
+#   操作パネルのビルドに、Node.js 20.19以上(https://nodejs.org)も必要
 # できるもの: dist/windows/dmxctl.exe(単体で動く。追加のDLLは不要)
 set -euo pipefail
 cd "$(dirname "$0")/.."

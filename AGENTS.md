@@ -6,6 +6,7 @@ dmxctl を開発する人と AI エージェント向けのルールです。ビ
 
 - コミットの前に `cargo test --release` を通す。ドキュメント (docs/*) は対象外。
 - 他のOS向けのコードを変えたときは、`DMXCTL_CHECK_ONLY=1 cargo check --target …` で型チェックする。この場合 C++ はビルドしない
+- ブラウザの操作パネルは `web/` の React で、ビルドに Node.js 20.19 以上が必要になる。`web/` を変えたら `cd web && npm run typecheck` を通す。見た目は `npm run dev` で確かめる。手順は [docs/development.md](docs/development.md)
 - 画面の見た目は `DMXCTL_SHOT=保存先.png DMXCTL_TAB=タブ名` で撮って確かめる
 - 動作は CLI の `dmxctl serve` / `ctl` / `simulate` で最終DMX値を検証できる。使い方は [docs/cli.md](docs/cli.md)
 - 本番の設定や機器に触れない。`DMXCTL_CONFIG_DIR` で別の設定を使い、本番と同じPCで試すときは `DMXCTL_NO_MIDI=1` を付ける。`serve` は既定で実機送信・自動保存・入力を切っている
@@ -28,6 +29,7 @@ dmxctl を開発する人と AI エージェント向けのルールです。ビ
 - 画面や MIDI から実行中の状態を変えるときは、`Core` のメソッドや `rt` を直接触らず、`LiveOp` にして `Core::live` に渡す。クライアントの `dmxctl connect` では、ここでサーバーへ送るため。詳しくは `crates/core/src/live.rs`
 - 機材・割り当て・シーンの追加などプロジェクトの編集は、`editing` の操作で行う。検証してからまとめて反映する
 - 40Hz の DMX 出力スレッドを待たせない。画面・ログの書き込み・ネットワークの待ちを出力の経路に入れない
+- 操作パネルのビルド済みのファイルはコミットしない。`crates/backend/build.rs` がビルド時に `web/` から生成する。API の形を変えるときは `crates/backend/src/web.rs` と `web/src/api.ts` を同じ変更で直す
 - 画面の描画は、操作したとき・入力があったとき・拍の頭などに限る。映像ソフトと同じPCで動かすため、CPUを抑える
 
 ## 互換性
