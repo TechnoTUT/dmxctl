@@ -1,6 +1,6 @@
 //! Validated operations shared by offline runs and the running application.
 use crate::controls::CoreControls;
-use dmxctl_core::{color::NamedColor, engine::Core, fixture::Library, project::{BPM_MAX, BPM_MIN, Project, Selector}};
+use dmxctl_core::{color::NamedColor, engine::Core, fixture::{DMX_FINE_MAX, Library}, project::{BPM_MAX, BPM_MIN, Project, Selector}};
 use anyhow::{Context, bail, ensure};
 use serde_json::Value;
 
@@ -33,10 +33,17 @@ fn apply_inner(core: &mut Core, value: &Value) -> anyhow::Result<()> {
             let f = &core.project.fixtures[index];
             let mode = core.lib.mode(&f.profile, f.mode).context("unknown mode")?;
             let attr = value["attr"].as_str().context("attr required")?;
-            ensure!(!mode.attr_channels(attr).is_empty(), "unknown attr");
-            let number = finite(&value["value"])?;
+            let channels = mode.attr_channels(attr);
+            ensure!(!channels.is_empty(), "unknown attr");
+            let max = if channels.iter().all(|&channel| mode.fine_of(channel).is_some()) {
+                f64::from(DMX_FINE_MAX)
+            } else {
+                255.0
+            };
+            let number = value["value"].as_f64().context("value must be a number")?;
+            ensure!((0.0..=max).contains(&number), "value must be in 0..{max} (DMX)");
             core.note_manual();
-            core.set_attr(&Selector::Fixture(id), attr, number);
+            core.set_attr(&Selector::Fixture(id), attr, number as f32);
         }
         "effect" => {
             let name = value["name"].as_str().context("name required")?;
@@ -123,7 +130,8 @@ pub(crate) fn validate(project: &Project, lib: &Library) -> anyhow::Result<()> {
         let mode = profile.modes.get(f.mode).context("unknown mode")?;
         let info = lib.info(&f.profile, f.mode).context("missing fixture channel information")?;
         ensure!(f.values.len() == mode.channels.len(), "fixture values length mismatch");
-        ensure!(f.universe < dmxctl_core::project::NUM_UNIVERSES && f.address > 0 && f.address as usize + mode.channels.len() <= 513, "invalid fixture address");
+        ensure!(f.universe < dmxctl_core::project::NUM_UNIVERSES, "fixture universe must be in 0..{} (zero-based in project.json): {}", dmxctl_core::project::NUM_UNIVERSES - 1, f.name);
+        ensure!(f.address > 0 && f.address as usize + mode.channels.len() <= 513, "fixture address must be in 1..={} so that all {} channels fit in 512: {}", 513 - mode.channels.len(), mode.channels.len(), f.name);
         for (index, channel) in mode.channels.iter().enumerate() {
             if f.enabled { ensure!(occupied.insert((f.universe, f.address as usize + index)), "overlapping fixture addresses"); }
             let [a,b] = f.limits.get(&channel.attr).copied().unwrap_or([0,255]);
@@ -161,6 +169,45 @@ mod tests {
         assert!(apply(&mut c, &json!({"cmd": "bpm", "value": 10})).is_err());
         assert!(apply(&mut c, &json!({"cmd": "bpm", "value": 400})).is_err());
         assert_eq!(c.project.bpm, 128.0);
+    }
+
+    #[test]
+    fn set_values_out_of_the_dmx_range_are_rejected() {
+        let mut c = core();
+        for v in [999.0, -50.0, 256.0, -1e-50, 255.5] {
+            let e = apply(&mut c, &json!({"cmd": "set", "fixture": 1, "attr": "dimmer", "value": v})).unwrap_err().to_string();
+            assert!(e.starts_with("value must be in 0.."), "{v}: {e}");
+        }
+        for v in [0.0, 255.0] {
+            apply(&mut c, &json!({"cmd": "set", "fixture": 1, "attr": "pan", "value": v})).unwrap_or_else(|e| panic!("{v}: {e}"));
+        }
+    }
+
+    #[test]
+    fn set_preserves_the_fine_byte_at_the_dmx_maximum() {
+        let mut c = core();
+        let fixture = &mut c.project.fixtures[0];
+        fixture.mode = 1;
+        let mode = c.lib.mode(&fixture.profile, fixture.mode).unwrap();
+        fixture.values.resize(mode.channels.len(), 0);
+        let fixture = fixture.id;
+        let error = apply(&mut c, &json!({"cmd": "set", "fixture": fixture, "attr": "pan", "value": 255.996094})).unwrap_err();
+        assert!(error.to_string().starts_with("value must be in 0..255.99609375"));
+        apply(&mut c, &json!({"cmd": "set", "fixture": fixture, "attr": "pan", "value": 255.99609375})).unwrap();
+        let fixture = c.project.fixtures.iter().find(|item| item.id == fixture).unwrap();
+        let mode = c.lib.mode(&fixture.profile, fixture.mode).unwrap();
+        assert_eq!(mode.get_f(&fixture.values, mode.find_attr("pan").unwrap()), DMX_FINE_MAX);
+    }
+
+    #[test]
+    fn universe_and_address_errors_are_told_apart() {
+        let c = core();
+        let mut p = c.project.clone();
+        p.fixtures[0].universe = 5000;
+        assert!(validate(&p, &c.lib).unwrap_err().to_string().starts_with("fixture universe must be in 0.."));
+        let mut p = c.project.clone();
+        p.fixtures[0].address = 510;
+        assert!(validate(&p, &c.lib).unwrap_err().to_string().starts_with("fixture address must be in 1..="));
     }
 
     #[test]

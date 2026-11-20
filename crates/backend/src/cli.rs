@@ -100,8 +100,25 @@ impl Args {
 #[serde(deny_unknown_fields)]
 struct Event { at_ms: u64, command: Value }
 
+/// 標準出力を読む側がパイプを閉じたかを判定する
+pub(crate) fn stdout_closed(error: &std::io::Error) -> bool {
+    error.kind() == std::io::ErrorKind::BrokenPipe
+        || (cfg!(windows) && error.raw_os_error() == Some(232))
+}
+
+pub(crate) fn stdout_line(line: std::fmt::Arguments<'_>) -> std::io::Result<()> {
+    let mut out = std::io::stdout().lock();
+    match writeln!(out, "{line}").and_then(|_| out.flush()) {
+        Err(error) if stdout_closed(&error) => Ok(()),
+        result => result,
+    }
+}
+
 pub fn run(args: Vec<String>) -> anyhow::Result<()> {
-    if args.is_empty() || args.iter().any(|s| s == "--help" || s == "-h") { println!("{HELP}"); return Ok(()); }
+    if args.is_empty() || args.iter().any(|s| s == "--help" || s == "-h") {
+        stdout_line(format_args!("{HELP}"))?;
+        return Ok(());
+    }
     if args[0] == "serve" {
         let launch = crate::control::Launch::parse(&args[1..],true)?;
         engine::install_safety_hooks();
@@ -110,7 +127,7 @@ pub fn run(args: Vec<String>) -> anyhow::Result<()> {
     if args[0] == "carabiner" {
         ensure!(args.len() == 2 && args[1] == "install", "usage: dmxctl carabiner install");
         let path = dmxctl_core::io::carabiner::install()?;
-        println!("{}", serde_json::json!({"installed": path.display().to_string(), "version": dmxctl_core::io::carabiner::VERSION}));
+        stdout_line(format_args!("{}", serde_json::json!({"installed": path.display().to_string(), "version": dmxctl_core::io::carabiner::VERSION})))?;
         return Ok(());
     }
     if args[0] == "ctl" { return crate::control::client(&args[1..]); }
@@ -141,7 +158,7 @@ pub fn run(args: Vec<String>) -> anyhow::Result<()> {
             json!({"id":f.id,"name":f.name,"profile":f.profile,"universe":f.universe+1,
                 "address":f.address,"armed":false,"limits":f.limits,"channels":mode.channels})
         }).collect();
-        println!("{}", json!({"fixtures":fixtures,"project":crate::editing::redact(&serde_json::to_value(&core.project)?),"commands":["set","effect","motion","blackout","master","fade","flash","bpm","auto","auto_resume","preset","look","color","swap","scene","tap","resync"]}));
+        stdout_line(format_args!("{}", json!({"fixtures":fixtures,"project":crate::editing::redact(&serde_json::to_value(&core.project)?),"commands":["set","effect","motion","blackout","master","fade","flash","bpm","auto","auto_resume","preset","look","color","swap","scene","tap","resync"]})))?;
         return Ok(());
     }
     let seconds: f64 = args.options.get("--duration").map(|s| s.parse()).transpose()?.unwrap_or(10.0);
@@ -177,6 +194,8 @@ pub fn run(args: Vec<String>) -> anyhow::Result<()> {
     if args.stdin {
         std::thread::spawn(move || {
             for line in std::io::stdin().lock().lines() {
+                // 空行(と空白だけの行)は読み飛ばす
+                if line.as_ref().is_ok_and(|s| s.trim().is_empty()) { continue; }
                 let message = line.map_err(|e| e.to_string()).and_then(|s| serde_json::from_str::<Value>(&s).map_err(|e|e.to_string()));
                 if tx.send(message).is_err() { break; }
             }
@@ -260,7 +279,7 @@ fn log_command(args: &Args) -> anyhow::Result<()> {
     } else if mode == "summarize" {
         args.allow(&[])?;
         let frames: Vec<_> = events.iter().filter(|e|e["type"]=="frame").collect();
-        println!("{}",json!({"frames":frames.len(),"last_t_ms":frames.last().map(|v|&v["t_ms"]),
+        stdout_line(format_args!("{}",json!({"frames":frames.len(),"last_t_ms":frames.last().map(|v|&v["t_ms"]),
             "commands":events.iter().filter(|e|e["type"]=="command").count(),
             "command_errors":events.iter().filter(|e|e["type"]=="command_error").count(),
             "state_changes":events.iter().filter(|e|e["type"]=="state_change").count(),
@@ -270,7 +289,7 @@ fn log_command(args: &Args) -> anyhow::Result<()> {
             "sequence_gaps":events.iter().filter_map(|v|v["seq"].as_u64()).scan(0u64,|next,seq| {
                 let gap=seq.saturating_sub(*next); *next=seq+1; Some(gap)
             }).sum::<u64>(),
-            "dropped":events.last().filter(|e|e["type"]=="end").map(|e|&e["dropped"])}));
+            "dropped":events.last().filter(|e|e["type"]=="end").map(|e|&e["dropped"])})))?;
     } else if mode == "query" {
         args.allow(&["--from-ms","--to-ms","--universe","--address","--fixture","--attrs"])?;
         let from = args.number("--from-ms",0)?;
@@ -294,7 +313,10 @@ fn log_command(args: &Args) -> anyhow::Result<()> {
                 }
                 event["filtered"] = json!(true);
             }
-            writeln!(out,"{event}")?;
+            if let Err(error) = writeln!(out, "{event}").and_then(|_| out.flush()) {
+                if stdout_closed(&error) { break; }
+                return Err(error.into());
+            }
         }
     } else {bail!("unknown log command");}
     Ok(())
@@ -339,7 +361,7 @@ fn export_scenario(events:&[Value],out:&Path)->anyhow::Result<()> {
         "source_clock":start["clock"],"runtime":"fresh internal clock; live beat phase, active fades and input service state are not restored",
         "project":"project.json","scenario":"scenario.json","fixtures":"fixtures"});
     std::fs::write(out.join("manifest.json"),serde_json::to_vec_pretty(&manifest)?)?;
-    println!("{}",json!({"directory":out,"manifest":manifest}));
+    stdout_line(format_args!("{}",json!({"directory":out,"manifest":manifest})))?;
     Ok(())
 }
 
@@ -371,6 +393,18 @@ fn diff(args: &Args) -> anyhow::Result<()> {
             differences.push(json!({"frame_index":i,"before_t_ms":a.get(i).map(|f|&f["t_ms"]),"after_t_ms":b.get(i).map(|f|&f["t_ms"]),"changes":changes}));
         }
     }
-    println!("{}",json!({"alignment":"recorded_frame_index","differences":differences}));
+    stdout_line(format_args!("{}",json!({"alignment":"recorded_frame_index","differences":differences})))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod closed_output_tests {
+    #[test]
+    fn only_closed_output_is_quiet() {
+        use std::io::{Error, ErrorKind};
+        assert!(super::stdout_closed(&Error::from(ErrorKind::BrokenPipe)));
+        assert!(!super::stdout_closed(&Error::from(ErrorKind::PermissionDenied)));
+        #[cfg(windows)]
+        assert!(super::stdout_closed(&Error::from_raw_os_error(232)));
+    }
 }

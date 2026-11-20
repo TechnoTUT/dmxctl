@@ -117,6 +117,18 @@ async function poll() {
 }
 const rgb = c => c ? `rgb(${c[0]},${c[1]},${c[2]})` : 'transparent';
 function btn(label, on, fn, style) { const b = document.createElement('button'); b.textContent = label; if (on) b.classList.add('on'); b.onclick = fn; if (style) b.setAttribute('style', style); return b; }
+// ボタンの並びをそろえる。並び(名前・順番・見た目)が前と同じなら作り直さず、選ばれている印だけを書き換える。
+// 1秒ごとの読み直しのたびに作り直すと、押している最中のボタンが消えて、押した操作が送られないことがあるため
+function syncButtons(el, items) {
+  const sig = JSON.stringify(items.map(i => [i.key, i.label, i.style || '', i.cls || '']));
+  if (el.dataset.sig !== sig) {
+    el.innerHTML = '';
+    for (const i of items) { const b = btn(i.label, i.on, i.fn, i.style); if (i.cls) b.classList.add(i.cls); el.appendChild(b); }
+    el.dataset.sig = sig;
+  } else {
+    [...el.children].forEach((b, n) => b.classList.toggle('on', !!items[n].on));
+  }
+}
 function render() {
   if (!st) return;
   const a = st.auto;
@@ -142,21 +154,17 @@ function render() {
   $('auto').textContent = a.enabled ? 'オート ON' : 'オート OFF';
   $('resume').style.display = a.manual != null ? '' : 'none';
   $('autostate').textContent = a.manual != null ? `手動優先 あと${Math.ceil(a.manual)}秒` : (a.online ? `盛り上がり ${Math.round(a.energy * 100)}%` : '');
-  $('presets').innerHTML = '';
-  a.presets.forEach((n, i) => $('presets').appendChild(btn(n, i === a.preset, () => send({ cmd: 'preset', index: i }))));
-  $('phrases').innerHTML = '';
-  st.phrases.forEach(p => $('phrases').appendChild(btn(p.label, a.look === p.key, () => send({ cmd: 'look', phrase: p.key }))));
+  syncButtons($('presets'), a.presets.map((n, i) => ({ key: i, label: n, on: i === a.preset, fn: () => send({ cmd: 'preset', index: i }) })));
+  syncButtons($('phrases'), st.phrases.map(p => ({ key: p.key, label: p.label, on: a.look === p.key, fn: () => send({ cmd: 'look', phrase: p.key }) })));
   $('sw-main').style.background = rgb(st.main);
   $('sw-sub').style.background = rgb(st.sub);
   $('slot-main').classList.toggle('on', slot === 'main');
   $('slot-sub').classList.toggle('on', slot === 'sub');
-  $('colors').innerHTML = '';
-  // 明るい色のボタンは黒い文字で
+  // 明るい色のボタンは黒い文字で。押したときの slot は、押した時点のもの
   const ink = c => (c[0] * 0.299 + c[1] * 0.587 + c[2] * 0.114) > 150 ? '#111' : '#fff';
-  st.colors.forEach(c => { const b = btn(c.label, false, () => send({ cmd: 'color', slot, name: c.name }), `background:${rgb(c.rgb)};color:${ink(c.rgb)}`); b.className = 'color'; $('colors').appendChild(b); });
+  syncButtons($('colors'), st.colors.map(c => ({ key: c.name, label: c.label, on: false, cls: 'color', style: `background:${rgb(c.rgb)};color:${ink(c.rgb)}`, fn: () => send({ cmd: 'color', slot, name: c.name }) })));
   $('scenecard').style.display = st.scenes.length ? '' : 'none';
-  $('scenes').innerHTML = '';
-  st.scenes.forEach(n => $('scenes').appendChild(btn(n, st.last_scene === n, () => send({ cmd: 'scene', name: n }))));
+  syncButtons($('scenes'), st.scenes.map(n => ({ key: n, label: n, on: st.last_scene === n, fn: () => send({ cmd: 'scene', name: n }) })));
 }
 // 全体光量: 動かしている間は少し間を空けて送る
 let mt = null;

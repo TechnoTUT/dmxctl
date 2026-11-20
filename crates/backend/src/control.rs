@@ -268,7 +268,15 @@ impl Server {
             }
             "output" => snapshot(&engine::lock(&app.core), request),
             "controls" => Ok(engine::lock(&app.core).controls()),
-            "entity_list" => crate::editing::list(&engine::lock(&app.core),request["entity"].as_str().context("entity is required")?),
+            "entity_list" => {
+                let entity = request["entity"].as_str().context("entity is required")?;
+                let core = engine::lock(&app.core);
+                if let Some(selection) = request.get("selection") {
+                    crate::editing::get(&core, entity, selection)
+                } else {
+                    crate::editing::list(&core, entity)
+                }
+            },
             "profile_list" => Ok(json!(engine::lock(&app.core).lib.profiles.iter().map(|p|p.as_ref()).collect::<Vec<_>>())),
             "profile_save" => {
                 let profile:dmxctl_core::fixture::Profile=serde_json::from_value(request["data"].clone())?;
@@ -586,7 +594,27 @@ pub fn client(args: &[String]) -> anyhow::Result<()> {
             if let Some(object)=data.as_object() {ensure!(object.keys().all(|key|key=="operations"),"edit file supports an operations array only; use --dry-run on the command line");}
             json!({"op":"edit","operations":if data.is_array(){data}else{data["operations"].clone()}})
         }
-        [entity,"list"]|[entity,"get"] if editable(entity) => json!({"op":"entity_list","entity":entity}),
+        [entity,"list"] if editable(entity) => json!({"op":"entity_list","entity":entity}),
+        [entity,"get"]|[entity,"get",_] if editable(entity) => {
+            used.push("--index");
+            let mut payload = json!({"op": "entity_list", "entity": entity});
+            ensure!(*entity != "settings" || (positional.len() == 2 && !options.contains_key("--index")),
+                "settings get does not accept a key or --index");
+            match (positional.get(2), options.get("--index")) {
+                (Some(_), Some(_)) => bail!("get accepts either a key or --index"),
+                (Some(key), None) => {
+                    let key = if *entity == "fixture" && let Ok(id) = key.parse::<u32>() {
+                        json!(id)
+                    } else {
+                        json!(key)
+                    };
+                    payload["selection"] = json!({"key": key});
+                }
+                (None, Some(index)) => payload["selection"] = json!({"index": index.parse::<u64>()?}),
+                (None, None) => {}
+            }
+            payload
+        }
         [entity,op]|[entity,op,_] if editable(entity) && ["create","update","delete","capture"].contains(op) => {
             used.extend(["--file","--json","--index"]);
             let mut operation=json!({"entity":entity,"op":op});
@@ -642,12 +670,18 @@ pub fn client(args: &[String]) -> anyhow::Result<()> {
     if !watching {
         let before=if wait_after{Some(request(address,&json!({"op":"clock"}))?)}else{None};
         let mut result=request(address,&payload)?;
+        // 旧版の本体は selection を無視し、一覧を返す
+        if let (Some(selection), Some(list)) = (payload.get("selection"), result.as_array()) {
+            let items: Vec<Value> = list.iter().map(|item| item["data"].clone()).collect();
+            let index = crate::editing::select(&items, selection, payload["entity"] == "binding")?;
+            result = list[index].clone();
+        }
         if let Some(before)=before {
             let target=result["takes_effect_from_frame"].as_u64().unwrap_or(before["frame"].as_u64().unwrap_or(0)+1);
             let observed=crate::diagnostics::wait_for(address,&json!({"frame":target,"session":before["session"]}),wait_timeout)?;
             result["observed"]=observed;
         }
-        println!("{result}");
+        crate::cli::stdout_line(format_args!("{result}"))?;
         return Ok(());
     }
     let duration = options.get("--duration").map(|value|value.parse::<f64>()).transpose()?;
@@ -665,7 +699,10 @@ pub fn client(args: &[String]) -> anyhow::Result<()> {
         event["sample_interval_ms"] = json!(interval);
         event["changed"] = json!(snapshot["channels"]!=previous);
         previous = snapshot["channels"].clone();
-        if writeln!(out,"{event}").and_then(|_|out.flush()).is_err() { break; }
+        if let Err(error) = writeln!(out, "{event}").and_then(|_| out.flush()) {
+            if crate::cli::stdout_closed(&error) { break; }
+            return Err(error.into());
+        }
         let mut delay = Duration::from_millis(interval);
         if let Some(seconds)=duration { delay=delay.min(Duration::from_secs_f64(seconds).saturating_sub(started.elapsed())); }
         std::thread::sleep(delay);

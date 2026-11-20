@@ -1,6 +1,7 @@
 //! 起動の振り分け。画面付きの `dmxctl` と、画面なしの `dmxctl-server` が同じ規則で最初の引数を読む。
 //! 画面を出す動かし方 (`Gui`・`Kmsdrm`・`Connect`) は、画面を持つ側だけが実行する。
 use crate::control::Launch;
+use std::io::Write;
 
 /// 最初の引数で決まる動かし方
 pub enum Mode {
@@ -40,10 +41,15 @@ impl Mode {
 /// 画面を使わずに終わる動かし方 (ヘルプ・CLI・おすすめ配置) を実行する。実行したら `true`
 pub fn run_noninteractive(mode: &Mode, rest: &[String], usage: &str) -> bool {
     match mode {
-        Mode::Help => println!("{usage}\n{}", crate::cli::HELP),
+        Mode::Help => {
+            if let Err(error) = crate::cli::stdout_line(format_args!("{usage}\n{}", crate::cli::HELP)) {
+                let _ = writeln!(std::io::stderr().lock(), "{error}");
+                std::process::exit(1);
+            }
+        }
         Mode::Cli => {
             if let Err(error) = crate::cli::run(rest.to_vec()) {
-                eprintln!("{}", serde_json::json!({"error": error.to_string()}));
+                let _ = writeln!(std::io::stderr().lock(), "{}", serde_json::json!({"error": error.to_string()}));
                 std::process::exit(1);
             }
         }

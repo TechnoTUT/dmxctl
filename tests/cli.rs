@@ -113,8 +113,10 @@ fn real_time_stdin_controls_next_frame_without_device_output() {
     let mut child = Command::new(env!("CARGO_BIN_EXE_dmxctl"))
         .args(["watch","--project","project.json","--duration","0.2","--stdin","--log","live.jsonl"])
         .current_dir(&dir.0).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
-    child.stdin.take().unwrap().write_all(b"{\"cmd\":\"set\",\"id\":\"live\",\"fixture\":1,\"attr\":\"pan\",\"value\":77}\n").unwrap();
+    // 空行・空白だけの行は読み飛ばす(command_error にしない)
+    child.stdin.take().unwrap().write_all(b"\n  \n{\"cmd\":\"set\",\"id\":\"live\",\"fixture\":1,\"attr\":\"pan\",\"value\":77}\n\n").unwrap();
     let log = events(&child.wait_with_output().unwrap());
+    assert!(!log.iter().any(|v|v["type"]=="command_error"),"空行が command_error になった: {log:?}");
     assert_eq!(log[0]["output"],false);
     assert!(log.iter().any(|v|v["id"]=="live"));
     assert!(log.iter().filter(|v|v["type"]=="frame").flat_map(|v|v["changes"].as_array().unwrap()).any(|v|v["universe"]==1 && v["address"]==1 && v["value"]==77));
@@ -206,4 +208,36 @@ fn serve_defaults_to_no_inputs_and_gui_ignores_unknown_args() {
     assert!(Launch::parse(&args(&["--project","p.json","--bogus"]),true).is_err());
     let gui=Launch::parse(&args(&["-psn_0_12345","--bogus"]),false).unwrap();
     assert!(gui.inputs && gui.output && gui.autosave);
+}
+
+#[test]
+fn log_query_exits_successfully_when_stdout_is_closed() {
+    use std::process::Stdio;
+    let dir = Sandbox::new();
+    std::fs::write(dir.file("query.jsonl"), concat!(r#"{"type":"frame","t_ms":0}"#, "\n")).unwrap();
+    let (reader, writer) = std::io::pipe().unwrap();
+    drop(reader);
+    let out = Command::new(env!("CARGO_BIN_EXE_dmxctl"))
+        .args(["log", "query", "query.jsonl"])
+        .current_dir(&dir.0)
+        .stdout(Stdio::from(writer))
+        .stderr(Stdio::piped())
+        .output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(out.stderr.is_empty(), "{}", String::from_utf8_lossy(&out.stderr));
+}
+
+#[test]
+fn invalid_command_still_fails_when_stderr_is_closed() {
+    use std::process::Stdio;
+    let dir = Sandbox::new();
+    let (reader, writer) = std::io::pipe().unwrap();
+    drop(reader);
+    let status = Command::new(env!("CARGO_BIN_EXE_dmxctl"))
+        .arg("inspect")
+        .current_dir(&dir.0)
+        .stdout(Stdio::null())
+        .stderr(Stdio::from(writer))
+        .status().unwrap();
+    assert_eq!(status.code(), Some(1));
 }
