@@ -46,7 +46,7 @@ impl Recorder {
         let (frame, full, changes) = {
             let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
             let frame = state.frame;
-            let full = frame % 40 == 0 || emergency || state.previous.is_empty();
+            let full = frame.is_multiple_of(40) || emergency || state.previous.is_empty();
             let mut changes = Vec::new();
             for (u, data) in frames.iter().enumerate() {
                 let used = core.project.fixtures.iter().any(|f| f.universe == u)

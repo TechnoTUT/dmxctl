@@ -80,8 +80,11 @@ pub struct Client {
     supervisor: Option<JoinHandle<()>>,
     ctx: dmxctl_core::wake::Wake,
     /// 画面の1フレームの前のプロジェクトとラーンの状態
-    before: Option<(Value, (Option<usize>, Option<usize>))>,
+    before: Option<(Value, Learn)>,
 }
+
+/// ラーン中の割り当て(MIDI・OSC)の番号
+type Learn = (Option<usize>, Option<usize>);
 
 pub(super) fn resolve(target: &str) -> anyhow::Result<SocketAddr> {
     let has_port = target.parse::<SocketAddr>().is_ok() || target.rsplit_once(':').is_some_and(|(h, p)| !h.contains(':') && p.parse::<u16>().is_ok());

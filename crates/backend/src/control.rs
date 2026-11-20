@@ -131,7 +131,7 @@ fn serve_connection(stream: TcpStream, tx: &mpsc::SyncSender<Request>, ctx: &dmx
             let (reply, rx) = mpsc::channel();
             tx.try_send(Request { value, reply, deadline:Instant::now()+Duration::from_secs(4) }).context("control queue is full or closed")?;
             ctx.request_repaint();
-            Ok(rx.recv_timeout(Duration::from_secs(5)).context("application did not respond")?)
+            rx.recv_timeout(Duration::from_secs(5)).context("application did not respond")
         })();
         let complete = result.is_ok() || line.last() == Some(&b'\n');
         let response = result.unwrap_or_else(|e| json!({"ok":false,"error":e.to_string()}));
@@ -191,11 +191,10 @@ impl Server {
                 else { self.execute(app, &request.value) };
             engine::lock(&app.core).record_observation(before,op);
             let mut response=response;
-            if let Ok(result)=&mut response {
-                if ["reload","profile_save","profile_delete"].contains(&op) && request.value["dry_run"]!=true {
+            if let Ok(result)=&mut response
+                && ["reload","profile_save","profile_delete"].contains(&op) && request.value["dry_run"]!=true {
                     result["takes_effect_from_frame"]=json!(engine::lock(&app.core).rt.frame_id+1);
                 }
-            }
             let ok = response.is_ok();
             let response = match response {
                 Ok(result) => json!({"ok":true,"result":result}),
@@ -313,9 +312,8 @@ impl Server {
                 // フラッシュの期限は commands::apply が core.now()(仮想時間でも同じ時計)で決める
                 let frame = core.rt.frame_id;
                 drop(core);
-                if command["cmd"] == "flash" {
-                    if let Some(duration) = hold { app.ctx.request_repaint_after(duration); }
-                }
+                if command["cmd"] == "flash"
+                    && let Some(duration) = hold { app.ctx.request_repaint_after(duration); }
                 app.apply_services();
                 Ok(json!({"accepted_at_frame":frame,"takes_effect_from_frame":frame+1}))
             }
@@ -411,7 +409,7 @@ pub fn request_with_timeout(address:SocketAddr,value:&Value,timeout:Duration)->a
     ensure!(address.ip().is_loopback(), "control client must connect to loopback");
     ensure!(!timeout.is_zero(),"request timed out");
     let line = serde_json::to_string(value)?;
-    ensure!(line.len() as u64 + 1 <= MAX_REQUEST, "request is too large");
+    ensure!((line.len() as u64) < MAX_REQUEST, "request is too large");
     let started=Instant::now();
     // 直前に同じ接続先へ送っていれば、その接続を使い回す。待機の問い合わせで、接続を張り直し続けないようにするため。
     // スレッドごとに持つので、MCP の待機が並んでも、それぞれの接続で順に送る。

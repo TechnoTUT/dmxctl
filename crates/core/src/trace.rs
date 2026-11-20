@@ -77,9 +77,8 @@ impl Core {
         json!({"cancelled":cancelled})
     }
     pub(crate) fn trace_begin(&mut self) {
-        if let Some(trace)=self.rt.observe.trace.as_mut() {
-            if trace.result.is_none() {trace.stages.clear();trace.frame=Some(self.rt.frame_id+1);}
-        }
+        if let Some(trace)=self.rt.observe.trace.as_mut()
+            && trace.result.is_none() {trace.stages.clear();trace.frame=Some(self.rt.frame_id+1);}
         self.trace_stage("base",None,Value::Null);
     }
     pub(crate) fn trace_stage(&mut self,stage:&str,values:Option<&[Vec<u8>]>,details:Value) {
