@@ -142,21 +142,21 @@ pub fn client(address:std::net::SocketAddr,args:&[&str],options:&std::collection
     }
     for option in options.keys(){ensure!(allowed.contains(option),"option is not supported by this command: {option}");}
     match command {
-        "schema"|"version"=>println!("{}",crate::control::request(address,&payload)?),
+        "schema"|"version"=>crate::cli::stdout_line(format_args!("{}",crate::control::request(address,&payload)?))?,
         "assert"=>{
             payload["op"]=json!("check");let result=crate::control::request(address,&payload)?;
-            println!("{result}");ensure!(result["passed"]==true,"output assertion failed");
+            crate::cli::stdout_line(format_args!("{result}"))?;ensure!(result["passed"]==true,"output assertion failed");
         }
         "explain"=>{
             let requester=|request:&Value,timeout:Duration|crate::control::request_with_timeout(address,request,timeout);
-            println!("{}",explain(&requester,payload,timeout)?);
+            crate::cli::stdout_line(format_args!("{}",explain(&requester,payload,timeout)?))?;
         }
         "wait"=>{
             let frames=options.get("--frames").map(|v|v.parse::<u64>()).transpose()?;
             let beats=options.get("--beats").map(|v|v.parse::<f64>()).transpose()?;
             let ms=options.get("--ms").map(|v|v.parse::<u64>()).transpose()?;
             let requester=|request:&Value,timeout:Duration|crate::control::request_with_timeout(address,request,timeout);
-            println!("{}",wait(&requester,frames,beats,ms,payload,timeout)?);
+            crate::cli::stdout_line(format_args!("{}",wait(&requester,frames,beats,ms,payload,timeout)?))?;
         }
         _=>unreachable!(),
     }

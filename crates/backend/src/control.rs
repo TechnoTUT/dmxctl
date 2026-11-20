@@ -669,7 +669,7 @@ pub fn client(args: &[String]) -> anyhow::Result<()> {
             let observed=crate::diagnostics::wait_for(address,&json!({"frame":target,"session":before["session"]}),wait_timeout)?;
             result["observed"]=observed;
         }
-        println!("{result}");
+        crate::cli::stdout_line(format_args!("{result}"))?;
         return Ok(());
     }
     let duration = options.get("--duration").map(|value|value.parse::<f64>()).transpose()?;
@@ -687,7 +687,10 @@ pub fn client(args: &[String]) -> anyhow::Result<()> {
         event["sample_interval_ms"] = json!(interval);
         event["changed"] = json!(snapshot["channels"]!=previous);
         previous = snapshot["channels"].clone();
-        if writeln!(out,"{event}").and_then(|_|out.flush()).is_err() { break; }
+        if let Err(error) = writeln!(out, "{event}").and_then(|_| out.flush()) {
+            if crate::cli::stdout_closed(&error) { break; }
+            return Err(error.into());
+        }
         let mut delay = Duration::from_millis(interval);
         if let Some(seconds)=duration { delay=delay.min(Duration::from_secs_f64(seconds).saturating_sub(started.elapsed())); }
         std::thread::sleep(delay);

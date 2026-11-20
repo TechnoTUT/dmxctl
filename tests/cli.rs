@@ -209,3 +209,35 @@ fn serve_defaults_to_no_inputs_and_gui_ignores_unknown_args() {
     let gui=Launch::parse(&args(&["-psn_0_12345","--bogus"]),false).unwrap();
     assert!(gui.inputs && gui.output && gui.autosave);
 }
+
+#[test]
+fn log_query_exits_successfully_when_stdout_is_closed() {
+    use std::process::Stdio;
+    let dir = Sandbox::new();
+    std::fs::write(dir.file("query.jsonl"), concat!(r#"{"type":"frame","t_ms":0}"#, "\n")).unwrap();
+    let (reader, writer) = std::io::pipe().unwrap();
+    drop(reader);
+    let out = Command::new(env!("CARGO_BIN_EXE_dmxctl"))
+        .args(["log", "query", "query.jsonl"])
+        .current_dir(&dir.0)
+        .stdout(Stdio::from(writer))
+        .stderr(Stdio::piped())
+        .output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(out.stderr.is_empty(), "{}", String::from_utf8_lossy(&out.stderr));
+}
+
+#[test]
+fn invalid_command_still_fails_when_stderr_is_closed() {
+    use std::process::Stdio;
+    let dir = Sandbox::new();
+    let (reader, writer) = std::io::pipe().unwrap();
+    drop(reader);
+    let status = Command::new(env!("CARGO_BIN_EXE_dmxctl"))
+        .arg("inspect")
+        .current_dir(&dir.0)
+        .stdout(Stdio::null())
+        .stderr(Stdio::from(writer))
+        .status().unwrap();
+    assert_eq!(status.code(), Some(1));
+}
