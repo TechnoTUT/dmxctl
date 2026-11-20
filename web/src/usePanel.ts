@@ -8,7 +8,7 @@ export function usePanel() {
   const [state, setState] = useState<PanelState | null>(null)
   // 接続できているか。操作が断られただけでは変えない
   const [offline, setOffline] = useState(false)
-  // 操作が断られたときの理由。次に成功するまで出す
+  // 操作が断られたときの理由。次に操作が受け付けられるまで出す
   const [notice, setNotice] = useState('')
   const [needPin, setNeedPin] = useState(false)
   const busy = useRef(false)
@@ -16,7 +16,6 @@ export function usePanel() {
   const ok = useCallback((s: PanelState) => {
     setState(s)
     setOffline(false)
-    setNotice('')
     setNeedPin(false)
   }, [])
 
@@ -46,6 +45,8 @@ export function usePanel() {
     async (c: Command) => {
       try {
         ok(await sendCommand(c))
+        // 操作が受け付けられたときだけ消す。先に送った状態取得の応答では消さない
+        setNotice('')
       } catch (e) {
         fail(e)
       }
