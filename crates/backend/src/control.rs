@@ -444,11 +444,16 @@ enum Exchange { Closed, Failed(anyhow::Error) }
 fn exchange(stream:&mut TcpStream,line:&str,started:Instant,timeout:Duration)->Result<Vec<u8>,Exchange> {
     let remaining=||{let r=timeout.saturating_sub(started.elapsed());if r.is_zero(){Err(Exchange::Failed(anyhow::anyhow!("request timed out")))}else{Ok(r)}};
     let closed=|e:&std::io::Error|matches!(e.kind(),std::io::ErrorKind::BrokenPipe|std::io::ErrorKind::ConnectionReset|std::io::ErrorKind::ConnectionAborted);
-    stream.set_write_timeout(Some(remaining()?.min(Duration::from_secs(2)))).map_err(|e|Exchange::Failed(e.into()))?;
+    // macOS は、相手が閉じた接続に待ち時間を設定しようとすると EINVAL(InvalidInput)を返す。
+    // 要求を書く前なので、閉じていた接続として新しい接続で送り直してよい
+    let gone=|e:std::io::Error|if e.kind()==std::io::ErrorKind::InvalidInput || closed(&e) {Exchange::Closed} else {Exchange::Failed(e.into())};
+    stream.set_write_timeout(Some(remaining()?.min(Duration::from_secs(2)))).map_err(gone)?;
     if let Err(e)=stream.write_all(format!("{line}\n").as_bytes()) {
         return Err(if closed(&e) {Exchange::Closed} else {Exchange::Failed(e.into())});
     }
-    stream.set_read_timeout(Some(remaining()?)).map_err(|e|Exchange::Failed(e.into()))?;
+    // 書いた後の EINVAL も、相手が既に閉じていた接続で起きる。本体が閉じるのは、要求が無いまま待ち時間が過ぎたとき
+    // (以前の版は答えた直後)だけなので、この要求は読まれていない。送り直してよい
+    stream.set_read_timeout(Some(remaining()?)).map_err(gone)?;
     let mut response = Vec::new();
     match BufReader::new(stream.take(MAX_RESPONSE+1)).read_until(b'\n',&mut response) {
         Ok(_) if response.is_empty() => Err(Exchange::Closed),
