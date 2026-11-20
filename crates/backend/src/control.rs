@@ -288,7 +288,7 @@ impl Server {
             "project_diff" => app.project_diff(),
             "reload" => {
                 let file=request.get("file").map(|v|v.as_str().context("file must be a string")).transpose()?;
-                app.reload_checked(file.map(std::path::Path::new),true,commands::flag(request,"dry_run",false)?)
+                app.reload_checked(file.map(std::path::Path::new),true,true,commands::flag(request,"dry_run",false)?)
             }
             "command" => {
                 let command = &request["command"];

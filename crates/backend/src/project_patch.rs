@@ -179,23 +179,41 @@ pub trait CoreProjectPatch {
     fn apply_project_patch(&mut self, changes: &[Change], guard_safety: bool) -> anyhow::Result<Applied>;
 }
 
-/// 編集が指す場所が、当てた後の設定に実在するか。存在しない項目(打ち間違い・古い版の項目)は、
-/// 書き込んでも設定に読み直すときに捨てられ、黙って何も変わらないので、ここで見つけて拒む
-fn path_exists(project: &Value, change: &Change) -> bool {
-    // 消す編集(value が無い)は、消えた後に無いのが正しい。親が実在すればよい
-    let path = if change.value.is_none() { change.path.split_last().map_or(&[][..], |(_, p)| p) } else { &change.path[..] };
-    let mut at = project;
+fn lookup<'a>(mut at: &'a Value, path: &[Seg]) -> Option<&'a Value> {
     for seg in path {
-        let next = match seg {
-            Seg::Key(k) => at.get(k.as_str()),
-            Seg::Index(i) => at.get(*i),
+        at = match seg {
+            Seg::Key(k) => at.get(k.as_str())?,
+            Seg::Index(i) => at.get(*i)?,
         };
-        match next {
-            Some(v) => at = v,
-            None => return false,
-        }
     }
-    true
+    Some(at)
+}
+
+fn path_text(path: &[Seg]) -> String {
+    path.iter().map(|s| match s { Seg::Key(k) => k.clone(), Seg::Index(i) => i.to_string() }).collect::<Vec<_>>().join(".")
+}
+
+/// 書き込んだ値のうち、設定に読み直したときに捨てられた項目(打ち間違い・古い版の項目)の場所。
+/// 空の値(null・false・空の配列や表)は、書き出すときに省く項目があるので、無くてもよい
+fn dropped_key(given: &Value, kept: &Value, path: &mut Vec<Seg>) -> bool {
+    match (given, kept) {
+        (Value::Object(g), Value::Object(k)) => g.iter().any(|(key, gv)| {
+            path.push(Seg::Key(key.clone()));
+            let dropped = match k.get(key) {
+                Some(kv) => dropped_key(gv, kv, path),
+                None => !matches!(gv, Value::Null | Value::Bool(false)) && !gv.as_array().is_some_and(|a| a.is_empty()) && !gv.as_object().is_some_and(|o| o.is_empty()),
+            };
+            if !dropped { path.pop(); }
+            dropped
+        }),
+        (Value::Array(g), Value::Array(k)) if g.len() == k.len() => g.iter().zip(k).enumerate().any(|(i, (gv, kv))| {
+            path.push(Seg::Index(i));
+            let dropped = dropped_key(gv, kv, path);
+            if !dropped { path.pop(); }
+            dropped
+        }),
+        _ => false,
+    }
 }
 
 impl CoreProjectPatch for dmxctl_core::engine::Core {
@@ -209,14 +227,30 @@ impl CoreProjectPatch for dmxctl_core::engine::Core {
                 anyhow::ensure!(!LOCAL_KEYS.contains(&k.as_str()), "{k} is local to each machine");
             }
         }
+        // 存在しない項目(打ち間違い・古い版の項目)は、書き込んでも設定に読み直すときに捨てられ、
+        // 黙って何も変わらないので、ここで見つけて拒む
+        let missing = |path: &[Seg]| Err(Rejected(format!("存在しない項目です: {}", path_text(path))).into());
         let mut value = serde_json::to_value(&self.project)?;
-        apply(&mut value, changes)?;
-        let project: Project = serde_json::from_value(value).map_err(|e| Rejected(format!("編集の値が正しくありません: {e}")))?;
-        let applied = serde_json::to_value(&project)?;
-        if let Some(c) = changes.iter().find(|c| !path_exists(&applied, c)) {
-            let path: Vec<String> = c.path.iter().map(|s| match s { Seg::Key(k) => k.clone(), Seg::Index(i) => i.to_string() }).collect();
-            return Err(Rejected(format!("存在しない項目です: {}", path.join("."))).into());
+        for c in changes {
+            // 消す編集は、今その項目があること
+            if c.value.is_none() && lookup(&value, &c.path).is_none() {
+                return missing(&c.path);
+            }
+            apply_one(&mut value, c)?;
         }
+        let mut project: Project = serde_json::from_value(value).map_err(|e| Rejected(format!("編集の値が正しくありません: {e}")))?;
+        let applied = serde_json::to_value(&project)?;
+        for c in changes {
+            let Some(given) = &c.value else { continue };
+            let Some(kept) = lookup(&applied, &c.path) else { return missing(&c.path) };
+            let mut path = c.path.clone();
+            if dropped_key(given, kept, &mut path) {
+                return missing(&path);
+            }
+        }
+        // 割り当ての ID の重複・欠けは、反映するときに付け直す。安全の確認は付け直した後の設定で行う
+        project.next_binding_id = project.next_binding_id.max(self.project.next_binding_id);
+        project.ensure_binding_ids();
         // 自動操作の窓口(ctl・MCP)と同じ安全の確認。レーザーの範囲・保護された機材・校正・ARM の割り当てを守る
         if guard_safety {
             crate::editing::safety_unchanged(&self.project, &project, &self.lib).map_err(|e| Rejected(format!("{SAFETY_READ_ONLY}({e})")))?;
@@ -235,6 +269,7 @@ mod tests {
     use dmxctl_core::fixture::Library;
     use serde_json::json;
     use std::sync::Arc;
+    use dmxctl_core::project::Action;
 
     fn core() -> Core {
         let (lib, _) = Library::load(std::path::Path::new("/nonexistent"));
@@ -366,6 +401,59 @@ mod tests {
         // 実在する項目は通る
         c.apply_project_patch(&change(vec![Seg::Key("bpm".into())], Some(json!(128.0))), true).unwrap();
         assert_eq!(c.project.bpm, 128.0);
+    }
+
+    /// 保護された機材のアドレスに別の機材を重ねる編集と、割り当ての ID を重ねて ARM の割り当てを差し替える編集は拒む
+    #[test]
+    fn overlaps_and_duplicate_binding_ids_cannot_bypass_safety() {
+        let mut c = core();
+        let laser = c.project.fixtures.iter().position(|f| f.profile == "stage-evolution/laserscan300").unwrap();
+        let other = c.project.fixtures.iter().position(|f| f.profile != c.project.fixtures[laser].profile).unwrap();
+        let (universe, address) = (c.project.fixtures[laser].universe, c.project.fixtures[laser].address);
+        let onto_laser = vec![
+            Change { path: vec![Seg::Key("fixtures".into()), Seg::Index(other), Seg::Key("universe".into())], value: Some(json!(universe)), base: None },
+            Change { path: vec![Seg::Key("fixtures".into()), Seg::Index(other), Seg::Key("address".into())], value: Some(json!(address)), base: None },
+        ];
+        let err = c.apply_project_patch(&onto_laser, true).unwrap_err();
+        assert!(err.is::<Rejected>() && err.to_string().contains("overlap"), "{err}");
+
+        // サーバーの画面で作った ARM の割り当てと同じ ID で、別の操作に割り当てた ARM を先に置く
+        let mut bindings = serde_json::to_value(&c.project.bindings).unwrap();
+        bindings.as_array_mut().unwrap().push(json!({"id": 0, "name": "ARM", "trigger": null, "osc": "/arm", "action": {"Arm": {"sel": "All", "mode": "Toggle"}}}));
+        c.apply_project_patch(&[Change { path: vec![Seg::Key("bindings".into())], value: Some(bindings), base: None }], false).unwrap();
+        let before = serde_json::to_value(&c.project.bindings).unwrap();
+        let mut bindings = before.clone();
+        let arm = c.project.bindings.iter().find(|b| matches!(b.action, Action::Arm { .. })).expect("ARM の割り当て");
+        let mut fake = serde_json::to_value(arm).unwrap();
+        fake["name"] = json!("差し替え");
+        fake["osc"] = json!("/fake/arm");
+        bindings.as_array_mut().unwrap().insert(0, fake);
+        let err = c.apply_project_patch(&[Change { path: vec![Seg::Key("bindings".into())], value: Some(bindings), base: None }], true).unwrap_err();
+        assert!(err.is::<Rejected>(), "{err}");
+        assert_eq!(serde_json::to_value(&c.project.bindings).unwrap(), before);
+
+        // 許されたときは変えられる
+        c.apply_project_patch(&onto_laser, false).unwrap();
+    }
+
+    /// 存在しない項目を消す編集と、置き換える値の中の存在しない項目も拒む
+    #[test]
+    fn removing_or_nesting_unknown_fields_is_rejected() {
+        let mut c = core();
+        let before = serde_json::to_value(&c.project).unwrap();
+        let remove = [Change { path: vec![Seg::Key("fixtures".into()), Seg::Index(0), Seg::Key("nope".into())], value: None, base: None }];
+        let err = c.apply_project_patch(&remove, true).unwrap_err();
+        assert!(err.to_string().contains("fixtures.0.nope"), "{err}");
+        let mut fixture = before["fixtures"][0].clone();
+        fixture["nope"] = json!(1);
+        let replace = [Change { path: vec![Seg::Key("fixtures".into()), Seg::Index(0)], value: Some(fixture), base: None }];
+        let err = c.apply_project_patch(&replace, true).unwrap_err();
+        assert!(err.is::<Rejected>() && err.to_string().contains("fixtures.0.nope"), "{err}");
+        assert_eq!(serde_json::to_value(&c.project).unwrap(), before);
+        // 書き出すときに省く空の項目(null・空の表)は、あってもよい
+        let mut fixture = before["fixtures"][0].clone();
+        fixture["limits"] = json!({});
+        c.apply_project_patch(&[Change { path: vec![Seg::Key("fixtures".into()), Seg::Index(0)], value: Some(fixture), base: None }], true).unwrap();
     }
 
     #[test]

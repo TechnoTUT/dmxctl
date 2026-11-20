@@ -7,6 +7,27 @@ fn safety_bindings(project:&Project)->anyhow::Result<std::collections::BTreeMap<
         .map(|b|Ok((b.id,serde_json::to_value(b)?))).collect()
 }
 
+/// 保護された機材(ARM が要る・動いてよい範囲がある・禁止値がある)か
+fn is_protected(f:&FixtureInstance,lib:&Library)->bool {
+    lib.get(&f.profile).is_some_and(|p|p.needs_arm) || !f.limits.is_empty()
+        || lib.mode(&f.profile,f.mode).is_some_and(|m|m.channels.iter().any(|c|!c.forbid.is_empty()))
+}
+
+/// 保護された機材と、そのアドレスに重なる別の機材の組(保護された機材のID, 重なる機材のID)。出力するものだけ
+fn protected_overlaps(project:&Project,lib:&Library)->std::collections::BTreeSet<(u32,u32)> {
+    let spans:Vec<_>=project.fixtures.iter().filter(|f|f.enabled).filter_map(|f| {
+        let len=lib.mode(&f.profile,f.mode)?.channels.len();
+        Some((f,f.address as usize,f.address as usize+len))
+    }).collect();
+    let mut pairs=std::collections::BTreeSet::new();
+    for (a,a_start,a_end) in spans.iter().filter(|(f,..)|is_protected(f,lib)) {
+        for (b,b_start,b_end) in &spans {
+            if a.id!=b.id && a.universe==b.universe && a_start<b_end && b_start<a_end {pairs.insert((a.id,b.id));}
+        }
+    }
+    pairs
+}
+
 pub fn safety_unchanged(old:&Project,new:&Project,lib:&Library)->anyhow::Result<()> {
     ensure!(old.motion.pan_front==new.motion.pan_front && old.motion.tilt_up==new.motion.tilt_up,"motion calibration is read-only from CLI");
     // ARM・レーザーの合図の割り当ては、作成・変更・削除のどれもできない。よく押すパッドを差し替えると、
@@ -22,6 +43,9 @@ pub fn safety_unchanged(old:&Project,new:&Project,lib:&Library)->anyhow::Result<
                 "protected fixture patch, enable state and safety limits are read-only from CLI");
         }
     }
+    // 保護された機材のアドレスに別の機材を重ねると、出力で後の機材の値に上書きされ、安全の値が保たれない。
+    // もともと重なっている組(画面で作ったもの)は、そのままなら認める
+    ensure!(protected_overlaps(new,lib).is_subset(&protected_overlaps(old,lib)),"fixtures cannot overlap the addresses of protected fixtures from CLI");
     Ok(())
 }
 

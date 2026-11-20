@@ -26,15 +26,17 @@ impl crate::host::Host {
         Ok(json!({"changes":changes,"redacted_changes":{"web_pin":pin_changed},"project":self.project_path}))
     }
 
-    pub(crate) fn reload_checked(&mut self,path:Option<&std::path::Path>,remote:bool,dry_run:bool)->anyhow::Result<Value> {
+    pub(crate) fn reload_checked(&mut self,path:Option<&std::path::Path>,remote:bool,guard_safety:bool,dry_run:bool)->anyhow::Result<Value> {
         let path=path.unwrap_or(&self.project_path).to_path_buf();
         let text=std::fs::read_to_string(&path)?;
-        self.reload_text(&text,&path.display().to_string(),remote,dry_run)
+        self.reload_text(&text,&path.display().to_string(),remote,guard_safety,dry_run)
     }
 
     /// プロジェクトの中身(JSON)を読み込む。保存先(project_path)は変えない。読み込む前の状態はバックアップに残す。
-    /// `source` は結果に出す読み込み元(ファイルの場所や名前)
-    pub(crate) fn reload_text(&mut self,text:&str,source:&str,remote:bool,dry_run:bool)->anyhow::Result<Value> {
+    /// `source` は結果に出す読み込み元(ファイルの場所や名前)。
+    /// `remote`: 自動操作の窓口(ctl・MCP)から。安全の確認と厳しい検証をする。
+    /// `guard_safety`: LAN のクライアントから(`--remote-allow-safety-edit` なら false)。安全の設定が変わる読み込みを拒む
+    pub(crate) fn reload_text(&mut self,text:&str,source:&str,remote:bool,guard_safety:bool,dry_run:bool)->anyhow::Result<Value> {
         let path=source;
         let mut project:Project=serde_json::from_str(text.trim_start_matches('\u{feff}'))?;
         let previous={
@@ -45,6 +47,7 @@ impl crate::host::Host {
             project.ensure_binding_ids();
             // GUIの「読み込み」は今までどおり厳しい検証をしない(GUIで保存したファイルを読み戻せるように)
             if remote {safety_unchanged(&core.project,&project,&core.lib)?;validate(&project,&core.lib)?;}
+            else if guard_safety {safety_unchanged(&core.project,&project,&core.lib).map_err(|e|anyhow::anyhow!("{}({e})",crate::project_patch::SAFETY_READ_ONLY))?;}
             core.project.clone()
         };
         if dry_run {return Ok(json!({"applied":false,"valid":true,"source":path}));}
