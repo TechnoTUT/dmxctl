@@ -37,7 +37,7 @@ const DEVICE: [&str; 6] = ["cpal", "midir", "serialport", "libloading", "moip-nd
 
 #[test]
 fn model_depends_on_nothing_above_it() {
-    assert_without("model", &["dmxctl-core", "dmxctl-backend", "dmxctl-ui"]);
+    assert_without("model", &["dmxctl-io", "dmxctl-core", "dmxctl-backend", "dmxctl-ui"]);
     assert_without("model", &GUI);
     assert_without("model", &DEVICE);
 }

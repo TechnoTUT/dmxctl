@@ -376,7 +376,8 @@ fn osc_triggers_bindings_and_learns_addresses() {
 #[test]
 fn osc_server_receives_udp() {
     let core: Shared = Arc::new(std::sync::Mutex::new(core()));
-    let port = 39000 + (std::process::id() % 500) as u16;
+    // 空いているポートを OS に選ばせる(決まった番号だと、他の処理とぶつかってまれに落ちる)
+    let port = std::net::UdpSocket::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
     let server = osc::OscServer::start(core.clone(), None, port).expect("待ち受けできない");
     let sock = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
     sock.send_to(&osc::encode("/dmx/master", &[Arg::Float(0.5)]), ("127.0.0.1", port)).unwrap();
