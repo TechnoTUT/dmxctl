@@ -102,26 +102,41 @@ export function Status({ s }: { s: PanelState }) {
   )
 }
 
-/** 全体光量。動かしている間は少し間を空けて送り、手を離すまでは受信した値で上書きしない */
+/** 全体光量。動かしている間と、離してから反映されるまでは、手元の値を見せる。
+ * 受信した値で上書きすると、離した瞬間に古い値へ戻って見える */
 function MasterSlider({ value, send }: { value: number; send: Send }) {
   const [drag, setDrag] = useState<number | null>(null)
-  const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
-  useEffect(() => () => clearTimeout(timer.current), [])
-  const shown = drag ?? Math.round(value * 100)
+  const held = useRef(false)
+  const sendTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const settleTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  useEffect(() => () => { clearTimeout(sendTimer.current); clearTimeout(settleTimer.current) }, [])
+  const server = Math.round(value * 100)
+  // 離したあとに、送った値が戻ってきたら手元の値をやめる
+  useEffect(() => {
+    if (drag !== null && !held.current && drag === server) setDrag(null)
+  }, [drag, server])
+  // 反映されなかったときも、しばらくしたら受信した値に戻す
+  const settle = () => {
+    clearTimeout(settleTimer.current)
+    settleTimer.current = setTimeout(() => setDrag(null), 1500)
+  }
   const change = (v: number) => {
     setDrag(v)
-    clearTimeout(timer.current)
-    timer.current = setTimeout(() => send({ cmd: 'master', value: v / 100 }), 60)
+    clearTimeout(sendTimer.current)
+    sendTimer.current = setTimeout(() => send({ cmd: 'master', value: v / 100 }), 60)
+    if (!held.current) settle()
   }
+  const shown = drag ?? server
   return (
     <div className="mt-4 flex items-center gap-3">
       <span className="whitespace-nowrap text-xs font-semibold text-slate-500 dark:text-slate-400">全体光量</span>
       <input
         type="range" min={0} max={100} step={1} value={shown}
         className="h-8 flex-1 accent-[#C7000A]"
+        onPointerDown={() => { held.current = true; clearTimeout(settleTimer.current) }}
+        onPointerUp={() => { held.current = false; settle() }}
+        onPointerCancel={() => { held.current = false; settle() }}
         onChange={(e) => change(Number(e.target.value))}
-        onPointerUp={() => setDrag(null)}
-        onBlur={() => setDrag(null)}
       />
       <span className="w-11 text-right font-mono text-sm font-bold tabular-nums">{shown}%</span>
     </div>
