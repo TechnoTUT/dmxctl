@@ -358,3 +358,87 @@ fn output_snapshot_accepts_pixel_group_names() {
     assert_eq!(one["channels"].as_array().unwrap().len(),1);
     host.stop();
 }
+
+/// 決まった答えを返す偽のサーバー。`keep_alive` なら1つの接続で答え続け、そうでなければ以前の本体と同じく1回で閉じる。
+/// 受け付けた接続の数を返す
+fn fake_server(keep_alive:bool) -> (SocketAddr, std::sync::Arc<AtomicU64>) {
+    use std::io::Write;
+    let listener=std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address=listener.local_addr().unwrap();
+    let accepted=std::sync::Arc::new(AtomicU64::new(0));
+    let count=accepted.clone();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream)=stream else { break };
+            count.fetch_add(1,Ordering::Relaxed);
+            std::thread::spawn(move || {
+                let mut reader=BufReader::new(stream.try_clone().unwrap());
+                loop {
+                    let mut line=String::new();
+                    if reader.read_line(&mut line).unwrap_or(0)==0 { break; }
+                    if writeln!(stream,"{}",json!({"ok":true,"result":{"frame":1}})).is_err() || !keep_alive { break; }
+                }
+            });
+        }
+    });
+    (address,accepted)
+}
+
+#[test]
+fn successive_requests_reuse_one_connection() {
+    // 25ms ごとの待機の問い合わせで接続を張り直し続けると、Windows では TIME_WAIT が溜まって一時ポートが尽きる
+    let (address,accepted)=fake_server(true);
+    for _ in 0..200 {
+        control::request(address,&json!({"op":"clock"})).unwrap();
+    }
+    assert_eq!(accepted.load(Ordering::Relaxed),1,"同じスレッドからの続けての要求は、1つの接続で送る");
+    // 別のスレッドは、別の接続を使う。MCP の待機が並んでも、互いの要求が混ざらない
+    std::thread::spawn(move || control::request(address,&json!({"op":"clock"})).unwrap()).join().unwrap();
+    assert_eq!(accepted.load(Ordering::Relaxed),2);
+}
+
+#[test]
+fn requests_to_a_server_that_closes_after_each_reply_are_resent_on_a_new_connection() {
+    // 以前の版の本体は、答えるたびに接続を閉じる。閉じられた接続に送ってしまったときは、新しい接続で送り直す
+    let (address,accepted)=fake_server(false);
+    for _ in 0..50 {
+        control::request(address,&json!({"op":"clock"})).unwrap();
+    }
+    assert_eq!(accepted.load(Ordering::Relaxed),50);
+}
+
+#[test]
+fn the_control_server_answers_several_requests_on_one_connection_and_closes_when_idle() {
+    use std::io::{Read, Write};
+    let host=Running::start();
+    let mut stream=std::net::TcpStream::connect(host.address).unwrap();
+    let mut reader=BufReader::new(stream.try_clone().unwrap());
+    for _ in 0..3 {
+        writeln!(stream,"{}",json!({"op":"clock"})).unwrap();
+        let mut line=String::new();
+        reader.read_line(&mut line).unwrap();
+        let reply:Value=serde_json::from_str(&line).unwrap();
+        assert_eq!(reply["ok"],true,"{line}");
+    }
+    // 壊れた要求には答えたうえで、同じ接続で続けられる
+    writeln!(stream,"not json").unwrap();
+    let mut line=String::new();
+    reader.read_line(&mut line).unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&line).unwrap()["ok"],false);
+    writeln!(stream,"{}",json!({"op":"clock"})).unwrap();
+    line.clear();
+    reader.read_line(&mut line).unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&line).unwrap()["ok"],true);
+    // 要求が無いまま時間が経つと、サーバーが閉じる
+    stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    let started=Instant::now();
+    let mut rest=Vec::new();
+    let _=reader.read_to_end(&mut rest);
+    assert!(rest.is_empty() && started.elapsed()<Duration::from_secs(4),"idle connection must be closed");
+    // 使い回しの間隔を空けた要求も、続けての要求も通る
+    for _ in 0..300 {
+        assert!(control::request(host.address,&json!({"op":"clock"})).is_ok());
+    }
+    std::thread::sleep(Duration::from_millis(1200));
+    assert!(control::request(host.address,&json!({"op":"status"})).is_ok());
+}
