@@ -1,6 +1,6 @@
 //! Validated operations shared by offline runs and the running application.
 use crate::controls::CoreControls;
-use dmxctl_core::{color::NamedColor, engine::Core, fixture::Library, project::{BPM_MAX, BPM_MIN, Project, Selector}};
+use dmxctl_core::{color::NamedColor, engine::Core, fixture::{DMX_FINE_MAX, Library}, project::{BPM_MAX, BPM_MIN, Project, Selector}};
 use anyhow::{Context, bail, ensure};
 use serde_json::Value;
 
@@ -9,9 +9,6 @@ fn finite(value: &Value) -> anyhow::Result<f32> {
     ensure!(v.is_finite() && (v as f32).is_finite(), "value must be finite");
     Ok(v as f32)
 }
-
-/// DMX の値の上限(16bit の属性も同じ尺度で、粗値 + 細値/256)
-const DMX_MAX: f32 = 255.0 + 255.0 / 256.0;
 
 pub(crate) fn flag(value:&Value,key:&str,default:bool)->anyhow::Result<bool> {
     value.get(key).map(|v|v.as_bool().with_context(||format!("{key} must be boolean"))).transpose().map(|v|v.unwrap_or(default))
@@ -36,13 +33,17 @@ fn apply_inner(core: &mut Core, value: &Value) -> anyhow::Result<()> {
             let f = &core.project.fixtures[index];
             let mode = core.lib.mode(&f.profile, f.mode).context("unknown mode")?;
             let attr = value["attr"].as_str().context("attr required")?;
-            ensure!(!mode.attr_channels(attr).is_empty(), "unknown attr");
-            let number = finite(&value["value"])?;
-            // 画面のスライダーは範囲内しか出さないが、ctl・MCP・シナリオでは範囲外を黙って丸めずに知らせる。
-            // 16bit の属性も同じ尺度(粗値 + 細値/256)なので、上限は 255 + 255/256
-            ensure!((0.0..=DMX_MAX).contains(&number),"value must be in 0..{DMX_MAX} (DMX)");
+            let channels = mode.attr_channels(attr);
+            ensure!(!channels.is_empty(), "unknown attr");
+            let max = if channels.iter().all(|&channel| mode.fine_of(channel).is_some()) {
+                f64::from(DMX_FINE_MAX)
+            } else {
+                255.0
+            };
+            let number = value["value"].as_f64().context("value must be a number")?;
+            ensure!((0.0..=max).contains(&number), "value must be in 0..{max} (DMX)");
             core.note_manual();
-            core.set_attr(&Selector::Fixture(id), attr, number);
+            core.set_attr(&Selector::Fixture(id), attr, number as f32);
         }
         "effect" => {
             let name = value["name"].as_str().context("name required")?;
@@ -173,14 +174,29 @@ mod tests {
     #[test]
     fn set_values_out_of_the_dmx_range_are_rejected() {
         let mut c = core();
-        for v in [999.0, -50.0, 256.0] {
+        for v in [999.0, -50.0, 256.0, -1e-50, 255.5] {
             let e = apply(&mut c, &json!({"cmd": "set", "fixture": 1, "attr": "dimmer", "value": v})).unwrap_err().to_string();
             assert!(e.starts_with("value must be in 0.."), "{v}: {e}");
         }
-        // 16bit の属性も同じ尺度で、255 + 255/256 までは受け付ける
-        for v in [0.0, 255.0, 255.99609375] {
+        for v in [0.0, 255.0] {
             apply(&mut c, &json!({"cmd": "set", "fixture": 1, "attr": "pan", "value": v})).unwrap_or_else(|e| panic!("{v}: {e}"));
         }
+    }
+
+    #[test]
+    fn set_preserves_the_fine_byte_at_the_dmx_maximum() {
+        let mut c = core();
+        let fixture = &mut c.project.fixtures[0];
+        fixture.mode = 1;
+        let mode = c.lib.mode(&fixture.profile, fixture.mode).unwrap();
+        fixture.values.resize(mode.channels.len(), 0);
+        let fixture = fixture.id;
+        let error = apply(&mut c, &json!({"cmd": "set", "fixture": fixture, "attr": "pan", "value": 255.996094})).unwrap_err();
+        assert!(error.to_string().starts_with("value must be in 0..255.99609375"));
+        apply(&mut c, &json!({"cmd": "set", "fixture": fixture, "attr": "pan", "value": 255.99609375})).unwrap();
+        let fixture = c.project.fixtures.iter().find(|item| item.id == fixture).unwrap();
+        let mode = c.lib.mode(&fixture.profile, fixture.mode).unwrap();
+        assert_eq!(mode.get_f(&fixture.values, mode.find_attr("pan").unwrap()), 255.99609375);
     }
 
     #[test]
