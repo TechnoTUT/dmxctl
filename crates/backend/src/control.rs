@@ -225,7 +225,16 @@ impl Server {
             "version"=>Ok(engine::lock(&app.core).version()),
             "clock"=>{let core=engine::lock(&app.core);Ok(json!({"frame":core.rt.frame_id,"beat":core.rt.beat,"session":core.rt.session,
                 "emergency":engine::EMERGENCY.load(Ordering::SeqCst)}))},
-            "schema"=>crate::diagnostics::schema(&mut engine::lock(&app.core),request["entity"].as_str().unwrap_or("project")),
+            "schema" => {
+                let entity = request["entity"].as_str().unwrap_or("project");
+                let full = crate::commands::flag(request, "full", true)?;
+                let mut core = engine::lock(&app.core);
+                if entity == "project" && !full {
+                    Ok(crate::diagnostics::project_schema_summary(&mut core))
+                } else {
+                    crate::diagnostics::schema(&mut core, entity)
+                }
+            },
             "trace_start"=>engine::lock(&app.core).start_trace(u32::try_from(request["fixture"].as_u64().context("fixture is required")?)?,request["attr"].as_str().context("attr is required")?),
             "trace_result"=>engine::lock(&app.core).trace_result(request["ticket"].as_u64().context("ticket is required")?),
             "trace_cancel"=>Ok(engine::lock(&app.core).cancel_trace(request["ticket"].as_u64().context("ticket is required")?)),
