@@ -13,19 +13,20 @@ fn is_protected(f:&FixtureInstance,lib:&Library)->bool {
         || lib.mode(&f.profile,f.mode).is_some_and(|m|m.channels.iter().any(|c|!c.forbid.is_empty()))
 }
 
-/// 保護された機材と、そのアドレスに重なる別の機材の組(保護された機材のID, 重なる機材のID)。出力するものだけ
-fn protected_overlaps(project:&Project,lib:&Library)->std::collections::BTreeSet<(u32,u32)> {
+/// 保護された機材のチャンネルのうち、別の機材が重なっているもの(保護された機材のID, 重なる機材のID, ユニバース, アドレス)。出力するものだけ
+fn protected_overlaps(project:&Project,lib:&Library)->std::collections::BTreeSet<(u32,u32,usize,usize)> {
     let spans:Vec<_>=project.fixtures.iter().filter(|f|f.enabled).filter_map(|f| {
         let len=lib.mode(&f.profile,f.mode)?.channels.len();
         Some((f,f.address as usize,f.address as usize+len))
     }).collect();
-    let mut pairs=std::collections::BTreeSet::new();
-    for (a,a_start,a_end) in spans.iter().filter(|(f,..)|is_protected(f,lib)) {
-        for (b,b_start,b_end) in &spans {
-            if a.id!=b.id && a.universe==b.universe && a_start<b_end && b_start<a_end {pairs.insert((a.id,b.id));}
+    let mut slots=std::collections::BTreeSet::new();
+    for (i,(a,a_start,a_end)) in spans.iter().enumerate().filter(|(_,(f,..))|is_protected(f,lib)) {
+        for (j,(b,b_start,b_end)) in spans.iter().enumerate() {
+            if i==j || a.universe!=b.universe {continue;}
+            for slot in *a_start.max(b_start)..*a_end.min(b_end) {slots.insert((a.id,b.id,a.universe,slot));}
         }
     }
-    pairs
+    slots
 }
 
 pub fn safety_unchanged(old:&Project,new:&Project,lib:&Library)->anyhow::Result<()> {
@@ -33,6 +34,14 @@ pub fn safety_unchanged(old:&Project,new:&Project,lib:&Library)->anyhow::Result<
     // ARM・レーザーの合図の割り当ては、作成・変更・削除のどれもできない。よく押すパッドを差し替えると、
     // 人が押したときに意図せず ARM されたり、レーザーが出たりするため。画面の割り当ての編集で扱う
     ensure!(safety_bindings(old)?==safety_bindings(new)?,"ARM and laser cue bindings are read-only from CLI (edit them in the GUI)");
+    // 機材の ID が重なると、下の比べ方で同じ ID の別の機材を見てしまう
+    let mut ids=HashSet::new();
+    ensure!(new.fixtures.iter().all(|f|ids.insert(f.id)),"duplicate fixture id");
+    // 保護された機材の値の数がチャンネル数と違うと、出力でその機材ごと飛ばされ、安全の値も範囲も当たらない
+    for f in new.fixtures.iter().filter(|f|is_protected(f,lib)) {
+        let mode=lib.mode(&f.profile,f.mode).context("unknown profile/mode")?;
+        ensure!(f.values.len()==mode.channels.len(),"protected fixture values length mismatch: {}",f.name);
+    }
     for f in &old.fixtures {
         let mode=lib.mode(&f.profile,f.mode).context("unknown profile/mode")?;
         let protected=lib.get(&f.profile).is_some_and(|p|p.needs_arm) || !f.limits.is_empty() || mode.channels.iter().any(|c|!c.forbid.is_empty());
@@ -44,7 +53,7 @@ pub fn safety_unchanged(old:&Project,new:&Project,lib:&Library)->anyhow::Result<
         }
     }
     // 保護された機材のアドレスに別の機材を重ねると、出力で後の機材の値に上書きされ、安全の値が保たれない。
-    // もともと重なっている組(画面で作ったもの)は、そのままなら認める
+    // もともと重なっているチャンネル(画面で作ったもの)は、そのままなら認める。重なるチャンネルが増える編集は拒む
     ensure!(protected_overlaps(new,lib).is_subset(&protected_overlaps(old,lib)),"fixtures cannot overlap the addresses of protected fixtures from CLI");
     Ok(())
 }

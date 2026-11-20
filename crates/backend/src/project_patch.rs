@@ -193,15 +193,18 @@ fn path_text(path: &[Seg]) -> String {
     path.iter().map(|s| match s { Seg::Key(k) => k.clone(), Seg::Index(i) => i.to_string() }).collect::<Vec<_>>().join(".")
 }
 
+/// 設定(Project)の中で、空のときに書き出さない項目(`skip_serializing_if`)。機材の limits、割り当ての page・osc
+const OMITTED_WHEN_EMPTY: &[&str] = &["limits", "page", "osc"];
+
 /// 書き込んだ値のうち、設定に読み直したときに捨てられた項目(打ち間違い・古い版の項目)の場所。
-/// 空の値(null・false・空の配列や表)は、書き出すときに省く項目があるので、無くてもよい
+/// 書き出すときに空なら省く項目(`OMITTED_WHEN_EMPTY`)だけは、空の値なら無くてもよい
 fn dropped_key(given: &Value, kept: &Value, path: &mut Vec<Seg>) -> bool {
     match (given, kept) {
         (Value::Object(g), Value::Object(k)) => g.iter().any(|(key, gv)| {
             path.push(Seg::Key(key.clone()));
             let dropped = match k.get(key) {
                 Some(kv) => dropped_key(gv, kv, path),
-                None => !matches!(gv, Value::Null | Value::Bool(false)) && !gv.as_array().is_some_and(|a| a.is_empty()) && !gv.as_object().is_some_and(|o| o.is_empty()),
+                None => !(OMITTED_WHEN_EMPTY.contains(&key.as_str()) && (gv.is_null() || gv.as_object().is_some_and(|o| o.is_empty()))),
             };
             if !dropped { path.pop(); }
             dropped
@@ -432,8 +435,25 @@ mod tests {
         assert!(err.is::<Rejected>(), "{err}");
         assert_eq!(serde_json::to_value(&c.project.bindings).unwrap(), before);
 
+        // 機材の ID の重なりと、保護された機材の値の数の違いも拒む
+        let mut fixtures = serde_json::to_value(&c.project.fixtures).unwrap();
+        let mut copy = fixtures[other].clone();
+        copy["id"] = fixtures[laser]["id"].clone();
+        fixtures.as_array_mut().unwrap().insert(0, copy);
+        let err = c.apply_project_patch(&[Change { path: vec![Seg::Key("fixtures".into())], value: Some(fixtures), base: None }], true).unwrap_err();
+        assert!(err.to_string().contains("duplicate fixture id"), "{err}");
+        let short = [Change { path: vec![Seg::Key("fixtures".into()), Seg::Index(laser), Seg::Key("values".into())], value: Some(json!([0])), base: None }];
+        let err = c.apply_project_patch(&short, true).unwrap_err();
+        assert!(err.to_string().contains("values length"), "{err}");
+
         // 許されたときは変えられる
         c.apply_project_patch(&onto_laser, false).unwrap();
+        // もともと重なっている組でも、重なるチャンネルを増やす編集は拒む
+        let shift = [Change { path: vec![Seg::Key("fixtures".into()), Seg::Index(other), Seg::Key("address".into())], value: Some(json!(address + 1)), base: None }];
+        c.apply_project_patch(&shift, false).unwrap();
+        let back = [Change { path: vec![Seg::Key("fixtures".into()), Seg::Index(other), Seg::Key("address".into())], value: Some(json!(address)), base: None }];
+        let err = c.apply_project_patch(&back, true).unwrap_err();
+        assert!(err.to_string().contains("overlap"), "{err}");
     }
 
     /// 存在しない項目を消す編集と、置き換える値の中の存在しない項目も拒む
@@ -450,7 +470,14 @@ mod tests {
         let err = c.apply_project_patch(&replace, true).unwrap_err();
         assert!(err.is::<Rejected>() && err.to_string().contains("fixtures.0.nope"), "{err}");
         assert_eq!(serde_json::to_value(&c.project).unwrap(), before);
-        // 書き出すときに省く空の項目(null・空の表)は、あってもよい
+        // 未知の項目は、空の値でも拒む
+        for empty in [json!(null), json!(false), json!([]), json!({})] {
+            let mut fixture = before["fixtures"][0].clone();
+            fixture["nope"] = empty;
+            let err = c.apply_project_patch(&[Change { path: vec![Seg::Key("fixtures".into()), Seg::Index(0)], value: Some(fixture), base: None }], true).unwrap_err();
+            assert!(err.to_string().contains("fixtures.0.nope"), "{err}");
+        }
+        // 書き出すときに省く空の項目(limits の空の表)は、あってもよい
         let mut fixture = before["fixtures"][0].clone();
         fixture["limits"] = json!({});
         c.apply_project_patch(&[Change { path: vec![Seg::Key("fixtures".into()), Seg::Index(0)], value: Some(fixture), base: None }], true).unwrap();
