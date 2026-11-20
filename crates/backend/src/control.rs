@@ -21,6 +21,8 @@ const FIRST_REQUEST_TIMEOUT: Duration = Duration::from_secs(2);
 const IDLE_TIMEOUT: Duration = Duration::from_secs(1);
 /// クライアントが接続を使い回すのは、前の要求からこの時間までのとき。サーバーが閉じる前に確実に送れるようにするため
 const REUSE_WITHIN: Duration = Duration::from_millis(500);
+/// 本体への接続を待つ時間
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(1);
 
 #[derive(Clone)]
 pub struct Launch {
@@ -426,7 +428,10 @@ pub fn request_with_timeout(address:SocketAddr,value:&Value,timeout:Duration)->a
             Err(Exchange::Failed(e)) => return Err(e),
         }
     }
-    let mut stream = TcpStream::connect_timeout(&address,timeout.saturating_sub(started.elapsed()).min(Duration::from_secs(2))).context("cannot connect to running application")?;
+    // 同じPCの中への接続は、本体が動いていれば待ち受けがすぐ受ける(本体が忙しくても待たない)。
+    // 待ち受けが無いとき、Windows は再試行して約2秒かかるので、1秒で打ち切る
+    let mut stream = TcpStream::connect_timeout(&address,timeout.saturating_sub(started.elapsed()).min(CONNECT_TIMEOUT))
+        .with_context(||format!("cannot connect to running application at {address}; start it with `dmxctl serve` or the GUI with `--control` (or check --connect)"))?;
     stream.set_nodelay(true)?;
     let response = exchange(&mut stream,&line,started,timeout).map_err(|e|match e {
         Exchange::Closed => anyhow::anyhow!("response is too large or incomplete"),
