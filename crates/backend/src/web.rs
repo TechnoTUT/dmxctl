@@ -291,10 +291,10 @@ fn stream_events(stream: &mut TcpStream, core: &Shared, pin: &str, stop: &Atomic
         } else {
             None
         };
-        if let Some(m) = msg {
-            if stream.write_all(m.as_bytes()).and_then(|_| stream.flush()).is_err() {
-                return;
-            }
+        if let Some(m) = msg
+            && stream.write_all(m.as_bytes()).and_then(|_| stream.flush()).is_err()
+        {
+            return;
         }
         std::thread::sleep(STREAM_TICK);
         quiet += STREAM_TICK;
