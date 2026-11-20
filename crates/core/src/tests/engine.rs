@@ -68,6 +68,24 @@ fn armed_state_is_not_persisted() {
     assert!(!back.fixtures[1].armed);
 }
 
+/// LAN のクライアントが始めたラーン(learn_guarded)は、ARM・レーザーの合図の割り当てに書き込まない。
+/// ラーンの間に割り当ての並びが変わって、指す先が ARM になったときも同じ
+#[test]
+fn guarded_learn_does_not_rewrite_safety_bindings() {
+    let mut c = core();
+    c.project.bindings.clear();
+    c.project.bindings.push(Binding { id: 0, name: "ARM".into(), trigger: None, action: Action::Arm { sel: Selector::All, mode: PadMode::Toggle }, page: None, osc: None });
+    c.rt.learn = Some(0);
+    c.rt.learn_guarded = true;
+    c.handle_midi(msg(TriggerKind::Note, 36, 100));
+    assert!(c.project.bindings[0].trigger.is_none(), "書き込まない");
+    assert!(c.rt.learn.is_none() && !c.rt.learn_guarded, "ラーンは終わる");
+    // 画面で始めたラーンなら書き込める
+    c.rt.learn = Some(0);
+    c.handle_midi(msg(TriggerKind::Note, 36, 100));
+    assert_eq!(c.project.bindings[0].trigger.unwrap().number, 36);
+}
+
 #[test]
 fn midi_learn_then_toggle_pad() {
     let mut c = core();

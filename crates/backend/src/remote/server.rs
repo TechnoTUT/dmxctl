@@ -265,11 +265,21 @@ pub(super) fn serve_conn(stream: TcpStream, core: &Shared, ctx: &dmxctl_core::wa
             let outcome: anyhow::Result<bool> = {
                 let mut c = lock(core);
                 let r = match v["t"].as_str().unwrap_or("") {
-                    "live" => serde_json::from_value::<LiveOp>(v["op"].clone()).map_err(anyhow::Error::from).map(|op| {
+                    "live" => serde_json::from_value::<LiveOp>(v["op"].clone()).map_err(anyhow::Error::from).and_then(|op| {
+                        // ラーンは割り当てを書き換えるので、ARM・レーザーの合図の割り当てには、許されたときだけ始められる
+                        let learn = match op { LiveOp::SetLearn { midi, osc } => Some([midi, osc]), _ => None };
+                        if let Some(targets) = learn.filter(|_| !allow_safety_edit) {
+                            anyhow::ensure!(!targets.iter().flatten().any(|&i| c.project.bindings.get(i).is_some_and(|b| b.is_safety())),
+                                project_patch::Rejected(SAFETY_READ_ONLY.into()));
+                        }
                         let services = op.needs_services();
                         held.track(&op);
                         c.live(op);
-                        services
+                        // 書き込む時にも確かめる(ラーンの間に割り当ての並びが変わることがあるため)
+                        if learn.is_some() {
+                            c.rt.learn_guarded = !allow_safety_edit && (c.rt.learn.is_some() || c.rt.osc_learn.is_some());
+                        }
+                        Ok(services)
                     }),
                     "patch" => {
                         // 形が合わない changes は、空の編集として黙って通さず、失敗として知らせる

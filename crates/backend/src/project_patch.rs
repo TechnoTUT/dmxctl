@@ -193,18 +193,28 @@ fn path_text(path: &[Seg]) -> String {
     path.iter().map(|s| match s { Seg::Key(k) => k.clone(), Seg::Index(i) => i.to_string() }).collect::<Vec<_>>().join(".")
 }
 
-/// 設定(Project)の中で、空のときに書き出さない項目(`skip_serializing_if`)。機材の limits、割り当ての page・osc
-const OMITTED_WHEN_EMPTY: &[&str] = &["limits", "page", "osc"];
+/// 設定(Project)の中で、空のときに書き出さない項目(`skip_serializing_if`)か。
+/// 機材の limits の空の表と、割り当ての page・osc の null だけ
+fn omitted_when_empty(path: &[Seg], value: &Value) -> bool {
+    match path {
+        [.., Seg::Key(list), Seg::Index(_), Seg::Key(key)] => match (list.as_str(), key.as_str()) {
+            ("fixtures", "limits") => value.as_object().is_some_and(|o| o.is_empty()),
+            ("bindings", "page" | "osc") => value.is_null(),
+            _ => false,
+        },
+        _ => false,
+    }
+}
 
 /// 書き込んだ値のうち、設定に読み直したときに捨てられた項目(打ち間違い・古い版の項目)の場所。
-/// 書き出すときに空なら省く項目(`OMITTED_WHEN_EMPTY`)だけは、空の値なら無くてもよい
+/// 書き出すときに空なら省く項目(`omitted_when_empty`)だけは、無くてもよい
 fn dropped_key(given: &Value, kept: &Value, path: &mut Vec<Seg>) -> bool {
     match (given, kept) {
         (Value::Object(g), Value::Object(k)) => g.iter().any(|(key, gv)| {
             path.push(Seg::Key(key.clone()));
             let dropped = match k.get(key) {
                 Some(kv) => dropped_key(gv, kv, path),
-                None => !(OMITTED_WHEN_EMPTY.contains(&key.as_str()) && (gv.is_null() || gv.as_object().is_some_and(|o| o.is_empty()))),
+                None => !omitted_when_empty(path, gv),
             };
             if !dropped { path.pop(); }
             dropped
@@ -235,8 +245,8 @@ impl CoreProjectPatch for dmxctl_core::engine::Core {
         let missing = |path: &[Seg]| Err(Rejected(format!("存在しない項目です: {}", path_text(path))).into());
         let mut value = serde_json::to_value(&self.project)?;
         for c in changes {
-            // 消す編集は、今その項目があること
-            if c.value.is_none() && lookup(&value, &c.path).is_none() {
+            // 消す編集は、今その項目があること。消す前の値(base)があるときは、行き違い(Conflict)として返す
+            if c.value.is_none() && c.base.as_ref().is_none_or(|b| b.is_null()) && lookup(&value, &c.path).is_none() {
                 return missing(&c.path);
             }
             apply_one(&mut value, c)?;
@@ -250,6 +260,11 @@ impl CoreProjectPatch for dmxctl_core::engine::Core {
             if dropped_key(given, kept, &mut path) {
                 return missing(&path);
             }
+        }
+        // 機材定義が無い機材を足すと、それ以降の編集でモードを引けなくなる。もとからある機材(すでに壊れた参照)はそのまま認め、消せるようにする
+        if let Some(f) = project.fixtures.iter().find(|f| self.lib.mode(&f.profile, f.mode).is_none()
+            && !self.project.fixtures.iter().any(|o| o.id == f.id && o.profile == f.profile && o.mode == f.mode)) {
+            return Err(Rejected(format!("機材定義が見つかりません: {} ({} のモード {})", f.name, f.profile, f.mode)).into());
         }
         // 割り当ての ID の重複・欠けは、反映するときに付け直す。安全の確認は付け直した後の設定で行う
         project.next_binding_id = project.next_binding_id.max(self.project.next_binding_id);
@@ -481,6 +496,94 @@ mod tests {
         let mut fixture = before["fixtures"][0].clone();
         fixture["limits"] = json!({});
         c.apply_project_patch(&[Change { path: vec![Seg::Key("fixtures".into()), Seg::Index(0)], value: Some(fixture), base: None }], true).unwrap();
+    }
+
+    /// 3回目のレビューの経路: 出力の経路・重なりの並び順・安全な値がある機材・ARM の対象のグループ
+    #[test]
+    fn routes_order_safe_values_and_arm_targets_are_guarded() {
+        let at = |path: &[&str], i: Option<usize>| {
+            let mut p: Vec<Seg> = path.iter().map(|k| Seg::Key((*k).into())).collect();
+            if let Some(i) = i { p.insert(1, Seg::Index(i)); }
+            p
+        };
+        let set = |path: Vec<Seg>, value: serde_json::Value| vec![Change { path, value: Some(value), base: None }];
+        let mut c = core();
+        let laser = c.project.fixtures.iter().position(|f| f.profile == "stage-evolution/laserscan300").unwrap();
+        let universe = c.project.fixtures[laser].universe;
+        // 保護された機材のユニバースを送る出力は変えられない。別のユニバースの出力は足せる
+        let mut outputs = serde_json::to_value(&c.project.outputs).unwrap();
+        outputs.as_array_mut().unwrap().push(json!({"enabled": true, "universe": universe, "kind": {"ArtNet": {"ip": "10.0.0.9", "art_universe": 5}}}));
+        let err = c.apply_project_patch(&set(at(&["outputs"], None), outputs), true).unwrap_err();
+        assert!(err.to_string().contains("outputs that reach protected fixtures"), "{err}");
+        let mut outputs = serde_json::to_value(&c.project.outputs).unwrap();
+        outputs.as_array_mut().unwrap().push(json!({"enabled": true, "universe": 3, "kind": {"ArtNet": {"ip": "10.0.0.9", "art_universe": 5}}}));
+        c.apply_project_patch(&set(at(&["outputs"], None), outputs), true).unwrap();
+
+        // 安全な値がある機材(ムービング)のアドレスに、別の機材を重ねられない。パッチ自体は変えられる
+        let spot = c.project.fixtures.iter().position(|f| f.profile == "stage-evolution/minispot30").unwrap();
+        let lib = c.lib.clone();
+        c.project.add_fixture(&lib, "glint/glp-185l").unwrap();
+        let other = c.project.fixtures.len() - 1;
+        let (u, a) = (c.project.fixtures[spot].universe, c.project.fixtures[spot].address);
+        let onto_spot = [set(at(&["fixtures", "universe"], Some(other)), json!(u)), set(at(&["fixtures", "address"], Some(other)), json!(a))].concat();
+        let err = c.apply_project_patch(&onto_spot, true).unwrap_err();
+        assert!(err.to_string().contains("overlap"), "{err}");
+        c.apply_project_patch(&set(at(&["fixtures", "name"], Some(spot)), json!("Spot")), true).unwrap();
+
+        // もともと重なっていても、並び順を入れ替えると上書きする側が変わるので拒む
+        c.apply_project_patch(&onto_spot, false).unwrap();
+        let mut fixtures = serde_json::to_value(&c.project.fixtures).unwrap();
+        fixtures.as_array_mut().unwrap().swap(spot, other);
+        let err = c.apply_project_patch(&set(at(&["fixtures"], None), fixtures), true).unwrap_err();
+        assert!(err.to_string().contains("overlap"), "{err}");
+
+        // グループで ARM の対象を選ぶ割り当てがあるとき、グループの中身を変えて対象を増やせない
+        let mut bindings = serde_json::to_value(&c.project.bindings).unwrap();
+        bindings.as_array_mut().unwrap().push(json!({"id": 0, "name": "ARM", "trigger": null, "action": {"Arm": {"sel": {"Group": "G"}, "mode": "Toggle"}}}));
+        c.apply_project_patch(&[set(at(&["groups"], None), json!([{"name": "G", "fixtures": []}])), set(at(&["bindings"], None), bindings)].concat(), false).unwrap();
+        let laser_id = c.project.fixtures[laser].id;
+        let err = c.apply_project_patch(&set(at(&["groups", "fixtures"], Some(0)), json!([laser_id])), true).unwrap_err();
+        assert!(err.to_string().contains("armed by ARM bindings"), "{err}");
+    }
+
+    /// 機材定義の無い機材・場所の違う省略・先に消された項目の扱い
+    #[test]
+    fn unknown_profiles_misplaced_omissions_and_deleted_items() {
+        let mut c = core();
+        // 機材定義の無い機材は足せない
+        let mut fixtures = serde_json::to_value(&c.project.fixtures).unwrap();
+        let mut ghost = fixtures[0].clone();
+        ghost["id"] = json!(999);
+        ghost["profile"] = json!("nobody/ghost");
+        fixtures.as_array_mut().unwrap().push(ghost);
+        let err = c.apply_project_patch(&[Change { path: vec![Seg::Key("fixtures".into())], value: Some(fixtures.clone()), base: None }], true).unwrap_err();
+        assert!(err.to_string().contains("nobody/ghost"), "{err}");
+        // すでに壊れた参照の機材は、そのままほかの編集ができて、消すこともできる
+        let mut broken = c.project.fixtures[0].clone();
+        broken.id = 999;
+        broken.profile = "nobody/ghost".into();
+        c.project.fixtures.push(broken);
+        c.apply_project_patch(&[Change { path: vec![Seg::Key("bpm".into())], value: Some(json!(130.0)), base: None }], true).unwrap();
+        let mut fixtures = serde_json::to_value(&c.project.fixtures).unwrap();
+        fixtures.as_array_mut().unwrap().pop();
+        c.apply_project_patch(&[Change { path: vec![Seg::Key("fixtures".into())], value: Some(fixtures), base: None }], true).unwrap();
+        assert!(c.project.fixtures.iter().all(|f| f.id != 999));
+
+        // 省略してよいのは、割り当ての page・osc の null と、機材の limits の空の表だけ
+        let mut fixture = serde_json::to_value(&c.project.fixtures[0]).unwrap();
+        fixture["page"] = json!(null);
+        let err = c.apply_project_patch(&[Change { path: vec![Seg::Key("fixtures".into()), Seg::Index(0)], value: Some(fixture), base: None }], true).unwrap_err();
+        assert!(err.to_string().contains("fixtures.0.page"), "{err}");
+        if !c.project.bindings.is_empty() {
+            let mut binding = serde_json::to_value(&c.project.bindings[0]).unwrap();
+            binding["page"] = json!(null);
+            binding["osc"] = json!(null);
+            c.apply_project_patch(&[Change { path: vec![Seg::Key("bindings".into()), Seg::Index(0)], value: Some(binding), base: None }], true).unwrap();
+        }
+
+        // 消す前の値があるのに、ほかのクライアントが先に消していたら、行き違い(Conflict)として返す
+        let gone = [Change { path: vec![Seg::Key("fixtures".into()), Seg::Index(0), Seg::Key("limits".into())], value: None, base: Some(json!({"pan": [0, 10]})) }];
+        assert!(c.apply_project_patch(&gone, true).unwrap_err().is::<Conflict>());
     }
 
     #[test]

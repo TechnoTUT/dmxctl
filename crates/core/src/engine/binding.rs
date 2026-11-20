@@ -60,10 +60,11 @@ impl Core {
         // MIDIラーン: 次に来たノートオン/CCをトリガとして登録
         if let Some(idx) = self.rt.learn {
             if m.kind == TriggerKind::Cc || m.value > 0 {
-                if let Some(b) = self.project.bindings.get_mut(idx) {
+                if let Some(b) = self.project.bindings.get_mut(idx).filter(|b| !(self.rt.learn_guarded && b.is_safety())) {
                     b.trigger = Some(MidiTrigger { kind: m.kind, channel: Some(m.channel), number: m.number });
                 }
                 self.rt.learn = None;
+                self.rt.learn_guarded &= self.rt.osc_learn.is_some();
                 self.dirty = true;
             }
             return;

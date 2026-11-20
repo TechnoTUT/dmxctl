@@ -43,6 +43,9 @@ pub struct Runtime {
     /// 色相フェーダー(HSVのH)の現在値(0〜360度)。画面のスライダーと表示用
     pub hue: f32,
     pub learn: Option<usize>,
+    /// ラーンを始めたのが、安全の設定を変えられない相手(LAN のクライアント)か。
+    /// そのときは、ARM・レーザーの合図の割り当てにはトリガーやアドレスを書き込まない
+    pub learn_guarded: bool,
     pub last_midi: String,
     pub midi_status: String,
     /// 今押されているノート(マップ表示用。チャンネルは区別しない)
@@ -176,6 +179,7 @@ impl Runtime {
             last_color: None,
             hue: 0.0,
             learn: None,
+            learn_guarded: false,
             last_midi: String::new(),
             midi_status: "未接続".into(),
             notes_down: [false; 128],

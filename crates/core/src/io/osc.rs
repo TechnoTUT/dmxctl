@@ -129,10 +129,11 @@ impl Core {
 
         // OSCラーン: 次に来たアドレスを割り当てに登録
         if let Some(idx) = self.rt.osc_learn.take() {
-            if let Some(b) = self.project.bindings.get_mut(idx) {
+            if let Some(b) = self.project.bindings.get_mut(idx).filter(|b| !(self.rt.learn_guarded && b.is_safety())) {
                 b.osc = Some(m.addr.clone());
                 self.dirty = true;
             }
+            self.rt.learn_guarded &= self.rt.learn.is_some();
             return;
         }
 

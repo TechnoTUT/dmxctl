@@ -38,6 +38,12 @@ impl crate::host::Host {
     /// `guard_safety`: LAN のクライアントから(`--remote-allow-safety-edit` なら false)。安全の設定が変わる読み込みを拒む
     pub(crate) fn reload_text(&mut self,text:&str,source:&str,remote:bool,guard_safety:bool,dry_run:bool)->anyhow::Result<Value> {
         let path=source;
+        // 自動操作の窓口(ctl・MCP)は厳しい検証も。GUIの「読み込み」は今までどおり厳しい検証をしない(GUIで保存したファイルを読み戻せるように)
+        let check=|core:&Core,project:&Project|->anyhow::Result<()> {
+            if remote {safety_unchanged(&core.project,project,&core.lib)?;validate(project,&core.lib)?;}
+            else if guard_safety {safety_unchanged(&core.project,project,&core.lib).map_err(|e|anyhow::anyhow!("{}({e})",crate::project_patch::SAFETY_READ_ONLY))?;}
+            Ok(())
+        };
         let mut project:Project=serde_json::from_str(text.trim_start_matches('\u{feff}'))?;
         let previous={
             let core=dmxctl_core::engine::lock(&self.core);
@@ -46,8 +52,7 @@ impl crate::host::Host {
             project.next_id=project.next_id.max(core.project.next_id);
             project.ensure_binding_ids();
             // GUIの「読み込み」は今までどおり厳しい検証をしない(GUIで保存したファイルを読み戻せるように)
-            if remote {safety_unchanged(&core.project,&project,&core.lib)?;validate(&project,&core.lib)?;}
-            else if guard_safety {safety_unchanged(&core.project,&project,&core.lib).map_err(|e|anyhow::anyhow!("{}({e})",crate::project_patch::SAFETY_READ_ONLY))?;}
+            check(&core,&project)?;
             core.project.clone()
         };
         if dry_run {return Ok(json!({"applied":false,"valid":true,"source":path}));}
@@ -64,6 +69,8 @@ impl crate::host::Host {
         {
             let mut core=dmxctl_core::engine::lock(&self.core);
             ensure_idle(&core)?;
+            // バックアップを書いている間に、別のクライアントが設定を変えていることがある。反映する直前の設定とも比べる
+            check(&core,&project)?;
             commit_with_arm(&mut core,project,false);
         }
         let midi_error=if old_midi!=new_midi {self.sync_midi_choice().err().map(|e|e.to_string())}else{None};
