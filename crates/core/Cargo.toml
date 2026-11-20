@@ -1,6 +1,6 @@
 [package]
 name = "dmxctl-core"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "dmxctl のコア層。設定の形・値の合成・機器とプロトコルの入出力。画面にも遠隔操作にも依存しない"
 

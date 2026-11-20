@@ -1,6 +1,6 @@
 [package]
 name = "dmxctl-backend"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "dmxctl のバックエンド層。画面なしの起動・保存・遠隔操作・ブラウザの操作パネル・CLI。画面に依存しない"
 

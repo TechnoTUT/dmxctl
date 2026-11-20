@@ -609,7 +609,7 @@ dependencies = [
 
 [[package]]
 name = "dmxctl"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "dmxctl-backend",
  "dmxctl-core",
@@ -620,7 +620,7 @@ dependencies = [
 
 [[package]]
 name = "dmxctl-backend"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "dmxctl-core",
@@ -631,7 +631,7 @@ dependencies = [
 
 [[package]]
 name = "dmxctl-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "dmxctl-io",
@@ -645,7 +645,7 @@ dependencies = [
 
 [[package]]
 name = "dmxctl-io"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "cpal",
@@ -661,7 +661,7 @@ dependencies = [
 
 [[package]]
 name = "dmxctl-model"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "libc",
@@ -673,7 +673,7 @@ dependencies = [
 
 [[package]]
 name = "dmxctl-server"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "dmxctl-backend",
  "dmxctl-core",
@@ -682,7 +682,7 @@ dependencies = [
 
 [[package]]
 name = "dmxctl-ui"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "dmxctl-backend",
