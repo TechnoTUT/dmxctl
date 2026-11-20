@@ -2,7 +2,7 @@
 # Mac用のアプリ(DMX Controller.app)を作る。Macのターミナルで実行する:
 #   ./scripts/build-mac.sh
 # 必要なもの: Rust(https://rustup.rs)と、Xcodeのコマンドラインツール(xcode-select --install)
-#   操作パネルのビルドに、Node.js 20.19以上または22.12以上(https://nodejs.org)も必要
+#   操作パネルのビルドに、Node.js 20系は20.19以降、または22.12以降(https://nodejs.org)も必要
 # できるもの: dist/mac/DMX Controller.app と dist/mac/DMX-Controller-mac.zip
 # (Apple Silicon と Intel の両方で動く、ユニバーサル版)
 set -euo pipefail
