@@ -53,7 +53,8 @@ bash ./scripts/build-linux.sh          # Linux の上で dist/linux/dmxctl を�
 cargo build --release -p dmxctl-server # 画面を持たない dmxctl-server だけを作る。cmake や画面用のライブラリは不要
 ```
 
-- ブラウザの操作パネルは `web/` の React です。`crates/backend/build.rs` が Cargo のビルド中に `npm ci` と `npm run build` を実行し、1枚のHTMLにして実行ファイルへ埋め込みます。そのため Node.js と npm が無いとビルドできません。ビルド済みのファイルはコミットしません。`web/node_modules/` が無いときだけ `npm ci` を実行するので、初回はネットワークへの接続が必要です。`cargo check --target …` で `DMXCTL_CHECK_ONLY=1` を付けたときも、同じく必要です
+- ブラウザの操作パネルは `web/` の React です。`crates/backend/build.rs` が Cargo のビルド中に `npm ci` と `npm run build` を実行し、1枚のHTMLにして実行ファイルへ埋め込みます。ビルド済みのファイルはコミットしません。`web/node_modules/` が無いとき、または `web/package-lock.json` より古いときに `npm ci` を実行するので、初回と依存の更新後はネットワークへの接続が必要です
+- Node.js と npm が無くても、`cargo build` と `cargo test` は通ります。警告を出し、操作パネルは「未ビルド」と知らせるページになります。`DMXCTL_CHECK_ONLY=1` のときは npm を呼びません。配布物にこのページが入らないよう、`scripts/build-*.sh`・CI・Containerfile は `DMXCTL_REQUIRE_WEB=1` を指定し、npm が無ければエラーにします
 - Windows の上では `cargo build --release` で `target\release\dmxctl.exe` ができます。追加の DLL は不要で、exe 1つで動作します
 - Linux 版は SDL2 を静的リンクしているので、1つの実行ファイルで、デスクトップ環境の有る画面と無い画面の両方に対応します
 - `cargo check --target …` で、他のOS向けの型チェックだけができます
@@ -121,6 +122,7 @@ cargo test --release perf -- --ignored --nocapture                              
 |---|---|
 | `DMXCTL_CONFIG_DIR=フォルダ` | 本番の設定に触れずに、別の設定で起動する |
 | `DMXCTL_WEB_TARGET=http://127.0.0.1:8081` | `web/` で `npm run dev` を実行したときに、`/api` を中継する先のサーバー。指定が無ければ `http://127.0.0.1:8080`。中継先は、操作パネルを有効にした `dmxctl serve` を起動しておく |
+| `DMXCTL_REQUIRE_WEB=1` | ビルド時に、npm が無いことをエラーにする。指定が無ければ、操作パネルが未ビルドのページで続ける。配布物のビルドで利用する |
 | `DMXCTL_NO_MIDI=1` | MIDI 機器に自動で接続しない。本番と2つ起動するときに使う |
 | `DMXCTL_SHOT=保存先.png` + `DMXCTL_TAB=タブ名` / `DMXCTL_PAGE=2` / `DMXCTL_SIZE=1280x800` / `DMXCTL_UNIVERSE=2` | 画面を撮影して保存して終了する。見た目の確認用で、KMS/DRM でも利用できる。`DMXCTL_SHOT_FRAMES=150` で、撮影までのフレーム数を延長できる。操作を入れてから撮影するときに使う |
 | `DMXCTL_KEY_COLOR=1` | キーボードタブを色の段で開く |

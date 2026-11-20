@@ -55,7 +55,7 @@ cd dmxctl
 cargo run --release
 ```
 
-ビルドには Rust と Node.js 20.19 以上が必要です。そのほかに必要なものは [開発ガイド](docs/development.md) に、開発のルールは [AGENTS.md](AGENTS.md) にあります。
+ビルドには Rust が、ブラウザの操作パネルには Node.js 20.19 以上が必要です。そのほかに必要なものは [開発ガイド](docs/development.md) に、開発のルールは [AGENTS.md](AGENTS.md) にあります。
 
 ## ライセンスについて
 
