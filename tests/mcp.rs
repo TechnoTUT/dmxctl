@@ -116,6 +116,13 @@ fn an_mcp_client_operates_the_running_application() {
     assert!(!failed, "{fixtures}");
     let attrs = fixtures[0]["attrs"].as_array().expect("機材の属性一覧");
     assert!(attrs.iter().any(|attr| attr == "dimmer"), "{fixtures}");
+    // 出力の取得は機材1台ずつ。属性名と値の対応で返す
+    let (failed, r) = mcp.call("output_snapshot", json!({}));
+    assert!(failed && r.as_str().is_some_and(|m| m.contains("fixture is required")), "{r}");
+    let (failed, r) = mcp.call("output_snapshot", json!({"fixture": 1, "attrs": ["dimmer"]}));
+    assert!(!failed && r["values"]["dimmer"].is_number(), "{r}");
+    let (failed, r) = mcp.call("control_list", json!({"query": "存在しない名前"}));
+    assert!(!failed && r == json!([]), "{r}");
 
     // 値を変えて、反映を待ち、最終の出力を確かめる
     let (failed, r) = mcp.call("fixture_set", json!({"fixture": 1, "attr": "dimmer", "value": 200}));
@@ -172,6 +179,29 @@ fn an_mcp_client_operates_the_running_application() {
     mcp.send(json!({"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": wait_id}}));
     let (failed, r) = mcp.call("wait", json!({"ms": 1500}));
     assert!(!failed && r["matched"] == true, "{r}");
+
+    // explain も、待っている間に後続の要求とキャンセルを受け付ける
+    mcp.next += 1;
+    let explain_id = mcp.next;
+    mcp.send(json!({"jsonrpc": "2.0", "id": explain_id, "method": "tools/call",
+        "params": {"name": "explain", "arguments": {"fixture": 1, "attr": "pan", "timeout_ms": 5000}}}));
+    mcp.send(json!({"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": explain_id}}));
+    // キャンセルより先に explain が終わっていれば、その返事が先に届くことがある(どちらでもよい)
+    mcp.next += 1;
+    let ping_id = mcp.next;
+    mcp.send(json!({"jsonrpc": "2.0", "id": ping_id, "method": "ping"}));
+    loop {
+        let mut line = String::new();
+        mcp.stdout.read_line(&mut line).unwrap();
+        let reply: Value = serde_json::from_str(&line).unwrap();
+        if reply["id"] == ping_id {
+            assert_eq!(reply["result"], json!({}));
+            break;
+        }
+        assert_eq!(reply["id"], explain_id, "{reply}");
+    }
+    let (failed, r) = mcp.call("explain", json!({"fixture": 1, "attr": "pan"}));
+    assert!(!failed && r.is_object(), "{r}");
 
 
     // MCP を閉じても、本体は動き続ける
