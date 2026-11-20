@@ -159,6 +159,13 @@ fn an_mcp_client_operates_the_running_application() {
     assert!(!failed && r["applied"] == true && r.get("bindings").is_none(), "{r}");
     let (failed, r) = mcp.call("edit", json!({"operations": [{"entity": "scene", "op": "capture", "data": {"name": "MCP"}}], "dry_run": "true"}));
     assert!(failed && r.as_str().is_some_and(|msg| msg.contains("dry_run must be boolean")), "{r}");
+    // schema は entity が必須。project の今の値は、頼まれたときだけ返す
+    let (failed, r) = mcp.call("schema", json!({}));
+    assert!(failed && r.as_str().is_some_and(|m| m.contains("entity is required")), "{r}");
+    let (failed, r) = mcp.call("schema", json!({"entity": "project"}));
+    assert!(!failed && r.get("current").is_none() && r.get("schema").is_none() && r["entities"].as_array().is_some_and(|e| e.iter().any(|e| e == "fixture")) && r["commands"].is_object(), "{r}");
+    let (failed, r) = mcp.call("schema", json!({"entity": "project", "full": true}));
+    assert!(!failed && r["current"].is_object() && r["schema"].is_object(), "{r}");
     let (failed, scenes) = mcp.call("schema", json!({"entity": "scene"}));
     assert!(!failed, "{scenes}");
     assert!(scenes["current"].as_array().unwrap().iter().all(|scene| scene["name"] != "MCP"));
