@@ -13,8 +13,8 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-/// 操作パネルのページ(1枚のHTML。CSS・JavaScriptも中に入っている)
-const PAGE: &str = include_str!("web/panel.html");
+/// 操作パネルのページ(web/ の React を単一のHTMLにビルドしたもの)
+const PAGE: &str = include_str!(concat!(env!("OUT_DIR"), "/web/index.html"));
 
 pub struct WebServer {
     stop: Arc<AtomicBool>,
