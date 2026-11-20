@@ -30,7 +30,8 @@ permissions:
   contents: read
 
 env:
-  # The web panel in web/ is built by crates/backend/build.rs, so every build job needs Node.js (setup-node)
+  # The web panel in web/ is built by crates/backend/build.rs. Without npm the build would embed a placeholder page, so fail instead
+  DMXCTL_REQUIRE_WEB: 1
   # Build dependencies for Linux (SDL2 is built from source with cmake and linked statically)
   LINUX_DEPS: build-essential pkg-config cmake libasound2-dev libudev-dev libdrm-dev libgbm-dev libegl-dev libgles-dev libxext-dev
 

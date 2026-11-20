@@ -24,7 +24,7 @@ COPY . .
 # 呼び出しは `dmxctl serve` のまま使えるよう、イメージの中では dmxctl の名前で入れる
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/src/target \
-    cargo build --release --locked -p dmxctl-server \
+    DMXCTL_REQUIRE_WEB=1 cargo build --release --locked -p dmxctl-server \
  && cp target/release/dmxctl-server /dmxctl
 
 # ---- 2. 実行 ----
