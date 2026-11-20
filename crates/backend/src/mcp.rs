@@ -52,13 +52,15 @@ pub fn serve(
         let input_result = (|| -> anyhow::Result<()> {
             for line in input.lines() {
                 let line = line?;
+                // .NET・PowerShell のクライアントは、UTF-8 の BOM を先頭に付けて送ることがある
+                let line = line.strip_prefix('\u{feff}').unwrap_or(&line);
                 for worker in workers.extract_if(.., |worker| worker.is_finished()) {
                     worker.join().expect("MCP wait worker panicked")?;
                 }
                 if line.trim().is_empty() {
                     continue;
                 }
-                let message = match serde_json::from_str::<Value>(&line) {
+                let message = match serde_json::from_str::<Value>(line) {
                     Ok(message) => message,
                     Err(e) => {
                         write_reply(&output, error(Value::Null, -32700, &format!("parse error: {e}")))?;
@@ -959,7 +961,7 @@ mod tests {
     fn serve_reads_lines_until_input_closes() {
         let (_, f) = fake();
         let input = concat!(
-            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}\n",
+            "\u{feff}{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}\r\n",
             "\n",
             "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n",
             "not json\n",

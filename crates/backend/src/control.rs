@@ -12,6 +12,15 @@ use std::{io::{BufRead, BufReader, Read, Write}, net::{SocketAddr, TcpListener, 
 pub const DEFAULT_ADDRESS: &str = "127.0.0.1:9190";
 const MAX_REQUEST: u64 = 1024 * 1024;
 const MAX_RESPONSE: u64 = 4 * 1024 * 1024;
+/// 同時に開いておける接続の数。待機中の接続は使い回されて開いたままになるので、MCP の待機の上限である4件を
+/// 複数のクライアントが使っても足りるようにしておく
+const MAX_CONNECTIONS: usize = 32;
+/// 1つ目の要求を待つ時間
+const FIRST_REQUEST_TIMEOUT: Duration = Duration::from_secs(2);
+/// 2つ目以降の要求を待つ時間。これを過ぎたら閉じる。クライアントは、これより短い間隔のときだけ接続を使い回す
+const IDLE_TIMEOUT: Duration = Duration::from_secs(1);
+/// クライアントが接続を使い回すのは、前の要求からこの時間までのとき。サーバーが閉じる前に確実に送れるようにするため
+const REUSE_WITHIN: Duration = Duration::from_millis(500);
 
 #[derive(Clone)]
 pub struct Launch {
@@ -94,6 +103,49 @@ pub(crate) struct Server {
     recording: Option<Recording>,
 }
 
+/// 1つの接続で、1行の要求と1行の答えを繰り返す。クライアントが閉じるか、しばらく要求が無ければ終わる。
+/// 要求ごとに接続を張り直すと、閉じた接続が TIME_WAIT として残る。Windows は保持が約2分と長く、
+/// 25ms ごとに問い合わせる待機を並べると一時ポートが尽きて接続できなくなるため、使い回せるようにしている
+fn serve_connection(stream: TcpStream, tx: &mpsc::SyncSender<Request>, ctx: &dmxctl_core::wake::Wake) {
+    // macOS/BSD では accept した接続がリスナーのノンブロッキングを引き継ぐ。
+    // そのままだと要求が届く前に読み込みが WouldBlock で失敗し、接続がリセットされる
+    if stream.set_nonblocking(false).is_err() || stream.set_nodelay(true).is_err() || stream.set_write_timeout(Some(Duration::from_secs(2))).is_err() {
+        return;
+    }
+    let mut reader = BufReader::new(&stream);
+    let mut first = true;
+    loop {
+        if stream.set_read_timeout(Some(if first { FIRST_REQUEST_TIMEOUT } else { IDLE_TIMEOUT })).is_err() {
+            return;
+        }
+        let mut line = Vec::new();
+        let read = (&mut reader).take(MAX_REQUEST + 1).read_until(b'\n', &mut line);
+        // 2つ目以降で何も届かずに閉じた・時間切れになったのは、使い終わっただけなので答えずに閉じる
+        if !first && line.is_empty() {
+            return;
+        }
+        let result = (|| -> anyhow::Result<Value> {
+            read?;
+            ensure!(line.len() as u64 <= MAX_REQUEST && line.last() == Some(&b'\n'), "request is too large or incomplete");
+            let value: Value = serde_json::from_slice(&line)?;
+            let (reply, rx) = mpsc::channel();
+            tx.try_send(Request { value, reply, deadline:Instant::now()+Duration::from_secs(4) }).context("control queue is full or closed")?;
+            ctx.request_repaint();
+            Ok(rx.recv_timeout(Duration::from_secs(5)).context("application did not respond")?)
+        })();
+        let complete = result.is_ok() || line.last() == Some(&b'\n');
+        let response = result.unwrap_or_else(|e| json!({"ok":false,"error":e.to_string()}));
+        // 答えは1回で書く。JSON を少しずつ書くと、続けて使う接続では Nagle と遅延 ACK が重なり、
+        // 答えの残りが届くまで待たされる。Windows では1回の答えに 300ms ほどかかっていた
+        let mut bytes = response.to_string().into_bytes();
+        bytes.push(b'\n');
+        if (&stream).write_all(&bytes).is_err() || !complete {
+            return;
+        }
+        first = false;
+    }
+}
+
 impl Server {
     pub fn start(address: SocketAddr, ctx: dmxctl_core::wake::Wake) -> anyhow::Result<Self> {
         ensure!(address.ip().is_loopback(), "control server must bind to loopback");
@@ -107,30 +159,14 @@ impl Server {
         let thread = std::thread::spawn(move || {
             while !stopping.load(Ordering::Relaxed) {
                 match listener.accept() {
-                    Ok((mut stream, _)) => {
-                        if active.fetch_add(1, Ordering::Relaxed) >= 8 {
+                    Ok((stream, _)) => {
+                        if active.fetch_add(1, Ordering::Relaxed) >= MAX_CONNECTIONS {
                             active.fetch_sub(1, Ordering::Relaxed);
                             continue;
                         }
                         let (tx, ctx, active) = (tx.clone(), ctx.clone(), active.clone());
                         std::thread::spawn(move || {
-                            let result = (|| -> anyhow::Result<Value> {
-                                // macOS/BSD では accept した接続がリスナーのノンブロッキングを引き継ぐ。
-                                // そのままだと要求が届く前に読み込みが WouldBlock で失敗し、接続がリセットされる
-                                stream.set_nonblocking(false)?;
-                                stream.set_read_timeout(Some(Duration::from_secs(2)))?;
-                                stream.set_write_timeout(Some(Duration::from_secs(2)))?;
-                                let mut line = Vec::new();
-                                BufReader::new((&stream).take(MAX_REQUEST + 1)).read_until(b'\n', &mut line)?;
-                                ensure!(line.len() as u64 <= MAX_REQUEST && line.last() == Some(&b'\n'), "request is too large or incomplete");
-                                let value: Value = serde_json::from_slice(&line)?;
-                                let (reply, rx) = mpsc::channel();
-                                tx.try_send(Request { value, reply, deadline:Instant::now()+Duration::from_secs(4) }).context("control queue is full or closed")?;
-                                ctx.request_repaint();
-                                Ok(rx.recv_timeout(Duration::from_secs(5)).context("application did not respond")?)
-                            })();
-                            let response = result.unwrap_or_else(|e| json!({"ok":false,"error":e.to_string()}));
-                            let _ = writeln!(stream, "{response}");
+                            serve_connection(stream, &tx, &ctx);
                             active.fetch_sub(1, Ordering::Relaxed);
                         });
                     }
@@ -374,18 +410,77 @@ pub fn request(address: SocketAddr, value: &Value) -> anyhow::Result<Value> {
 pub fn request_with_timeout(address:SocketAddr,value:&Value,timeout:Duration)->anyhow::Result<Value> {
     ensure!(address.ip().is_loopback(), "control client must connect to loopback");
     ensure!(!timeout.is_zero(),"request timed out");
-    let started=Instant::now();
-    let mut stream = TcpStream::connect_timeout(&address,timeout.min(Duration::from_secs(2))).context("cannot connect to running application")?;
-    let remaining=timeout.saturating_sub(started.elapsed());ensure!(!remaining.is_zero(),"request timed out");
-    stream.set_write_timeout(Some(remaining.min(Duration::from_secs(2))))?;
     let line = serde_json::to_string(value)?;
     ensure!(line.len() as u64 + 1 <= MAX_REQUEST, "request is too large");
-    writeln!(stream,"{line}")?;
-    let remaining=timeout.saturating_sub(started.elapsed());ensure!(!remaining.is_zero(),"request timed out");
-    stream.set_read_timeout(Some(remaining))?;
+    let started=Instant::now();
+    // 直前に同じ接続先へ送っていれば、その接続を使い回す。待機の問い合わせで、接続を張り直し続けないようにするため。
+    // スレッドごとに持つので、MCP の待機が並んでも、それぞれの接続で順に送る。
+    // 使い回すのは、送り直しても影響の無い問い合わせだけ。使い回した接続は本体が閉じた後かもしれず、そのときは
+    // 送り直すが、答えが無いまま切れたとき、本体が要求を受け取らなかったのか、実行した後に答えが届かなかったのかを
+    // 区別できない。状態を変える操作(tap など)を送り直すと二重に実行されるので、それらは新しい接続で1回だけ送る
+    let reusable_op=retry_safe(value);
+    if let Some(mut connection)=reusable_op.then(||REUSABLE.with(|cell|cell.borrow_mut().take())).flatten().filter(|c|c.address==address && c.used.elapsed()<REUSE_WITHIN) {
+        match exchange(&mut connection.stream,&line,started,timeout) {
+            Ok(response) => return finish(response,Some(connection)),
+            // サーバーが要求を読まずに閉じた後だったときだけ、新しい接続で送り直す。
+            // 答えの途中まで届いた・時間切れのときは、要求が実行されたかもしれないので送り直さない
+            Err(Exchange::Closed) => {}
+            Err(Exchange::Failed(e)) => return Err(e),
+        }
+    }
+    let mut stream = TcpStream::connect_timeout(&address,timeout.saturating_sub(started.elapsed()).min(Duration::from_secs(2))).context("cannot connect to running application")?;
+    stream.set_nodelay(true)?;
+    let response = exchange(&mut stream,&line,started,timeout).map_err(|e|match e {
+        Exchange::Closed => anyhow::anyhow!("response is too large or incomplete"),
+        Exchange::Failed(e) => e,
+    })?;
+    // 使い回すのは読み取りの問い合わせで開いた接続だけ(状態を変える操作の接続は、答えを受けたら閉じる)
+    finish(response,reusable_op.then(||Reusable{address,stream,used:Instant::now()}))
+}
+
+/// 送り直しても影響の無い問い合わせか(読み取りだけのもの)。待機・監視で繰り返し送るのは、これらだけ。
+/// `trace_result` は結果を受け取ると本体の枠を空けるが、送り直しても「もう無い」というエラーになるだけで、操作は起きない
+fn retry_safe(value:&Value)->bool {
+    matches!(value["op"].as_str(),Some("clock"|"check"|"trace_result"|"status"|"version"|"output"|"fixtures"|"controls"|"schema"|"inspect"|"profile_list"|"project_diff"))
+}
+
+struct Reusable { address:SocketAddr, stream:TcpStream, used:Instant }
+
+thread_local! {
+    static REUSABLE: std::cell::RefCell<Option<Reusable>> = const { std::cell::RefCell::new(None) };
+}
+
+enum Exchange { Closed, Failed(anyhow::Error) }
+
+/// 1行送って、1行の答えを読む
+fn exchange(stream:&mut TcpStream,line:&str,started:Instant,timeout:Duration)->Result<Vec<u8>,Exchange> {
+    let remaining=||{let r=timeout.saturating_sub(started.elapsed());if r.is_zero(){Err(Exchange::Failed(anyhow::anyhow!("request timed out")))}else{Ok(r)}};
+    let closed=|e:&std::io::Error|matches!(e.kind(),std::io::ErrorKind::BrokenPipe|std::io::ErrorKind::ConnectionReset|std::io::ErrorKind::ConnectionAborted);
+    // macOS は、相手が閉じた接続に待ち時間を設定しようとすると EINVAL(InvalidInput)を返す。
+    // 要求を書く前なので、閉じていた接続として新しい接続で送り直してよい
+    let gone=|e:std::io::Error|if e.kind()==std::io::ErrorKind::InvalidInput || closed(&e) {Exchange::Closed} else {Exchange::Failed(e.into())};
+    stream.set_write_timeout(Some(remaining()?.min(Duration::from_secs(2)))).map_err(gone)?;
+    if let Err(e)=stream.write_all(format!("{line}\n").as_bytes()) {
+        return Err(if closed(&e) {Exchange::Closed} else {Exchange::Failed(e.into())});
+    }
+    // 書いた後の EINVAL も、相手が既に閉じていた接続で起きる。本体が閉じるのは、要求が無いまま待ち時間が過ぎたとき
+    // (以前の版は答えた直後)だけなので、この要求は読まれていない。送り直してよい
+    stream.set_read_timeout(Some(remaining()?)).map_err(gone)?;
     let mut response = Vec::new();
-    BufReader::new(stream.take(MAX_RESPONSE+1)).read_until(b'\n',&mut response)?;
-    ensure!(response.len() as u64<=MAX_RESPONSE && response.last()==Some(&b'\n'), "response is too large or incomplete");
+    match BufReader::new(stream.take(MAX_RESPONSE+1)).read_until(b'\n',&mut response) {
+        Ok(_) if response.is_empty() => Err(Exchange::Closed),
+        Err(e) if response.is_empty() && closed(&e) => Err(Exchange::Closed),
+        Err(e) => Err(Exchange::Failed(e.into())),
+        Ok(_) if response.len() as u64>MAX_RESPONSE || response.last()!=Some(&b'\n') => Err(Exchange::Failed(anyhow::anyhow!("response is too large or incomplete"))),
+        Ok(_) => Ok(response),
+    }
+}
+
+fn finish(response:Vec<u8>,connection:Option<Reusable>)->anyhow::Result<Value> {
+    if let Some(mut connection)=connection {
+        connection.used=Instant::now();
+        REUSABLE.with(|cell|*cell.borrow_mut()=Some(connection));
+    }
     let response:Value = serde_json::from_slice(&response)?;
     ensure!(response["ok"]==true,"{}",response["error"].as_str().unwrap_or("control request failed"));
     Ok(response["result"].clone())
