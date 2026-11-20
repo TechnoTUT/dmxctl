@@ -26,6 +26,10 @@ impl WebServer {
     /// `ctx`は操作したときに画面を更新させるためのもの
     pub fn start(core: Shared, ctx: Option<dmxctl_core::wake::Wake>, port: u16) -> Result<WebServer, String> {
         let listener = TcpListener::bind(("0.0.0.0", port)).map_err(|e| format!("ポート{port}を開けません: {e}"))?;
+        Self::start_listener(core, ctx, listener, port)
+    }
+
+    fn start_listener(core: Shared, ctx: Option<dmxctl_core::wake::Wake>, listener: TcpListener, port: u16) -> Result<Self, String> {
         listener.set_nonblocking(true).map_err(|e| e.to_string())?;
         let stop = Arc::new(AtomicBool::new(false));
         let s2 = stop.clone();
@@ -91,8 +95,7 @@ enum ReadError {
 }
 
 /// 要求を読む(ヘッダーは16KB、本文は64KBまで)
-fn read_request(stream: &mut TcpStream) -> Result<Request, ReadError> {
-    let bad = ReadError::Reply("400 Bad Request", "bad request");
+fn read_request(stream: &mut impl Read) -> Result<Request, ReadError> {
     let mut buf = Vec::new();
     let mut chunk = [0u8; 2048];
     let head_end = loop {
@@ -101,11 +104,13 @@ fn read_request(stream: &mut TcpStream) -> Result<Request, ReadError> {
             return Err(ReadError::Closed);
         }
         buf.extend_from_slice(&chunk[..n]);
-        if let Some(i) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
-            break i;
-        }
-        if buf.len() > MAX_HEAD {
+        let delimiter = buf.windows(4).position(|w| w == b"\r\n\r\n");
+        let head_len = delimiter.map_or(buf.len(), |index| index + 4);
+        if head_len > MAX_HEAD {
             return Err(ReadError::Reply("431 Request Header Fields Too Large", "header too large"));
+        }
+        if let Some(index) = delimiter {
+            break index;
         }
     };
     let head = String::from_utf8_lossy(&buf[..head_end]).to_string();
@@ -113,16 +118,28 @@ fn read_request(stream: &mut TcpStream) -> Result<Request, ReadError> {
     let mut first = lines.next().ok_or(ReadError::Closed)?.split_whitespace();
     let method = first.next().ok_or(ReadError::Reply("400 Bad Request", "bad request line"))?.to_string();
     let path = first.next().and_then(|p| p.split('?').next()).ok_or(ReadError::Reply("400 Bad Request", "bad request line"))?.to_string();
-    let mut len = 0usize;
+    let mut len = None;
     let mut pin = None;
     for l in lines {
         let Some((k, v)) = l.split_once(':') else { continue };
         match k.trim().to_ascii_lowercase().as_str() {
-            "content-length" => len = v.trim().parse().map_err(|_| ReadError::Reply("400 Bad Request", "invalid Content-Length"))?,
+            "content-length" => {
+                let field = v.trim();
+                let invalid = || ReadError::Reply("400 Bad Request", "invalid Content-Length");
+                if field.is_empty() || !field.bytes().all(|byte| byte.is_ascii_digit()) {
+                    return Err(invalid());
+                }
+                let value = field.parse::<usize>().map_err(|_| invalid())?;
+                if len.is_some_and(|previous| previous != value) {
+                    return Err(invalid());
+                }
+                len = Some(value);
+            }
             "x-pin" => pin = Some(v.trim().to_string()),
             _ => {}
         }
     }
+    let len = len.unwrap_or(0);
     if len > MAX_BODY {
         return Err(ReadError::Reply("413 Payload Too Large", "body too large (max 64KB)"));
     }
@@ -135,7 +152,7 @@ fn read_request(stream: &mut TcpStream) -> Result<Request, ReadError> {
         body.extend_from_slice(&chunk[..n]);
     }
     if body.len() < len {
-        return Err(bad);
+        return Err(bad_body());
     }
     body.truncate(len);
     Ok(Request { method, path, pin, body })
@@ -238,11 +255,11 @@ pub fn command(c: &mut Core, v: &Value) -> Result<(), String> {
     let cmd = v["cmd"].as_str().ok_or("cmd がありません")?;
     // on は真偽値だけ(文字列などを切り替えとして扱わない)。無ければ切り替え
     let on = match v.get("on") {
-        None | Some(Value::Null) => None,
+        None => None,
         Some(Value::Bool(b)) => Some(*b),
         Some(_) => return Err("on は true か false です".into()),
     };
-    let num = v["value"].as_f64().map(|x| x as f32);
+    let num = v["value"].as_f64();
     let text = |k: &str| v[k].as_str().map(str::to_string).ok_or(format!("{k} がありません"));
     match cmd {
         "blackout" => c.rt.blackout = on.unwrap_or(!c.rt.blackout),
@@ -252,7 +269,7 @@ pub fn command(c: &mut Core, v: &Value) -> Result<(), String> {
             if !(0.0..=1.0).contains(&v) {
                 return Err("value は 0〜1 です".into());
             }
-            c.rt.master = v;
+            c.rt.master = v as f32;
         }
         "fade" => {
             let dark = on.unwrap_or(c.rt.dim > 0.5);
@@ -269,10 +286,11 @@ pub fn command(c: &mut Core, v: &Value) -> Result<(), String> {
         "resync" => c.resync(),
         "bpm" => {
             let v = num.ok_or("value がありません")?;
-            if !(dmxctl_core::project::BPM_MIN..=dmxctl_core::project::BPM_MAX).contains(&v) {
-                return Err(format!("value は {}〜{} です", dmxctl_core::project::BPM_MIN, dmxctl_core::project::BPM_MAX));
+            use dmxctl_core::project::{BPM_MAX, BPM_MIN};
+            if !(f64::from(BPM_MIN)..=f64::from(BPM_MAX)).contains(&v) {
+                return Err(format!("value は {BPM_MIN}〜{BPM_MAX} です"));
             }
-            c.set_bpm(v);
+            c.set_bpm(v as f32);
         }
         "auto" => {
             c.project.auto.enabled = on.unwrap_or(!c.project.auto.enabled);
@@ -352,6 +370,46 @@ mod tests {
         assert_eq!((c.rt.master, c.project.bpm), (0.5, 128.0));
     }
 
+    #[test]
+    fn rejects_null_switches_and_values_just_outside_the_range() {
+        let mut c = core();
+        for request in [
+            json!({"cmd": "blackout", "on": null}),
+            json!({"cmd": "master", "value": 1.00000001}),
+            json!({"cmd": "master", "value": -1e-50}),
+            json!({"cmd": "bpm", "value": 300.000001}),
+        ] {
+            assert!(command(&mut c, &request).is_err(), "{request}");
+            assert!(!c.rt.blackout);
+            assert_eq!((c.rt.master, c.project.bpm), (1.0, 120.0));
+        }
+    }
+
+    #[test]
+    fn header_limit_applies_when_the_delimiter_arrives_with_the_oversize_header() {
+        for (extra, is_ok) in [(0, true), (1, false)] {
+            let mut request = b"GET /api/state HTTP/1.1\r\nX-Example: ".to_vec();
+            request.resize(MAX_HEAD + extra - 4, b'a');
+            request.extend_from_slice(b"\r\n\r\n");
+            let result = read_request(&mut std::io::Cursor::new(request));
+            if is_ok {
+                assert!(result.is_ok());
+            } else {
+                assert!(matches!(result, Err(ReadError::Reply("431 Request Header Fields Too Large", _))));
+            }
+        }
+    }
+
+    #[test]
+    fn rejects_ambiguous_or_invalid_content_lengths() {
+        for request in [
+            b"GET /api/state HTTP/1.1\r\nContent-Length: +0\r\n\r\n".as_slice(),
+            b"GET /api/state HTTP/1.1\r\nContent-Length: 1\r\nContent-Length: 0\r\n\r\n".as_slice(),
+        ] {
+            assert!(matches!(read_request(&mut std::io::Cursor::new(request)), Err(ReadError::Reply("400 Bad Request", _))));
+        }
+    }
+
     /// 操作パネルの HTTP の窓口に、生の要求を送って、答えの1行目を返す
     fn http(port: u16, request: &[u8]) -> String {
         let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
@@ -367,8 +425,9 @@ mod tests {
     #[test]
     fn methods_and_malformed_requests_get_an_answer() {
         let shared: Shared = Arc::new(std::sync::Mutex::new(core()));
-        let port = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
-        let _server = WebServer::start(shared.clone(), None, port).unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let _server = WebServer::start_listener(shared.clone(), None, listener, port).unwrap();
         let cmd = br#"{"cmd":"blackout","on":true}"#;
         let with_body = |method: &str, path: &str, body: &[u8]| {
             let mut r = format!("{method} {path} HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n", body.len()).into_bytes();
