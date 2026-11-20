@@ -1,7 +1,7 @@
 import { Moon, Sun } from 'lucide-react'
 import { useState } from 'react'
 import { savePin } from './api'
-import { Auto, Colors, Master, PinBox, Scenes, Status } from './components'
+import { Auto, Colors, Master, Notice, PinBox, Scenes, Status } from './components'
 import logo from './assets/logo.svg'
 import logoDark from './assets/logo_dark.svg'
 import { usePanel } from './usePanel'
@@ -22,9 +22,9 @@ function useTheme() {
 }
 
 export function App() {
-  const { state, error, needPin, send, poll } = usePanel()
+  const { state, offline, notice, needPin, send, poll } = usePanel()
   const { dark, toggle } = useTheme()
-  const online = !error && state !== null
+  const online = !offline && state !== null
   return (
     <>
       <header className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-slate-200 bg-white/90 px-4 py-3 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-900/80">
@@ -34,7 +34,7 @@ export function App() {
           <div className="h-8 w-px shrink-0 bg-slate-200 dark:bg-slate-800" />
           <div className="min-w-0">
             <h1 className="truncate text-sm font-bold tracking-tight">DMX Controller</h1>
-            <p className="truncate text-[11px] text-slate-500 dark:text-slate-400">{error ? `⚠ ${error}` : 'Lighting control for "The Utopia Tone"'}</p>
+            <p className="truncate text-[11px] text-slate-500 dark:text-slate-400">Lighting control for "The Utopia Tone"</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -55,6 +55,7 @@ export function App() {
       </header>
       {/* 広い画面では2列にして、スクロールせずに全体を操作できるようにする */}
       <main className="mx-auto max-w-3xl px-4 pb-10 pt-4 lg:flex lg:h-[calc(100dvh-4.25rem)] lg:max-w-[1600px] lg:flex-col lg:pb-3">
+        {notice && <Notice text={notice} />}
         {needPin && <PinBox onSubmit={(p) => { savePin(p); poll() }} />}
         {state && (
           <div className="lg:grid lg:min-h-0 lg:flex-1 lg:grid-cols-2 lg:gap-x-4">

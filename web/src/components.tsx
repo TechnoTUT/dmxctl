@@ -42,6 +42,14 @@ function Choice({ label, on, onClick, style, className = '' }: { label: string; 
   )
 }
 
+export function Notice({ text }: { text: string }) {
+  return (
+    <Card tone="warn">
+      <p className="flex items-center gap-2"><AlertTriangle className="size-5 shrink-0" />{text}</p>
+    </Card>
+  )
+}
+
 export function PinBox({ onSubmit }: { onSubmit: (pin: string) => void }) {
   const [pin, setPin] = useState('')
   return (

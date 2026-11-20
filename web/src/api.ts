@@ -45,6 +45,9 @@ export class PinError extends Error {
   }
 }
 
+/** サーバーが操作を断った。接続はできている */
+export class ApiError extends Error {}
+
 const PIN_KEY = 'dmxpin'
 
 export function loadPin(): string {
@@ -71,7 +74,7 @@ async function call<T>(path: string, body?: Command): Promise<T> {
   })
   if (r.status === 401) throw new PinError()
   const j = await r.json()
-  if (!r.ok) throw new Error(j.error ?? String(r.status))
+  if (!r.ok) throw new ApiError(j.error ?? String(r.status))
   return j as T
 }
 
