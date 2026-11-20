@@ -258,7 +258,15 @@ impl Server {
             }
             "output" => snapshot(&engine::lock(&app.core), request),
             "controls" => Ok(engine::lock(&app.core).controls()),
-            "entity_list" => crate::editing::list(&engine::lock(&app.core),request["entity"].as_str().context("entity is required")?),
+            "entity_list" => {
+                let entity = request["entity"].as_str().context("entity is required")?;
+                let core = engine::lock(&app.core);
+                if let Some(selection) = request.get("selection") {
+                    crate::editing::get(&core, entity, selection)
+                } else {
+                    crate::editing::list(&core, entity)
+                }
+            },
             "profile_list" => Ok(json!(engine::lock(&app.core).lib.profiles.iter().map(|p|p.as_ref()).collect::<Vec<_>>())),
             "profile_save" => {
                 let profile:dmxctl_core::fixture::Profile=serde_json::from_value(request["data"].clone())?;
@@ -513,8 +521,6 @@ pub fn client(args: &[String]) -> anyhow::Result<()> {
         return crate::diagnostics::client(address,&positional,&options);
     }
     let mut used = vec!["--connect"];
-    // get で1件を選ぶときの key・index
-    let mut pick:Option<Value>=None;
     let mut payload = match positional.as_slice() {
         ["status"] => json!({"op":"status"}),
         ["inspect"] => json!({"op":"inspect"}),
@@ -577,15 +583,25 @@ pub fn client(args: &[String]) -> anyhow::Result<()> {
             json!({"op":"edit","operations":if data.is_array(){data}else{data["operations"].clone()}})
         }
         [entity,"list"] if editable(entity) => json!({"op":"entity_list","entity":entity}),
-        // get: 引数なしは一覧と同じ。ID・名前か --index があれば、その1件を返す(edit の key・index と同じ選び方)
         [entity,"get"]|[entity,"get",_] if editable(entity) => {
             used.push("--index");
-            if let Some(key)=positional.get(2) {
-                pick=Some(json!({"key":if *entity=="fixture" {json!(key.parse::<u32>()?)} else {json!(key)}}));
-            } else if let Some(index)=options.get("--index") {
-                pick=Some(json!({"index":index.parse::<u64>()?}));
+            let mut payload = json!({"op": "entity_list", "entity": entity});
+            ensure!(*entity != "settings" || (positional.len() == 2 && !options.contains_key("--index")),
+                "settings get does not accept a key or --index");
+            match (positional.get(2), options.get("--index")) {
+                (Some(_), Some(_)) => bail!("get accepts either a key or --index"),
+                (Some(key), None) => {
+                    let key = if *entity == "fixture" && let Ok(id) = key.parse::<u32>() {
+                        json!(id)
+                    } else {
+                        json!(key)
+                    };
+                    payload["selection"] = json!({"key": key});
+                }
+                (None, Some(index)) => payload["selection"] = json!({"index": index.parse::<u64>()?}),
+                (None, None) => {}
             }
-            json!({"op":"entity_list","entity":entity})
+            payload
         }
         [entity,op]|[entity,op,_] if editable(entity) && ["create","update","delete","capture"].contains(op) => {
             used.extend(["--file","--json","--index"]);
@@ -642,10 +658,11 @@ pub fn client(args: &[String]) -> anyhow::Result<()> {
     if !watching {
         let before=if wait_after{Some(request(address,&json!({"op":"clock"}))?)}else{None};
         let mut result=request(address,&payload)?;
-        if let Some(pick)=&pick {
-            let items:Vec<Value>=result.as_array().context("expected a list")?.iter().map(|item|item["data"].clone()).collect();
-            let index=crate::editing::select(&items,pick)?;
-            result=result[index].clone();
+        // 旧版の本体は selection を無視し、一覧を返す
+        if let (Some(selection), Some(list)) = (payload.get("selection"), result.as_array()) {
+            let items: Vec<Value> = list.iter().map(|item| item["data"].clone()).collect();
+            let index = crate::editing::select(&items, selection, payload["entity"] == "binding")?;
+            result = list[index].clone();
         }
         if let Some(before)=before {
             let target=result["takes_effect_from_frame"].as_u64().unwrap_or(before["frame"].as_u64().unwrap_or(0)+1);

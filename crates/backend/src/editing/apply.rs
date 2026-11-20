@@ -53,7 +53,7 @@ pub(super) fn apply_with_policy(core:&mut Core,operations:&Value,dry_run:bool,re
                 let items=array_mut(&mut data,field)?;items.push(item);items.len()-1
             }
             "update"=>{
-                let index=select(array(&data,field)?,operation)?;
+                let index=select(array(&data,field)?,operation,true)?;
                 let changes=&operation["data"];
                 if entity=="fixture" {ensure!(changes.get("id").is_none() && changes.get("armed").is_none() && changes.get("limits").is_none(),"fixture identity and safety fields are read-only");}
                 if entity=="binding" {ensure!(changes.get("id").is_none(),"binding ID is read-only");}
@@ -67,7 +67,7 @@ pub(super) fn apply_with_policy(core:&mut Core,operations:&Value,dry_run:bool,re
                 index
             }
             "delete"=>{
-                let index=select(array(&data,field)?,operation)?;array_mut(&mut data,field)?.remove(index);index
+                let index=select(array(&data,field)?,operation,true)?;array_mut(&mut data,field)?.remove(index);index
             }
             _=>bail!("op must be create, update, delete or capture"),
         };
