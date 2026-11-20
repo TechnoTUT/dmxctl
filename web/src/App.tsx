@@ -2,6 +2,8 @@ import { Moon, Sun } from 'lucide-react'
 import { useState } from 'react'
 import { savePin } from './api'
 import { Auto, Colors, Master, PinBox, Scenes, Status } from './components'
+import logo from './assets/logo.svg'
+import logoDark from './assets/logo_dark.svg'
 import { usePanel } from './usePanel'
 
 function useTheme() {
@@ -26,9 +28,14 @@ export function App() {
   return (
     <>
       <header className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-slate-200 bg-white/90 px-4 py-3 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-900/80">
-        <div>
-          <h1 className="text-base font-bold tracking-tight">DMX 操作パネル</h1>
-          <p className="text-[11px] text-slate-500 dark:text-slate-400">{error ? `⚠ ${error}` : 'dmxctl'}</p>
+        <div className="flex min-w-0 items-center gap-3">
+          <img src={logo} alt="TechnoTUT" className="h-8 w-auto max-w-[120px] object-contain dark:hidden" />
+          <img src={logoDark} alt="TechnoTUT" className="hidden h-8 w-auto max-w-[120px] object-contain dark:block" />
+          <div className="h-8 w-px bg-slate-200 dark:bg-slate-800" />
+          <div className="min-w-0">
+            <h1 className="truncate text-sm font-bold tracking-tight">DMX 操作パネル</h1>
+            <p className="truncate text-[11px] text-slate-500 dark:text-slate-400">{error ? `⚠ ${error}` : 'dmxctl'}</p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <div className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold ${online
