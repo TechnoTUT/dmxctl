@@ -392,7 +392,7 @@ pub(super) fn broadcast_loop(core: &Shared, conns: &Mutex<Vec<Arc<Conn>>>, stop:
                 (s.ack, s.edits, s.sent.is_null())
             })
             .collect();
-        let with_project = tick % PROJECT_EVERY == 0 || marks.iter().any(|m| m.2);
+        let with_project = tick.is_multiple_of(PROJECT_EVERY) || marks.iter().any(|m| m.2);
         let (rt, frames, project, profiles) = {
             let c = lock(core);
             (rt_state(&c), c.rt.frames.clone(), with_project.then(|| c.project.clone()), c.lib.clone())

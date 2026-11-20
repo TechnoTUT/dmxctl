@@ -44,9 +44,8 @@ impl CoreEditing for dmxctl_core::engine::Core {
         ensure_idle(self)?;
         ensure!(!profile.id.trim().is_empty(),"profile ID is empty");
         let report=profile.validate();ensure!(report.errors.is_empty(),"invalid profile: {}",report.errors.join("; "));
-        if let Some(old)=self.lib.get(&profile.id) {
-            if remote && (guarded(old) || guarded(profile)) {ensure!(guard_signature(old)==guard_signature(profile),"profile safety definitions are read-only from CLI");}
-        }
+        if let Some(old)=self.lib.get(&profile.id)
+            && remote && (guarded(old) || guarded(profile)) {ensure!(guard_signature(old)==guard_signature(profile),"profile safety definitions are read-only from CLI");}
         let candidate=std::sync::Arc::new(self.lib.preview_user(profile));
         saved_profile_compatible(self,&candidate,&profile.id)?;
         let mut trial=Core::new(self.project.clone(),self.lib.clone());trial.replace_library(candidate.clone());

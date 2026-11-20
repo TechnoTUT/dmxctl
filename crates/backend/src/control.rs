@@ -21,6 +21,8 @@ const FIRST_REQUEST_TIMEOUT: Duration = Duration::from_secs(2);
 const IDLE_TIMEOUT: Duration = Duration::from_secs(1);
 /// クライアントが接続を使い回すのは、前の要求からこの時間までのとき。サーバーが閉じる前に確実に送れるようにするため
 const REUSE_WITHIN: Duration = Duration::from_millis(500);
+/// 本体への接続を待つ時間
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(1);
 
 #[derive(Clone)]
 pub struct Launch {
@@ -131,7 +133,7 @@ fn serve_connection(stream: TcpStream, tx: &mpsc::SyncSender<Request>, ctx: &dmx
             let (reply, rx) = mpsc::channel();
             tx.try_send(Request { value, reply, deadline:Instant::now()+Duration::from_secs(4) }).context("control queue is full or closed")?;
             ctx.request_repaint();
-            Ok(rx.recv_timeout(Duration::from_secs(5)).context("application did not respond")?)
+            rx.recv_timeout(Duration::from_secs(5)).context("application did not respond")
         })();
         let complete = result.is_ok() || line.last() == Some(&b'\n');
         let response = result.unwrap_or_else(|e| json!({"ok":false,"error":e.to_string()}));
@@ -191,11 +193,10 @@ impl Server {
                 else { self.execute(app, &request.value) };
             engine::lock(&app.core).record_observation(before,op);
             let mut response=response;
-            if let Ok(result)=&mut response {
-                if ["reload","profile_save","profile_delete"].contains(&op) && request.value["dry_run"]!=true {
+            if let Ok(result)=&mut response
+                && ["reload","profile_save","profile_delete"].contains(&op) && request.value["dry_run"]!=true {
                     result["takes_effect_from_frame"]=json!(engine::lock(&app.core).rt.frame_id+1);
                 }
-            }
             let ok = response.is_ok();
             let response = match response {
                 Ok(result) => json!({"ok":true,"result":result}),
@@ -224,7 +225,16 @@ impl Server {
             "version"=>Ok(engine::lock(&app.core).version()),
             "clock"=>{let core=engine::lock(&app.core);Ok(json!({"frame":core.rt.frame_id,"beat":core.rt.beat,"session":core.rt.session,
                 "emergency":engine::EMERGENCY.load(Ordering::SeqCst)}))},
-            "schema"=>crate::diagnostics::schema(&mut engine::lock(&app.core),request["entity"].as_str().unwrap_or("project")),
+            "schema" => {
+                let entity = request["entity"].as_str().unwrap_or("project");
+                let full = crate::commands::flag(request, "full", true)?;
+                let mut core = engine::lock(&app.core);
+                if entity == "project" && !full {
+                    Ok(crate::diagnostics::project_schema_summary(&mut core))
+                } else {
+                    crate::diagnostics::schema(&mut core, entity)
+                }
+            },
             "trace_start"=>engine::lock(&app.core).start_trace(u32::try_from(request["fixture"].as_u64().context("fixture is required")?)?,request["attr"].as_str().context("attr is required")?),
             "trace_result"=>engine::lock(&app.core).trace_result(request["ticket"].as_u64().context("ticket is required")?),
             "trace_cancel"=>Ok(engine::lock(&app.core).cancel_trace(request["ticket"].as_u64().context("ticket is required")?)),
@@ -313,9 +323,8 @@ impl Server {
                 // フラッシュの期限は commands::apply が core.now()(仮想時間でも同じ時計)で決める
                 let frame = core.rt.frame_id;
                 drop(core);
-                if command["cmd"] == "flash" {
-                    if let Some(duration) = hold { app.ctx.request_repaint_after(duration); }
-                }
+                if command["cmd"] == "flash"
+                    && let Some(duration) = hold { app.ctx.request_repaint_after(duration); }
                 app.apply_services();
                 Ok(json!({"accepted_at_frame":frame,"takes_effect_from_frame":frame+1}))
             }
@@ -411,7 +420,7 @@ pub fn request_with_timeout(address:SocketAddr,value:&Value,timeout:Duration)->a
     ensure!(address.ip().is_loopback(), "control client must connect to loopback");
     ensure!(!timeout.is_zero(),"request timed out");
     let line = serde_json::to_string(value)?;
-    ensure!(line.len() as u64 + 1 <= MAX_REQUEST, "request is too large");
+    ensure!((line.len() as u64) < MAX_REQUEST, "request is too large");
     let started=Instant::now();
     // 直前に同じ接続先へ送っていれば、その接続を使い回す。待機の問い合わせで、接続を張り直し続けないようにするため。
     // スレッドごとに持つので、MCP の待機が並んでも、それぞれの接続で順に送る。
@@ -428,7 +437,10 @@ pub fn request_with_timeout(address:SocketAddr,value:&Value,timeout:Duration)->a
             Err(Exchange::Failed(e)) => return Err(e),
         }
     }
-    let mut stream = TcpStream::connect_timeout(&address,timeout.saturating_sub(started.elapsed()).min(Duration::from_secs(2))).context("cannot connect to running application")?;
+    // 同じPCの中への接続は、本体が動いていれば待ち受けがすぐ受ける(本体が忙しくても待たない)。
+    // 待ち受けが無いとき、Windows は再試行して約2秒かかるので、1秒で打ち切る
+    let mut stream = TcpStream::connect_timeout(&address,timeout.saturating_sub(started.elapsed()).min(CONNECT_TIMEOUT))
+        .with_context(||format!("cannot connect to running application at {address}; start it with `dmxctl serve` or the GUI with `--control` (or check --connect)"))?;
     stream.set_nodelay(true)?;
     let response = exchange(&mut stream,&line,started,timeout).map_err(|e|match e {
         Exchange::Closed => anyhow::anyhow!("response is too large or incomplete"),

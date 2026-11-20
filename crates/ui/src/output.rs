@@ -21,7 +21,7 @@ impl App {
 
         ui.horizontal(|ui| {
             crate::theme::heading(ui, "出力");
-            crate::theme::help(ui, "FT232系の安価なUSB-DMXは、まず「COMポート」方式を試し、つながらなければ「D2XX」方式を使います。同時に複数の出力を有効にできます。\nArt-Netは、ノードのIPを指定するか、全体に流す場合は 255.255.255.255\nsACN (E1.31)は、送り先を空にするとマルチキャスト(239.255.x.y)で送ります。ユニバースは 1〜63999");
+            crate::theme::help(ui, "FT232系の安価なUSB-DMXは、まず「COMポート」方式を試し、つながらなければ「D2XX」方式を使います。同時に複数の出力を有効にできます。\nArt-Netは、ノードのIPを指定するか、全体に流す場合は 255.255.255.255\nsACN (E1.31)は、送り先を空にするとマルチキャスト(239.255.x.y)で送ります。ユニバースは 1〜63999。\nネットワークが複数ある PC では、マルチキャストが照明用の LAN から出ないことがあります。そのときは受け手の IP を指定してください");
             ui.add_space(8.0);
             add_serial = ui.button("＋ USB-DMX (COMポート)").clicked();
             add_d2xx = ui.button("＋ USB-DMX (D2XX)").clicked();

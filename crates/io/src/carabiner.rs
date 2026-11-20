@@ -188,11 +188,10 @@ fn find_file(dir: &std::path::Path, name: &str, depth: u32) -> Option<PathBuf> {
         if p.is_file() && p.file_name().is_some_and(|n| n == name) {
             return Some(p);
         }
-        if depth > 0 && p.is_dir() {
-            if let Some(f) = find_file(&p, name, depth - 1) {
+        if depth > 0 && p.is_dir()
+            && let Some(f) = find_file(&p, name, depth - 1) {
                 return Some(f);
             }
-        }
     }
     None
 }

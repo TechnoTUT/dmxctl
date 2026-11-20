@@ -13,12 +13,13 @@ struct Serve {
 }
 
 impl Serve {
-    fn start() -> Self {
-        let dir = std::env::temp_dir().join(format!("dmxctl-mcp-{}", std::process::id()));
+    fn start(test: &str, configure: impl FnOnce(&mut Project)) -> Self {
+        let dir = std::env::temp_dir().join(format!("dmxctl-mcp-{}-{test}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let (lib, _) = Library::load(&dir.join("fixtures"));
         let mut project = Project::starter(&lib);
         project.fixtures[0].limits.insert("pan".into(), [20, 90]);
+        configure(&mut project);
         project.save(&dir.join("project.json")).unwrap();
         let mut child = Command::new(env!("CARGO_BIN_EXE_dmxctl"))
             .args(["serve", "--project", "project.json", "--listen", "127.0.0.1:0", "--inputs", "none"])
@@ -101,7 +102,7 @@ impl Drop for Mcp {
 
 #[test]
 fn an_mcp_client_operates_the_running_application() {
-    let serve = Serve::start();
+    let serve = Serve::start("operations", |_| {});
     let mut mcp = Mcp::start(&serve.address);
 
     let init = mcp.rpc("initialize", json!({"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "test", "version": "0"}}));
@@ -159,6 +160,13 @@ fn an_mcp_client_operates_the_running_application() {
     assert!(!failed && r["applied"] == true && r.get("bindings").is_none(), "{r}");
     let (failed, r) = mcp.call("edit", json!({"operations": [{"entity": "scene", "op": "capture", "data": {"name": "MCP"}}], "dry_run": "true"}));
     assert!(failed && r.as_str().is_some_and(|msg| msg.contains("dry_run must be boolean")), "{r}");
+    // schema は entity が必須。project の今の値は、頼まれたときだけ返す
+    let (failed, r) = mcp.call("schema", json!({}));
+    assert!(failed && r.as_str().is_some_and(|m| m.contains("entity is required")), "{r}");
+    let (failed, r) = mcp.call("schema", json!({"entity": "project"}));
+    assert!(!failed && r.get("current").is_none() && r.get("schema").is_none() && r["entities"].as_array().is_some_and(|e| e.iter().any(|e| e == "fixture")) && r["commands"].is_object(), "{r}");
+    let (failed, r) = mcp.call("schema", json!({"entity": "project", "full": true}));
+    assert!(!failed && r["current"].is_object() && r["schema"].is_object(), "{r}");
     let (failed, scenes) = mcp.call("schema", json!({"entity": "scene"}));
     assert!(!failed, "{scenes}");
     assert!(scenes["current"].as_array().unwrap().iter().all(|scene| scene["name"] != "MCP"));
@@ -224,4 +232,21 @@ fn tools_report_when_the_application_is_not_running() {
     let (failed, r) = mcp.call("status", json!({}));
     assert!(failed);
     assert!(r.as_str().unwrap_or("").contains("cannot connect"), "{r}");
+}
+
+#[test]
+fn project_schema_summary_fits_when_full_schema_exceeds_the_control_limit() {
+    let serve = Serve::start("large-schema", |project| {
+        project.fixtures[0].name = "x".repeat(4 * 1024 * 1024);
+    });
+    let mut mcp = Mcp::start(&serve.address);
+    mcp.rpc("initialize", json!({"protocolVersion": "2025-06-18"}));
+
+    let (failed, result) = mcp.call("schema", json!({"entity": "project", "full": true}));
+    assert!(failed && result.as_str().is_some_and(|err| err.contains("response is too large")), "{result}");
+
+    let (failed, result) = mcp.call("schema", json!({"entity": "project"}));
+    assert!(!failed, "{result}");
+    assert!(result.get("schema").is_none() && result.get("current").is_none(), "{result}");
+    assert!(result["entities"].is_array() && result["commands"].is_object() && result["rules"].is_object(), "{result}");
 }

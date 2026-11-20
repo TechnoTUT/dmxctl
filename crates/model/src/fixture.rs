@@ -548,9 +548,8 @@ impl Library {
     pub fn preview_user(&self,profile:&Profile)->Self {
         let mut candidate=self.clone();let mut profile=profile.clone();
         for source in BUILTIN {
-            if let Ok(builtin)=serde_json::from_str::<Profile>(source) {
-                if builtin.id==profile.id {inherit_forbid(&mut profile,&builtin);}
-            }
+            if let Ok(builtin)=serde_json::from_str::<Profile>(source)
+                && builtin.id==profile.id {inherit_forbid(&mut profile,&builtin);}
         }
         candidate.add(profile);candidate
     }
@@ -560,7 +559,7 @@ impl Library {
     pub fn preview_delete(&self,id:&str)->Self {
         let mut candidate=self.clone();
         candidate.profiles.retain(|p|p.id!=id);candidate.infos.remove(id);candidate.user_files.remove(id);
-        for source in BUILTIN {if let Ok(profile)=serde_json::from_str::<Profile>(source) {if profile.id==id {candidate.add(profile);}}}
+        for source in BUILTIN {if let Ok(profile)=serde_json::from_str::<Profile>(source)&& profile.id==id {candidate.add(profile);}}
         let bar=generic_led_bar();if bar.id==id {candidate.add(bar);}
         candidate
     }

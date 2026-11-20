@@ -286,13 +286,13 @@ fn points_editor(ui: &mut egui::Ui, core: &mut Core) {
     }
     // 数値と、今の向きの登録
     egui::Grid::new("points_grid").num_columns(4).spacing([8.0, 4.0]).show(ui, |ui| {
-        for k in 0..4 {
+        for (k, point) in m.points.iter_mut().enumerate() {
             ui.label(RichText::new(format!("{}", k + 1)).font(theme::bold(12.0)));
-            ui.add(egui::DragValue::new(&mut m.points[k][0]).range(-X..=X).suffix("° 右"));
-            ui.add(egui::DragValue::new(&mut m.points[k][1]).range(Y0..=Y1).suffix("° 前"));
+            ui.add(egui::DragValue::new(&mut point[0]).range(-X..=X).suffix("° 右"));
+            ui.add(egui::DragValue::new(&mut point[1]).range(Y0..=Y1).suffix("° 前"));
             if ui.small_button("今の向き").on_hover_text("左端のムービングが今向いている向き(位置プリセット・フェーダーで合わせたもの)を、この点にします。動きを「止める」にしてから合わせてください").clicked()
                 && let Some(l) = core.head_lean(0) {
-                m.points[k] = l.map(|v| v.round());
+                *point = l.map(|v| v.round());
             }
             ui.end_row();
         }

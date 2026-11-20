@@ -317,16 +317,17 @@ impl Core {
 pub struct OscServer {
     _listener: OscListener,
     pub port: u16,
+    pub requested_port: u16,
 }
 
 impl OscServer {
     /// `ctx`は受信したときに画面を更新させるためのもの(映像ソフトから連続で来ても、画面の更新は0.25秒に1回まで)
     pub fn start(core: Shared, ctx: Option<crate::wake::Wake>, port: u16) -> Result<OscServer, String> {
-        lock(&core).rt.osc_status = format!("受信待ち (UDP {port})");
+        let receiver_core = core.clone();
         let mut last_status = Instant::now();
-        let listener = OscListener::start(port, move |msgs, count| {
+        let listener = OscListener::start_with_port(port, move |msgs, count, port| {
             {
-                let mut c = lock(&core);
+                let mut c = lock(&receiver_core);
                 for m in msgs {
                     c.handle_osc(m);
                 }
@@ -339,6 +340,9 @@ impl OscServer {
                 ctx.request_repaint_after(Duration::from_millis(250));
             }
         })?;
-        Ok(OscServer { _listener: listener, port })
+        let requested_port = port;
+        let port = listener.port;
+        lock(&core).rt.osc_status = format!("受信待ち (UDP {port})");
+        Ok(OscServer { _listener: listener, port, requested_port })
     }
 }

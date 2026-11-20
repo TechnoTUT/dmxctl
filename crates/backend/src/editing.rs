@@ -96,7 +96,8 @@ fn new_fixture(project:&mut Value,data:&Value,lib:&Library)->anyhow::Result<Valu
     for f in items.iter().filter(|f|f["universe"]==universe as u64) {
         let Some(mode)=f["profile"].as_str().and_then(|p|lib.mode(p,f["mode"].as_u64().unwrap_or(0) as usize)) else{continue;};
         let start=f["address"].as_u64().unwrap_or(1).saturating_sub(1) as usize;
-        for slot in start..start.saturating_add(mode.channels.len()).min(512) {used[slot]=true;}
+        let end=start.saturating_add(mode.channels.len()).min(512);
+        if let Some(slots)=used.get_mut(start..end) {slots.fill(true);}
     }
     let n=definition.channels.len();
     ensure!(n>0 && n<=512,"invalid channel count");

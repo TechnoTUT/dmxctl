@@ -323,9 +323,12 @@ fn tools() -> Vec<Value> {
         ),
         tool(
             "schema",
-            "設定の形(JSON Schema)・今の値・読み取り専用の項目・使える操作の一覧",
-            json!({"entity": {"type": "string", "enum": ["project", "fixture", "binding", "group", "scene", "position", "effect", "pixel", "chase", "pair", "output", "auto", "auto_preset", "motion", "profile", "action"]}}),
-            &[],
+            "設定の形(JSON Schema)・今の値・読み取り専用の項目・使える操作の一覧。entity で対象を選ぶ。project(設定全体)は大きいので、既定では対象の一覧・使える操作・値の範囲だけを返す(形と今の値も要るときは full: true)",
+            json!({
+                "entity": {"type": "string", "enum": crate::diagnostics::SCHEMA_ENTITIES},
+                "full": {"type": "boolean", "description": "project でも、設定全体の形(JSON Schema)と今の値を返す(本番の設定で100KB 以上)"},
+            }),
+            &["entity"],
         ),
         tool(
             "edit",
@@ -503,7 +506,18 @@ fn call(request: Requester, name: &str, args: &Value) -> anyhow::Result<Value> {
             let timeout = optional(args, "timeout_ms", "a positive integer", Value::as_u64)?.unwrap_or(5000);
             crate::diagnostics::explain(request, json!({"fixture": fixture()?, "attr": attr()?}), timeout)
         }
-        "schema" => send(request, json!({"op": "schema", "entity": args["entity"].as_str().unwrap_or("project")})),
+        "schema" => {
+            // 設定全体の形と今の値は、本番の設定で100KB 以上になる。project では、頼まれたときだけ返す
+            let entity = arg(args, "entity", "a string such as fixture or scene", Value::as_str)?;
+            let full = optional(args, "full", "a boolean", Value::as_bool)?.unwrap_or(false);
+            let compact = entity == "project" && !full;
+            let mut result = send(request, json!({"op": "schema", "entity": entity, "full": !compact}))?;
+            // 旧版の本体は full を無視して完全な応答を返す
+            if compact && result.get("schema").is_some() {
+                crate::diagnostics::summarize_project_schema(&mut result);
+            }
+            Ok(result)
+        }
         "edit" => {
             ensure!(args["operations"].is_array(), "operations must be an array");
             let dry_run = crate::commands::flag(args, "dry_run", false)?;
