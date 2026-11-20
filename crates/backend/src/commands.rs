@@ -196,7 +196,7 @@ mod tests {
         apply(&mut c, &json!({"cmd": "set", "fixture": fixture, "attr": "pan", "value": 255.99609375})).unwrap();
         let fixture = c.project.fixtures.iter().find(|item| item.id == fixture).unwrap();
         let mode = c.lib.mode(&fixture.profile, fixture.mode).unwrap();
-        assert_eq!(mode.get_f(&fixture.values, mode.find_attr("pan").unwrap()), 255.99609375);
+        assert_eq!(mode.get_f(&fixture.values, mode.find_attr("pan").unwrap()), DMX_FINE_MAX);
     }
 
     #[test]
