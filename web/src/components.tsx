@@ -170,8 +170,8 @@ export function Auto({ s, send }: { s: PanelState; send: Send }) {
         {a.presets.map((n, i) => <Choice key={i} className="min-w-24 flex-1" label={n} on={i === a.preset} onClick={() => send({ cmd: 'preset', index: i })} />)}
       </div>
       <Sub>フレーズを試す</Sub>
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(96px,1fr))] gap-2">
-        {s.phrases.map((p) => <Choice key={p.key} label={p.label} on={a.look === p.key} onClick={() => send({ cmd: 'look', phrase: p.key })} />)}
+      <div className="flex flex-wrap gap-2">
+        {s.phrases.map((p) => <Choice key={p.key} className="min-w-24 grow" label={p.label} on={a.look === p.key} onClick={() => send({ cmd: 'look', phrase: p.key })} />)}
       </div>
     </Card>
   )
@@ -192,11 +192,11 @@ export function Colors({ s, send }: { s: PanelState; send: Send }) {
         {slotBtn('sub', 'サブ', s.sub)}
         <Choice label="入れ替え" onClick={() => send({ cmd: 'swap' })} />
       </div>
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(96px,1fr))] gap-2">
+      <div className="flex flex-wrap gap-2">
         {s.colors.map((c) => (
           <button
             key={c.name}
-            className="rounded-xl border-2 border-transparent px-1 py-2.5 text-[13px] font-semibold transition active:scale-[.97]"
+            className="min-w-24 grow rounded-xl border-2 border-transparent px-3 py-2.5 text-[13px] font-semibold transition active:scale-[.97]"
             style={{ background: rgb(c.rgb), color: ink(c.rgb) }}
             onClick={() => send({ cmd: 'color', slot, name: c.name })}
           >
@@ -212,8 +212,8 @@ export function Scenes({ s, send }: { s: PanelState; send: Send }) {
   if (!s.scenes.length) return null
   return (
     <Card title="シーン">
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(96px,1fr))] gap-2">
-        {s.scenes.map((n) => <Choice key={n} label={n} on={s.last_scene === n} onClick={() => send({ cmd: 'scene', name: n })} />)}
+      <div className="flex flex-wrap gap-2">
+        {s.scenes.map((n) => <Choice key={n} className="min-w-24 grow" label={n} on={s.last_scene === n} onClick={() => send({ cmd: 'scene', name: n })} />)}
       </div>
     </Card>
   )

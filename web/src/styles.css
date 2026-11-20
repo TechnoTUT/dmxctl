@@ -15,6 +15,6 @@
     text-wrap: pretty;
   }
   h1, h2, h3 { text-wrap: balance; }
-  /* ボタンの文字は折り返さず、入り切らないときは省略する */
-  button { touch-action: manipulation; user-select: none; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* ボタンの文字は折り返さない。入り切らないときは、ボタンの方を次の行へ送る */
+  button { touch-action: manipulation; user-select: none; cursor: pointer; white-space: nowrap; }
 }
