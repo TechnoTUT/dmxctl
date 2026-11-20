@@ -15,6 +15,6 @@
     text-wrap: pretty;
   }
   h1, h2, h3 { text-wrap: balance; }
-  /* ボタンの文字は折り返さない。入り切らないときは、ボタンの方を次の行へ送る */
-  button { touch-action: manipulation; user-select: none; cursor: pointer; white-space: nowrap; }
+  /* ボタンの文字は、並べる方で次の行へ送って折り返さない。1行にも入り切らない長い名前だけ、ボタンの中で折り返す */
+  button { touch-action: manipulation; user-select: none; cursor: pointer; max-width: 100%; }
 }

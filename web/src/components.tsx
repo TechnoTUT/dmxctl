@@ -8,7 +8,9 @@ const rgb = (c: Rgb | null) => (c ? `rgb(${c[0]},${c[1]},${c[2]})` : 'transparen
 // 明るい色のボタンは黒い文字で
 const ink = (c: Rgb) => (c[0] * 0.299 + c[1] * 0.587 + c[2] * 0.114 > 150 ? '#111' : '#fff')
 
-const btn = 'rounded-xl border px-3.5 py-3 text-sm font-semibold transition active:scale-[.97]'
+const btn = 'whitespace-nowrap rounded-xl border px-3.5 py-3 text-sm font-semibold transition active:scale-[.97]'
+// 並べるボタン。長い名前は、1行に入り切らないときだけ中で折り返す
+const wrap = 'max-w-full min-w-24 grow whitespace-normal [overflow-wrap:anywhere]'
 const idle = 'border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-200 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800'
 const active = 'border-[#C7000A] bg-[#C7000A] text-white shadow-md shadow-[#C7000A]/20'
 
@@ -194,7 +196,7 @@ export function Auto({ s, send }: { s: PanelState; send: Send }) {
       </div>
       <Sub>フレーズを試す</Sub>
       <div className="flex flex-wrap gap-2">
-        {s.phrases.map((p) => <Choice key={p.key} className="min-w-24 grow" label={p.label} on={a.look === p.key} onClick={() => send({ cmd: 'look', phrase: p.key })} />)}
+        {s.phrases.map((p) => <Choice key={p.key} className={wrap} label={p.label} on={a.look === p.key} onClick={() => send({ cmd: 'look', phrase: p.key })} />)}
       </div>
     </Card>
   )
@@ -219,7 +221,7 @@ export function Colors({ s, send }: { s: PanelState; send: Send }) {
         {s.colors.map((c) => (
           <button
             key={c.name}
-            className="min-w-24 grow rounded-xl border-2 border-transparent px-3 py-2.5 text-[13px] font-semibold transition active:scale-[.97]"
+            className="max-w-full min-w-24 grow whitespace-normal rounded-xl border-2 border-transparent px-3 py-2.5 text-[13px] [overflow-wrap:anywhere] font-semibold transition active:scale-[.97]"
             style={{ background: rgb(c.rgb), color: ink(c.rgb) }}
             onClick={() => send({ cmd: 'color', slot, name: c.name })}
           >
@@ -236,7 +238,7 @@ export function Scenes({ s, send }: { s: PanelState; send: Send }) {
   return (
     <Card title="シーン">
       <div className="flex flex-wrap gap-2">
-        {s.scenes.map((n) => <Choice key={n} className="min-w-24 grow" label={n} on={s.last_scene === n} onClick={() => send({ cmd: 'scene', name: n })} />)}
+        {s.scenes.map((n) => <Choice key={n} className={wrap} label={n} on={s.last_scene === n} onClick={() => send({ cmd: 'scene', name: n })} />)}
       </div>
     </Card>
   )
