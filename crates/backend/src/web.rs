@@ -1,6 +1,6 @@
 //! スマホなどのブラウザから操作する、小さなWebの操作パネル(http://このPCのIP:8080/)。
 //! 画面の無いPC(dmxctl headless)で動かしているときに、様子を見たり、ブラックアウト・オート・プリセット・色・シーンを操作する。
-//! 外部のクレートは使わず、std の TCP で最小限の HTTP/1.1 を話す(1回の要求ごとに接続を閉じる)
+//! 外部のクレートは使わず、std の TCP で最小限の HTTP/1.1 を話す。通常は1回の要求ごとに接続を閉じ、`/api/events` だけは接続を保持して様子を送り続ける
 
 use dmxctl_core::color::{ColorRole, ColorTarget, NamedColor};
 use dmxctl_core::engine::{lock, Core, Shared, EMERGENCY};
@@ -8,7 +8,7 @@ use dmxctl_core::project::PHRASES;
 use serde_json::{json, Value};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
@@ -39,9 +39,9 @@ impl WebServer {
                 while !s2.load(Ordering::SeqCst) {
                     match listener.accept() {
                         Ok((stream, _)) => {
-                            let (core, ctx) = (core.clone(), ctx.clone());
+                            let (core, ctx, stop) = (core.clone(), ctx.clone(), s2.clone());
                             // 1つの接続が遅くても、ほかを待たせない
-                            let _ = std::thread::Builder::new().name("web-conn".into()).spawn(move || serve(stream, &core, ctx.as_ref()));
+                            let _ = std::thread::Builder::new().name("web-conn".into()).spawn(move || serve(stream, &core, ctx.as_ref(), &stop));
                         }
                         Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => std::thread::sleep(Duration::from_millis(50)),
                         Err(_) => std::thread::sleep(Duration::from_millis(200)),
@@ -168,7 +168,7 @@ fn respond(stream: &mut TcpStream, status: &str, ctype: &str, body: &[u8]) {
     let _ = stream.write_all(body);
 }
 
-fn serve(mut stream: TcpStream, core: &Shared, ctx: Option<&dmxctl_core::wake::Wake>) {
+fn serve(mut stream: TcpStream, core: &Shared, ctx: Option<&dmxctl_core::wake::Wake>, stop: &AtomicBool) {
     let _ = stream.set_nonblocking(false);
     let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
@@ -189,6 +189,23 @@ fn serve(mut stream: TcpStream, core: &Shared, ctx: Option<&dmxctl_core::wake::W
             let head = format!("HTTP/1.1 405 Method Not Allowed\r\nAllow: {allow}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n", body.len());
             let _ = stream.write_all(head.as_bytes());
             let _ = stream.write_all(body.as_bytes());
+        }
+        // 様子が変わるたびに送り続ける(Server-Sent Events)。この接続のスレッドは切れるまで戻らない
+        ("GET", "/api/events") => {
+            let c = lock(core);
+            let pin = c.project.web_pin.trim().to_string();
+            if !pin.is_empty() && req.pin.as_deref() != Some(pin.as_str()) {
+                drop(c);
+                respond(&mut stream, "401 Unauthorized", "application/json", br#"{"error":"pin"}"#);
+                return;
+            }
+            drop(c);
+            // 上限を超えたクライアントには、1秒ごとの読み直しを使ってもらう
+            let Some(_guard) = StreamGuard::acquire() else {
+                respond(&mut stream, "503 Service Unavailable", "application/json", br#"{"error":"too many streams"}"#);
+                return;
+            };
+            stream_events(&mut stream, core, &pin, stop);
         }
         ("GET", "/api/state") | ("POST", "/api/cmd") => {
             let mut c = lock(core);
@@ -215,6 +232,72 @@ fn serve(mut stream: TcpStream, core: &Shared, ctx: Option<&dmxctl_core::wake::W
             respond(&mut stream, "200 OK", "application/json", body.as_bytes());
         }
         _ => respond(&mut stream, "404 Not Found", "text/plain; charset=utf-8", "見つかりません".as_bytes()),
+    }
+}
+
+/// 同時に保持する `/api/events` の接続数の上限
+const MAX_STREAMS: usize = 16;
+/// 様子が変わったかを確かめる間隔。ロックは確かめるときだけ短く取る
+const STREAM_TICK: Duration = Duration::from_millis(200);
+/// 変化が無いときに、切れた接続を見つけるために送る合図の間隔
+const STREAM_HEARTBEAT: Duration = Duration::from_secs(10);
+
+static STREAMS: AtomicUsize = AtomicUsize::new(0);
+
+/// 保持している `/api/events` の接続数を数える。破棄すると1つ減る
+struct StreamGuard;
+
+impl StreamGuard {
+    fn acquire() -> Option<StreamGuard> {
+        if STREAMS.fetch_add(1, Ordering::SeqCst) >= MAX_STREAMS {
+            STREAMS.fetch_sub(1, Ordering::SeqCst);
+            return None;
+        }
+        Some(StreamGuard)
+    }
+}
+
+impl Drop for StreamGuard {
+    fn drop(&mut self) {
+        STREAMS.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// 様子が変わるたびに `event: state` を送る。変化が無いあいだは、合図のコメントだけを送る。
+/// 書き込みに失敗する・合言葉が変わる・サーバーを止めると終了する
+fn stream_events(stream: &mut TcpStream, core: &Shared, pin: &str, stop: &AtomicBool) {
+    let head = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-store\r\nConnection: keep-alive\r\nX-Accel-Buffering: no\r\n\r\n";
+    if stream.write_all(head.as_bytes()).is_err() {
+        return;
+    }
+    let mut last = String::new();
+    let mut quiet = Duration::ZERO;
+    while !stop.load(Ordering::SeqCst) {
+        let (body, now_pin) = {
+            let c = lock(core);
+            (state(&c).to_string(), c.project.web_pin.trim().to_string())
+        };
+        // 合言葉が変わったら切る。クライアントは接続し直して、合言葉を聞かれる
+        if now_pin != pin {
+            return;
+        }
+        let msg = if body != last {
+            last = body;
+            quiet = Duration::ZERO;
+            Some(format!("event: state\ndata: {last}\n\n"))
+        } else if quiet >= STREAM_HEARTBEAT {
+            quiet = Duration::ZERO;
+            Some(": keep-alive\n\n".to_string())
+        } else {
+            None
+        };
+        if let Some(m) = msg {
+            if stream.write_all(m.as_bytes()).and_then(|_| stream.flush()).is_err() {
+                return;
+            }
+        }
+        std::thread::sleep(STREAM_TICK);
+        quiet += STREAM_TICK;
     }
 }
 
