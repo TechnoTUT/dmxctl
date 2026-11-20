@@ -30,6 +30,7 @@ permissions:
   contents: read
 
 env:
+  # The web panel in web/ is built by crates/backend/build.rs, so every build job needs Node.js (setup-node)
   # Build dependencies for Linux (SDL2 is built from source with cmake and linked statically)
   LINUX_DEPS: build-essential pkg-config cmake libasound2-dev libudev-dev libdrm-dev libgbm-dev libegl-dev libgles-dev libxext-dev
 
@@ -69,6 +70,11 @@ jobs:
       - uses: actions/checkout@v7
         with:
           submodules: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
       - uses: Swatinem/rust-cache@v2
       - name: Install build dependencies
         run: sudo apt-get update && sudo apt-get install -y $LINUX_DEPS
@@ -100,6 +106,11 @@ jobs:
       - uses: actions/checkout@v7
         with:
           submodules: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Build
@@ -126,6 +137,11 @@ jobs:
       - uses: actions/checkout@v7
         with:
           submodules: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-gnu
@@ -150,6 +166,11 @@ jobs:
       - uses: actions/checkout@v7
         with:
           submodules: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
       - uses: Swatinem/rust-cache@v2
       - name: Build the app
         run: ./scripts/build-mac.sh

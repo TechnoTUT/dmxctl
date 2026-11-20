@@ -8,3 +8,5 @@ runs/
 .github/
 docs/
 examples/
+web/node_modules/
+web/dist/
