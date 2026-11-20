@@ -92,8 +92,13 @@ pub fn wait_with(request_with_timeout:Requester,target:&Value,timeout_ms:u64)->a
         let mut request=target.get("condition").cloned().unwrap_or_else(||json!({"op":"clock"}));
         if target.get("condition").is_some(){request["op"]=json!("check");}
         last=request_with_timeout(&request,poll_timeout(remaining))?;
+        // 1回の問い合わせには最低1秒を与えるので、答えが締め切りの後に届くことがある。
+        // 締め切りを過ぎていたら、次の問い合わせにも成功の判定にも進まず、待機の時間切れにする
+        ensure!(started.elapsed()<timeout,"wait timed out; last observation: {last}");
         let clock=if request["op"]=="check" {
-            request_with_timeout(&json!({"op":"clock"}),poll_timeout(timeout.saturating_sub(started.elapsed())))?
+            let clock=request_with_timeout(&json!({"op":"clock"}),poll_timeout(timeout.saturating_sub(started.elapsed())))?;
+            ensure!(started.elapsed()<timeout,"wait timed out; last observation: {last}");
+            clock
         }else{last.clone()};
         if let Some(session)=target.get("session") {ensure!(clock["session"]==*session,"application session changed while waiting");}
         ensure!(clock["emergency"]!=true,"application entered emergency stop while waiting");
@@ -188,6 +193,8 @@ pub fn explain(request:Requester,mut payload:Value,timeout_ms:u64)->anyhow::Resu
     loop {
         let remaining=timeout.saturating_sub(started.elapsed());ensure!(!remaining.is_zero(),"trace timed out");
         let result=request(&json!({"op":"trace_result","ticket":start["ticket"]}),poll_timeout(remaining))?;
+        // 締め切りの後に届いた答えは、結果ができていても時間切れにする(wait と同じ)
+        ensure!(started.elapsed()<timeout,"trace timed out");
         if result["ready"]==true {return Ok(result["trace"].clone());}
         std::thread::sleep(Duration::from_millis(25).min(timeout.saturating_sub(started.elapsed())));
     }
@@ -251,6 +258,36 @@ mod tests {
         assert!(c.check_version(&json!({"expected_session":"previous process"})).is_err());
         let current=c.version();c.check_version(&json!({"expected_session":current["session"],"expected_revision":current["revision"]})).unwrap();
     }
+    /// 締め切りの後に届いた答えは、条件を満たしていても成功にしない。条件付きの待機では、
+    /// 締め切りを過ぎた後に clock を問い合わせない
+    #[test]
+    fn answers_arriving_after_the_deadline_are_timeouts_even_if_they_match() {
+        let log=std::sync::Mutex::new(Vec::new());
+        // 1回の答えに 40ms かかり、条件はいつも満たしている本体
+        let slow=|request:&Value,_timeout:Duration|->anyhow::Result<Value> {
+            log.lock().unwrap().push(request["op"].as_str().unwrap_or("").to_string());
+            std::thread::sleep(Duration::from_millis(40));
+            Ok(match request["op"].as_str() {
+                Some("check")=>json!({"passed":true,"frame":5}),
+                Some("trace_start")=>json!({"ticket":1}),
+                Some("trace_result")=>json!({"ready":true,"trace":{}}),
+                _=>json!({"frame":5,"beat":9.0,"session":"s","emergency":false}),
+            })
+        };
+        for target in [json!({"frame":1}),json!({"condition":{"fixture":1,"attr":"dimmer","equals":7}})] {
+            log.lock().unwrap().clear();
+            let error=wait_with(&slow,&target,30).unwrap_err().to_string();
+            assert!(error.starts_with("wait timed out"),"{target}: {error}");
+            assert!(!log.lock().unwrap().iter().any(|op|op=="clock" && target.get("condition").is_some()),"締め切り後に clock を問い合わせない: {:?}",log.lock().unwrap());
+            // 締め切りに間に合えば成功する
+            assert_eq!(wait_with(&slow,&target,1000).unwrap()["matched"],true);
+        }
+        // explain も同じ。trace_start(40ms)の後の trace_result が締め切り(60ms)を過ぎて届く
+        let error=explain(&slow,json!({"fixture":1,"attr":"pan"}),60).unwrap_err().to_string();
+        assert_eq!(error,"trace timed out");
+        assert!(explain(&slow,json!({"fixture":1,"attr":"pan"}),1000).is_ok());
+    }
+
     #[test]
     fn waits_report_their_own_timeout_even_when_the_last_poll_is_slow() {
         // 1回の答えに 40ms かかる本体。与えられた時間がそれより短ければ、接続の時間切れになる
