@@ -530,6 +530,11 @@ pub struct Binding {
 }
 
 impl Binding {
+    /// ARM・レーザーの合図の割り当て(押すと ARM されたり、レーザーが出たりする)。安全の設定として扱う
+    pub fn is_safety(&self) -> bool {
+        matches!(self.action, Action::Arm { .. } | Action::Laser { .. })
+    }
+
     pub fn on_page(&self, page: u8) -> bool {
         self.page.is_none_or(|p| p == page)
     }

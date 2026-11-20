@@ -3,8 +3,57 @@ use super::*;
 
 /// ARM・レーザーの合図の割り当て(押すと ARM されたり、レーザーが出たりする)。id ごとに、中身を JSON で比べる
 fn safety_bindings(project:&Project)->anyhow::Result<std::collections::BTreeMap<u64,Value>> {
-    project.bindings.iter().filter(|b|matches!(b.action,Action::Arm{..}|Action::Laser{..}))
-        .map(|b|Ok((b.id,serde_json::to_value(b)?))).collect()
+    project.bindings.iter().filter(|b|b.is_safety()).map(|b|Ok((b.id,serde_json::to_value(b)?))).collect()
+}
+
+/// ARM の割り当てごとに、実際に ARM される機材(ARM が要る機材)の ID。グループの中身を変えても、対象は変わる
+fn arm_targets(project:&Project,lib:&Library)->std::collections::BTreeMap<u64,Vec<u32>> {
+    project.bindings.iter().filter_map(|b|match &b.action {Action::Arm{sel,..}=>Some((b.id,sel)),_=>None}).map(|(id,sel)| {
+        let ids=project.fixtures.iter().filter(|f|lib.get(&f.profile).is_some_and(|p|p.needs_arm)).filter(|f|match sel {
+            Selector::All=>true,
+            Selector::Fixture(id)=>f.id==*id,
+            Selector::Group(name)=>project.groups.iter().any(|g|g.name==*name && g.fixtures.contains(&f.id)),
+            Selector::Profile(p)=>f.profile==*p,
+        }).map(|f|f.id).collect();
+        (id,ids)
+    }).collect()
+}
+
+/// 保護された機材(ARM が要る・動いてよい範囲がある・禁止値がある)か。パッチ・削除・有効状態・出力の経路を守る
+fn is_protected(f:&FixtureInstance,lib:&Library)->bool {
+    lib.get(&f.profile).is_some_and(|p|p.needs_arm) || !f.limits.is_empty()
+        || lib.mode(&f.profile,f.mode).is_some_and(|m|m.channels.iter().any(|c|!c.forbid.is_empty()))
+}
+
+/// 安全な値(ブラックアウト・異常時に出す値)がある機材か。ほとんどの機材が当てはまるので、パッチは変えられる。
+/// ほかの機材を重ねて、その安全な値を上書きすることだけを拒む
+fn has_safe_values(f:&FixtureInstance,lib:&Library)->bool {
+    is_protected(f,lib) || lib.mode(&f.profile,f.mode).is_some_and(|m|m.channels.iter().any(|c|c.safe.is_some()))
+}
+
+/// 保護された機材・安全な値がある機材のチャンネルのうち、別の機材が重なっているもの
+/// (保護された機材のID, 重なる機材のID, ユニバース, アドレス, 重なる機材が後に書くか)。
+/// 出力は機材の並び順に書き、後の機材が上書きする。異常時のフレームは使わない機材も書くので、使う・使わないに関係なく数える
+fn protected_overlaps(project:&Project,lib:&Library)->std::collections::BTreeSet<(u32,u32,usize,usize,bool)> {
+    let spans:Vec<_>=project.fixtures.iter().filter_map(|f| {
+        let len=lib.mode(&f.profile,f.mode)?.channels.len();
+        Some((f,f.address as usize,f.address as usize+len))
+    }).collect();
+    let mut slots=std::collections::BTreeSet::new();
+    for (i,(a,a_start,a_end)) in spans.iter().enumerate().filter(|(_,(f,..))|has_safe_values(f,lib)) {
+        for (j,(b,b_start,b_end)) in spans.iter().enumerate() {
+            if i==j || a.universe!=b.universe {continue;}
+            for slot in *a_start.max(b_start)..*a_end.min(b_end) {slots.insert((a.id,b.id,a.universe,slot,j>i));}
+        }
+    }
+    slots
+}
+
+/// 保護された機材に届く出力の経路。保護された機材のあるユニバースを送る出力と、その送り先へ送る出力
+fn protected_outputs(project:&Project,universes:&HashSet<usize>)->anyhow::Result<Vec<Value>> {
+    let outputs=project.outputs.iter().map(|o|Ok((o.universe,serde_json::to_value(&o.kind)?,serde_json::to_value(o)?))).collect::<anyhow::Result<Vec<_>>>()?;
+    let kinds:Vec<&Value>=outputs.iter().filter(|(u,..)|universes.contains(u)).map(|(_,k,_)|k).collect();
+    Ok(outputs.iter().filter(|(u,k,_)|universes.contains(u) || kinds.contains(&k)).map(|(..,o)|o.clone()).collect())
 }
 
 pub fn safety_unchanged(old:&Project,new:&Project,lib:&Library)->anyhow::Result<()> {
@@ -12,16 +61,28 @@ pub fn safety_unchanged(old:&Project,new:&Project,lib:&Library)->anyhow::Result<
     // ARM・レーザーの合図の割り当ては、作成・変更・削除のどれもできない。よく押すパッドを差し替えると、
     // 人が押したときに意図せず ARM されたり、レーザーが出たりするため。画面の割り当ての編集で扱う
     ensure!(safety_bindings(old)?==safety_bindings(new)?,"ARM and laser cue bindings are read-only from CLI (edit them in the GUI)");
-    for f in &old.fixtures {
-        let mode=lib.mode(&f.profile,f.mode).context("unknown profile/mode")?;
-        let protected=lib.get(&f.profile).is_some_and(|p|p.needs_arm) || !f.limits.is_empty() || mode.channels.iter().any(|c|!c.forbid.is_empty());
-        if protected {
-            let replacement=new.fixtures.iter().find(|n|n.id==f.id).context("protected fixtures cannot be deleted through CLI")?;
-            ensure!(replacement.profile==f.profile && replacement.mode==f.mode && replacement.universe==f.universe
-                && replacement.address==f.address && replacement.enabled==f.enabled && replacement.limits==f.limits,
-                "protected fixture patch, enable state and safety limits are read-only from CLI");
+    ensure!(arm_targets(old,lib)==arm_targets(new,lib),"fixtures armed by ARM bindings are read-only from CLI (check group membership)");
+    // 機材の ID が重なると、下の比べ方で同じ ID の別の機材を見てしまう
+    let mut ids=HashSet::new();
+    ensure!(new.fixtures.iter().all(|f|ids.insert(f.id)),"duplicate fixture id");
+    // 保護された機材の値の数がチャンネル数と違うと、出力でその機材ごと飛ばされ、安全の値も範囲も当たらない
+    for f in new.fixtures.iter().filter(|f|is_protected(f,lib)) {
+        if let Some(mode)=lib.mode(&f.profile,f.mode) {
+            ensure!(f.values.len()==mode.channels.len(),"protected fixture values length mismatch: {}",f.name);
         }
     }
+    for f in old.fixtures.iter().filter(|f|is_protected(f,lib)) {
+        let replacement=new.fixtures.iter().find(|n|n.id==f.id).context("protected fixtures cannot be deleted through CLI")?;
+        ensure!(replacement.profile==f.profile && replacement.mode==f.mode && replacement.universe==f.universe
+            && replacement.address==f.address && replacement.enabled==f.enabled && replacement.limits==f.limits,
+            "protected fixture patch, enable state and safety limits are read-only from CLI");
+    }
+    // 保護された機材のアドレスに別の機材を重ねると、出力で後の機材の値に上書きされ、安全の値が保たれない。
+    // もともと重なっているチャンネル(画面で作ったもの)は、並び順も含めてそのままなら認める
+    ensure!(protected_overlaps(new,lib).is_subset(&protected_overlaps(old,lib)),"fixtures cannot overlap the addresses of protected fixtures from CLI");
+    // 出力の送り先・送るユニバースを変えると、保護された機材に別のフレームが届く
+    let universes:HashSet<usize>=old.fixtures.iter().chain(&new.fixtures).filter(|f|is_protected(f,lib)).map(|f|f.universe).collect();
+    ensure!(protected_outputs(old,&universes)?==protected_outputs(new,&universes)?,"outputs that reach protected fixtures are read-only from CLI");
     Ok(())
 }
 

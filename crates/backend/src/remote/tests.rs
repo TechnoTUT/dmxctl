@@ -1,5 +1,6 @@
 use super::*;
 use dmxctl_core::engine::Core;
+use dmxctl_core::project::{Action, Binding, PadMode, Selector};
 
 fn wait(mut f: impl FnMut() -> bool) -> bool {
     let t = Instant::now();
@@ -315,4 +316,82 @@ fn probe_succeeds_only_while_the_server_listens() {
     // 待ち受けを止めたあとは、確認も失敗する
     drop(server);
     assert!(crate::host::Host::probe_server(&target, dmxctl_core::wake::Wake::none()).is_err());
+}
+
+/// 生の接続で hello を送り、送った patch への error を待つ(届かなければ None)
+fn raw_patch_error(server: &RemoteServer, changes: serde_json::Value) -> Option<String> {
+    raw_error(server, json!({"t": "patch", "changes": changes, "seq": 1}))
+}
+
+/// 1行の要求を送り、error が返ればその内容を返す
+fn raw_error(server: &RemoteServer, message: serde_json::Value) -> Option<String> {
+    use std::io::{BufRead, BufReader, Write};
+    let stream = std::net::TcpStream::connect(server.address).unwrap();
+    stream.set_read_timeout(Some(Duration::from_millis(1500))).unwrap();
+    let mut writer = stream.try_clone().unwrap();
+    let mut reader = BufReader::new(stream);
+    writeln!(writer, "{}", json!({"t": "hello", "protocol": PROTOCOL, "seq": 0})).unwrap();
+    let mut line = String::new();
+    reader.read_line(&mut line).unwrap();
+    assert!(line.contains("welcome"), "{line}");
+    writeln!(writer, "{message}").unwrap();
+    let started = Instant::now();
+    while started.elapsed() < Duration::from_secs(2) {
+        line.clear();
+        if reader.read_line(&mut line).unwrap_or(0) == 0 {
+            break;
+        }
+        let v: serde_json::Value = serde_json::from_str(&line).unwrap_or_default();
+        if v["t"] == "error" {
+            return Some(v["msg"].as_str().unwrap_or("").to_string());
+        }
+    }
+    None
+}
+
+#[test]
+fn malformed_patches_are_reported_to_the_client() {
+    let (_core, server) = server();
+    let e = raw_patch_error(&server, json!("oops")).expect("壊れた changes に error を返す");
+    assert!(e.starts_with("編集の形が正しくありません"), "{e}");
+    let e = raw_patch_error(&server, json!([{"path": ["nope"], "value": 1}])).expect("存在しない項目に error を返す");
+    assert!(e.starts_with("存在しない項目です"), "{e}");
+}
+
+#[test]
+fn remote_patches_cannot_widen_laser_limits_unless_allowed() {
+    let laser = |core: &Shared| lock(core).project.fixtures.iter().position(|f| f.profile == "stage-evolution/laserscan300").unwrap();
+    let widen = |i: usize| json!([{"path": ["fixtures", i, "limits"], "value": {"pan": [0, 255]}}]);
+    // 既定では拒む
+    let (core, server) = server();
+    let i = laser(&core);
+    let e = raw_patch_error(&server, widen(i)).expect("範囲の変更に error を返す");
+    assert!(e.contains("--remote-allow-safety-edit"), "{e}");
+    assert!(lock(&core).project.fixtures[i].limits.is_empty(), "範囲は変わらない");
+    let e = raw_patch_error(&server, json!([{"path": ["motion", "pan_front"], "value": 90.0}])).expect("校正の変更に error を返す");
+    assert!(e.contains("--remote-allow-safety-edit"), "{e}");
+    // --remote-allow-safety-edit なら変えられる
+    let (lib, _) = Library::load(std::path::Path::new("/nonexistent"));
+    let allowed: Shared = Arc::new(Mutex::new(Core::new(Project::starter(&lib), Arc::new(lib))));
+    let server = RemoteServer::start(allowed.clone(), dmxctl_core::wake::Wake::none(), "127.0.0.1:0".parse().unwrap(), true).unwrap();
+    assert_eq!(raw_patch_error(&server, widen(i)), None);
+    assert!(wait(|| lock(&allowed).project.fixtures[i].limits.get("pan") == Some(&[0, 255])));
+}
+
+#[test]
+fn remote_learn_cannot_target_safety_bindings_unless_allowed() {
+    let (core, server) = server();
+    let arm = {
+        let mut c = lock(&core);
+        c.project.bindings.push(Binding { id: 0, name: "ARM".into(), trigger: None, action: Action::Arm { sel: Selector::All, mode: PadMode::Toggle }, page: None, osc: None });
+        c.project.ensure_binding_ids();
+        c.project.bindings.len() - 1
+    };
+    let learn = |i: usize| json!({"t": "live", "op": {"live": "set_learn", "midi": i, "osc": i}, "seq": 1});
+    let e = raw_error(&server, learn(arm)).expect("ARM の割り当てのラーンに error を返す");
+    assert!(e.contains("--remote-allow-safety-edit"), "{e}");
+    assert!(lock(&core).rt.learn.is_none() && lock(&core).rt.osc_learn.is_none());
+    // ほかの割り当てのラーンは始められる。書き込むときにも確かめるよう、印を付ける
+    assert_eq!(raw_error(&server, learn(0)), None);
+    assert!(wait(|| lock(&core).rt.learn == Some(0) && lock(&core).rt.learn_guarded));
 }

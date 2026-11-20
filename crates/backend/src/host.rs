@@ -465,7 +465,7 @@ impl Host {
             self.open_local_file(&path);
             return;
         }
-        match self.reload_checked(Some(&path), false, false) {
+        match self.reload_checked(Some(&path), false, false, false) {
             Ok(_) => self.notice = format!("読み込みました: {}", path.display()),
             Err(error) => self.notice = format!("読み込みに失敗しました: {error}"),
         }
@@ -503,10 +503,11 @@ impl Host {
         }
         // クライアントから頼まれた、プロジェクトの読み込み(ローカルの「開く」と同じく、保存先は変えない)
         let requests = self.remote.as_ref().map(|r| std::mem::take(&mut *r.events.open.lock().unwrap_or_else(|e| e.into_inner()))).unwrap_or_default();
+        let guard = !self.launch.remote_allow_safety_edit;
         for request in requests {
             let (name, result) = match &request.source {
-                crate::remote::OpenSource::Path(path) => (path.display().to_string(), self.reload_checked(Some(path), false, false)),
-                crate::remote::OpenSource::Text { name, text } => (name.clone(), self.reload_text(text, name, false, false)),
+                crate::remote::OpenSource::Path(path) => (path.display().to_string(), self.reload_checked(Some(path), false, guard, false)),
+                crate::remote::OpenSource::Text { name, text } => (name.clone(), self.reload_text(text, name, false, guard, false)),
             };
             let msg = match result {
                 Ok(_) => format!("読み込みました: {name}"),
