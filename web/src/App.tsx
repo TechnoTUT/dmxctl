@@ -53,18 +53,23 @@ export function App() {
           </button>
         </div>
       </header>
-      <main className="mx-auto max-w-3xl px-4 pb-10 pt-4">
+      {/* 広い画面では2列にして、スクロールせずに全体を操作できるようにする */}
+      <main className="mx-auto max-w-3xl px-4 pb-10 pt-4 lg:flex lg:h-[calc(100dvh-4.25rem)] lg:max-w-[1600px] lg:flex-col lg:pb-3">
         {needPin && <PinBox onSubmit={(p) => { savePin(p); poll() }} />}
         {state && (
-          <>
-            <Status s={state} />
-            <Master s={state} send={send} />
-            <Auto s={state} send={send} />
-            <Colors s={state} send={send} />
-            <Scenes s={state} send={send} />
-          </>
+          <div className="lg:grid lg:min-h-0 lg:flex-1 lg:grid-cols-2 lg:gap-x-4">
+            <div className="lg:min-h-0 lg:overflow-y-auto">
+              <Status s={state} />
+              <Master s={state} send={send} />
+              <Auto s={state} send={send} />
+            </div>
+            <div className="lg:min-h-0 lg:overflow-y-auto">
+              <Colors s={state} send={send} />
+              <Scenes s={state} send={send} />
+            </div>
+          </div>
         )}
-        <p className="text-xs text-slate-500 dark:text-slate-400">このページは dmxctl が出しています。1秒ごとに様子を読み直します。</p>
+        <p className="text-xs text-slate-500 dark:text-slate-400 lg:shrink-0">このページは dmxctl が出しています。1秒ごとに様子を読み直します。</p>
       </main>
     </>
   )
