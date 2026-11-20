@@ -10,6 +10,9 @@ fn finite(value: &Value) -> anyhow::Result<f32> {
     Ok(v as f32)
 }
 
+/// DMX の値の上限(16bit の属性も同じ尺度で、粗値 + 細値/256)
+const DMX_MAX: f32 = 255.0 + 255.0 / 256.0;
+
 pub(crate) fn flag(value:&Value,key:&str,default:bool)->anyhow::Result<bool> {
     value.get(key).map(|v|v.as_bool().with_context(||format!("{key} must be boolean"))).transpose().map(|v|v.unwrap_or(default))
 }
@@ -35,6 +38,9 @@ fn apply_inner(core: &mut Core, value: &Value) -> anyhow::Result<()> {
             let attr = value["attr"].as_str().context("attr required")?;
             ensure!(!mode.attr_channels(attr).is_empty(), "unknown attr");
             let number = finite(&value["value"])?;
+            // 画面のスライダーは範囲内しか出さないが、ctl・MCP・シナリオでは範囲外を黙って丸めずに知らせる。
+            // 16bit の属性も同じ尺度(粗値 + 細値/256)なので、上限は 255 + 255/256
+            ensure!((0.0..=DMX_MAX).contains(&number),"value must be in 0..{DMX_MAX} (DMX)");
             core.note_manual();
             core.set_attr(&Selector::Fixture(id), attr, number);
         }
@@ -123,7 +129,8 @@ pub(crate) fn validate(project: &Project, lib: &Library) -> anyhow::Result<()> {
         let mode = profile.modes.get(f.mode).context("unknown mode")?;
         let info = lib.info(&f.profile, f.mode).context("missing fixture channel information")?;
         ensure!(f.values.len() == mode.channels.len(), "fixture values length mismatch");
-        ensure!(f.universe < dmxctl_core::project::NUM_UNIVERSES && f.address > 0 && f.address as usize + mode.channels.len() <= 513, "invalid fixture address");
+        ensure!(f.universe < dmxctl_core::project::NUM_UNIVERSES, "fixture universe must be in 0..{} (zero-based in project.json): {}", dmxctl_core::project::NUM_UNIVERSES - 1, f.name);
+        ensure!(f.address > 0 && f.address as usize + mode.channels.len() <= 513, "fixture address must be in 1..={} so that all {} channels fit in 512: {}", 513 - mode.channels.len(), mode.channels.len(), f.name);
         for (index, channel) in mode.channels.iter().enumerate() {
             if f.enabled { ensure!(occupied.insert((f.universe, f.address as usize + index)), "overlapping fixture addresses"); }
             let [a,b] = f.limits.get(&channel.attr).copied().unwrap_or([0,255]);
@@ -161,6 +168,30 @@ mod tests {
         assert!(apply(&mut c, &json!({"cmd": "bpm", "value": 10})).is_err());
         assert!(apply(&mut c, &json!({"cmd": "bpm", "value": 400})).is_err());
         assert_eq!(c.project.bpm, 128.0);
+    }
+
+    #[test]
+    fn set_values_out_of_the_dmx_range_are_rejected() {
+        let mut c = core();
+        for v in [999.0, -50.0, 256.0] {
+            let e = apply(&mut c, &json!({"cmd": "set", "fixture": 1, "attr": "dimmer", "value": v})).unwrap_err().to_string();
+            assert!(e.starts_with("value must be in 0.."), "{v}: {e}");
+        }
+        // 16bit の属性も同じ尺度で、255 + 255/256 までは受け付ける
+        for v in [0.0, 255.0, 255.99609375] {
+            apply(&mut c, &json!({"cmd": "set", "fixture": 1, "attr": "pan", "value": v})).unwrap_or_else(|e| panic!("{v}: {e}"));
+        }
+    }
+
+    #[test]
+    fn universe_and_address_errors_are_told_apart() {
+        let c = core();
+        let mut p = c.project.clone();
+        p.fixtures[0].universe = 5000;
+        assert!(validate(&p, &c.lib).unwrap_err().to_string().starts_with("fixture universe must be in 0.."));
+        let mut p = c.project.clone();
+        p.fixtures[0].address = 510;
+        assert!(validate(&p, &c.lib).unwrap_err().to_string().starts_with("fixture address must be in 1..="));
     }
 
     #[test]

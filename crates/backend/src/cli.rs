@@ -100,7 +100,30 @@ impl Args {
 #[serde(deny_unknown_fields)]
 struct Event { at_ms: u64, command: Value }
 
+/// 出力先(標準出力・標準エラー出力)が途中で閉じられたら、パニックを出さずに終了コード 0 で終わる。
+/// `dmxctl inspect ... | head` のように、JSON を他のコマンドに渡して途中で閉じられる使い方のため。
+/// Rust の println! は書けないとパニックするので、その知らせだけを拾う。それ以外のパニックは今までどおり
+fn quit_quietly_on_closed_output() {
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let message = info.payload().downcast_ref::<String>().map(String::as_str)
+            .or_else(|| info.payload().downcast_ref::<&str>().copied()).unwrap_or("");
+        if closed_output(message) {
+            std::process::exit(0);
+        }
+        previous(info);
+    }));
+}
+
+/// 出力先が閉じられて書けなかった、という std のパニックの文か(Broken pipe / Windows の「パイプを閉じています」)
+fn closed_output(message: &str) -> bool {
+    (message.starts_with("failed printing to stdout") || message.starts_with("failed printing to stderr"))
+        && (message.contains("os error 32") || message.contains("os error 232") || message.contains("Broken pipe"))
+}
+
 pub fn run(args: Vec<String>) -> anyhow::Result<()> {
+    // serve は終了時に安全な値を送る処理を持つので、ここで黙って終わらせない
+    if args.first().is_none_or(|a| a != "serve") { quit_quietly_on_closed_output(); }
     if args.is_empty() || args.iter().any(|s| s == "--help" || s == "-h") { println!("{HELP}"); return Ok(()); }
     if args[0] == "serve" {
         let launch = crate::control::Launch::parse(&args[1..],true)?;
@@ -177,6 +200,8 @@ pub fn run(args: Vec<String>) -> anyhow::Result<()> {
     if args.stdin {
         std::thread::spawn(move || {
             for line in std::io::stdin().lock().lines() {
+                // 空行(と空白だけの行)は読み飛ばす
+                if line.as_ref().is_ok_and(|s| s.trim().is_empty()) { continue; }
                 let message = line.map_err(|e| e.to_string()).and_then(|s| serde_json::from_str::<Value>(&s).map_err(|e|e.to_string()));
                 if tx.send(message).is_err() { break; }
             }
@@ -373,4 +398,16 @@ fn diff(args: &Args) -> anyhow::Result<()> {
     }
     println!("{}",json!({"alignment":"recorded_frame_index","differences":differences}));
     Ok(())
+}
+
+#[cfg(test)]
+mod closed_output_tests {
+    #[test]
+    fn only_closed_output_panics_are_quiet() {
+        assert!(super::closed_output("failed printing to stdout: Broken pipe (os error 32)"));
+        assert!(super::closed_output("failed printing to stdout: The pipe is being closed. (os error 232)"));
+        assert!(super::closed_output("failed printing to stderr: Broken pipe (os error 32)"));
+        assert!(!super::closed_output("failed printing to stdout: No space left on device (os error 28)"));
+        assert!(!super::closed_output("index out of bounds"));
+    }
 }

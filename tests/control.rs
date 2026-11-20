@@ -517,3 +517,23 @@ fn connections_opened_for_state_changing_requests_are_not_reused() {
     // 次の読み取りは、操作の接続ではなく、最初の読み取りの接続を使い回す
     assert_eq!(control::request(address,&json!({"op":"clock"})).unwrap()["connection"],0);
 }
+
+#[test]
+fn get_returns_one_item_by_key_or_index() {
+    let mut host=Running::start();
+    let out=host.cli(&["fixture","get","1"]);
+    assert!(out.status.success(),"{}",String::from_utf8_lossy(&out.stdout));
+    let one:Value=serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(one["data"]["id"],1,"{one}");
+    let out=host.cli(&["fixture","get","--index","0"]);
+    let first:Value=serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(first["index"],0);
+    assert!(first["data"].is_object());
+    // 引数が無ければ一覧
+    let out=host.cli(&["fixture","get"]);
+    assert!(serde_json::from_slice::<Value>(&out.stdout).unwrap().is_array());
+    // 無い ID は失敗
+    let out=host.cli(&["fixture","get","999"]);
+    assert!(!out.status.success());
+    host.stop();
+}

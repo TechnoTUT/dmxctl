@@ -109,8 +109,10 @@ pub struct Effect {
     pub wave: Wave,
     #[schemars(range(min=0))]
     pub rate_hz: f32,
+    /// 波形の下端(0〜255)。max より大きくすると、波形が逆向きに動く
     #[schemars(range(min=0,max=255))]
     pub min: f32,
+    /// 波形の上端(0〜255)
     #[schemars(range(min=0,max=255))]
     pub max: f32,
     /// 位相オフセット(度)

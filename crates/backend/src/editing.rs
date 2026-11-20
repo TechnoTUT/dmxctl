@@ -29,7 +29,7 @@ fn array_mut<'a>(project:&'a mut Value,field:&str)->anyhow::Result<&'a mut Vec<V
     value.as_array_mut().context("collection is not an array")
 }
 
-fn select(items:&[Value],operation:&Value)->anyhow::Result<usize> {
+pub(crate) fn select(items:&[Value],operation:&Value)->anyhow::Result<usize> {
     if let Some(index)=operation.get("index") {
         let index=usize::try_from(index.as_u64().context("index must be an integer")?)?;
         ensure!(index<items.len(),"index is out of range"); return Ok(index);

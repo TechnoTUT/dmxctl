@@ -513,6 +513,8 @@ pub fn client(args: &[String]) -> anyhow::Result<()> {
         return crate::diagnostics::client(address,&positional,&options);
     }
     let mut used = vec!["--connect"];
+    // get で1件を選ぶときの key・index
+    let mut pick:Option<Value>=None;
     let mut payload = match positional.as_slice() {
         ["status"] => json!({"op":"status"}),
         ["inspect"] => json!({"op":"inspect"}),
@@ -574,7 +576,17 @@ pub fn client(args: &[String]) -> anyhow::Result<()> {
             if let Some(object)=data.as_object() {ensure!(object.keys().all(|key|key=="operations"),"edit file supports an operations array only; use --dry-run on the command line");}
             json!({"op":"edit","operations":if data.is_array(){data}else{data["operations"].clone()}})
         }
-        [entity,"list"]|[entity,"get"] if editable(entity) => json!({"op":"entity_list","entity":entity}),
+        [entity,"list"] if editable(entity) => json!({"op":"entity_list","entity":entity}),
+        // get: 引数なしは一覧と同じ。ID・名前か --index があれば、その1件を返す(edit の key・index と同じ選び方)
+        [entity,"get"]|[entity,"get",_] if editable(entity) => {
+            used.push("--index");
+            if let Some(key)=positional.get(2) {
+                pick=Some(json!({"key":if *entity=="fixture" {json!(key.parse::<u32>()?)} else {json!(key)}}));
+            } else if let Some(index)=options.get("--index") {
+                pick=Some(json!({"index":index.parse::<u64>()?}));
+            }
+            json!({"op":"entity_list","entity":entity})
+        }
         [entity,op]|[entity,op,_] if editable(entity) && ["create","update","delete","capture"].contains(op) => {
             used.extend(["--file","--json","--index"]);
             let mut operation=json!({"entity":entity,"op":op});
@@ -630,6 +642,11 @@ pub fn client(args: &[String]) -> anyhow::Result<()> {
     if !watching {
         let before=if wait_after{Some(request(address,&json!({"op":"clock"}))?)}else{None};
         let mut result=request(address,&payload)?;
+        if let Some(pick)=&pick {
+            let items:Vec<Value>=result.as_array().context("expected a list")?.iter().map(|item|item["data"].clone()).collect();
+            let index=crate::editing::select(&items,pick)?;
+            result=result[index].clone();
+        }
         if let Some(before)=before {
             let target=result["takes_effect_from_frame"].as_u64().unwrap_or(before["frame"].as_u64().unwrap_or(0)+1);
             let observed=crate::diagnostics::wait_for(address,&json!({"frame":target,"session":before["session"]}),wait_timeout)?;
