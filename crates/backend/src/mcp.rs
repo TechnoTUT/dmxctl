@@ -46,7 +46,7 @@ pub fn serve(
     output: impl Write + Send,
 ) -> anyhow::Result<()> {
     let output = Mutex::new(output);
-    let pending = Mutex::new(BTreeMap::<String, Arc<AtomicBool>>::new());
+    let pending = Mutex::new(BTreeMap::<String, Arc<Worker>>::new());
     thread::scope(|scope| {
         let mut workers: Vec<thread::ScopedJoinHandle<'_, std::io::Result<()>>> = Vec::new();
         let input_result = (|| -> anyhow::Result<()> {
@@ -69,12 +69,12 @@ pub fn serve(
                 };
                 if message["jsonrpc"] == "2.0" && message["method"] == "notifications/cancelled" && message.get("id").is_none() {
                     let request_id = message["params"]["requestId"].to_string();
-                    if let Some(cancelled) = pending.lock().unwrap().get(&request_id) {
-                        cancelled.store(true, Ordering::Relaxed);
+                    if let Some(worker) = pending.lock().unwrap().get(&request_id) {
+                        worker.cancelled.store(true, Ordering::Relaxed);
                     }
                     continue;
                 }
-                if message["jsonrpc"] == "2.0" && message["method"] == "tools/call" && message["params"]["name"] == "wait"
+                if message["jsonrpc"] == "2.0" && message["method"] == "tools/call" && is_waiting_tool(&message["params"]["name"])
                     && let Some(id) = message.get("id")
                 {
                     let key = id.to_string();
@@ -84,17 +84,27 @@ pub fn serve(
                         continue;
                     }
                     if waits.len() >= MAX_WAITS {
-                        write_reply(&output, tool_reply(id.clone(), Err(anyhow::anyhow!("too many pending wait requests"))))?;
+                        write_reply(&output, tool_reply(id.clone(), Err(anyhow::anyhow!("too many pending wait/explain requests"))))?;
                         continue;
                     }
-                    let cancelled = Arc::new(AtomicBool::new(false));
-                    waits.insert(key.clone(), Arc::clone(&cancelled));
+                    let worker = Arc::new(Worker::default());
+                    waits.insert(key.clone(), Arc::clone(&worker));
                     let pending = &pending;
                     let output = &output;
                     // 待機中も、後続の操作やキャンセルを標準入力から受け付ける
                     workers.push(thread::Builder::new().spawn_scoped(scope, move || {
+                        let cancelled = &worker.cancelled;
                         let poll = |payload: &Value, timeout: Duration| {
-                            ensure!(!cancelled.load(Ordering::Relaxed), "wait cancelled");
+                            // キャンセル後も、本体の枠を空ける後片付け(trace_cancel)だけは送る
+                            ensure!(!cancelled.load(Ordering::Relaxed) || payload["op"] == "trace_cancel", "wait cancelled");
+                            // 本体のトレースの枠は1つ。キャンセル済みのワーカーが後片付けを終える前に始めると、
+                            // another trace is pending になるので、終わるのを待ってから始める
+                            if payload["op"] == "trace_start" {
+                                wait_for_cancelled_workers(pending, &key)?;
+                                // 待っている間にキャンセルされたら、トレースを始めない
+                                ensure!(!cancelled.load(Ordering::Relaxed), "wait cancelled");
+                                worker.tracing.store(true, Ordering::Relaxed);
+                            }
                             request(payload, timeout)
                         };
                         let reply = handle(&poll, &message);
@@ -111,8 +121,8 @@ pub fn serve(
             }
             Ok(())
         })();
-        for cancelled in pending.lock().unwrap().values() {
-            cancelled.store(true, Ordering::Relaxed);
+        for worker in pending.lock().unwrap().values() {
+            worker.cancelled.store(true, Ordering::Relaxed);
         }
         input_result?;
         for worker in workers {
@@ -120,6 +130,43 @@ pub fn serve(
         }
         Ok(())
     })
+}
+
+/// wait・explain を処理しているワーカーの状態
+#[derive(Default)]
+struct Worker {
+    /// クライアントがキャンセルした
+    cancelled: AtomicBool,
+    /// 本体のトレースを始めた(枠を握っている可能性がある)。後片付けを送って抜けるまで true
+    tracing: AtomicBool,
+}
+
+/// キャンセル済みで、トレースを始めているワーカー(自分以外)が、後片付けを終えて抜けるまで待つ。
+/// トレースを始める前に待っているだけのワーカーは枠を握っていないので、待つ相手にしない
+/// (キャンセルが続いたときに、待っている者どうしが互いを待たないように)。
+/// 待っている間に自分がキャンセルされたら、すぐ抜ける。
+/// 本体が応答しないときに固まらないよう、上限を設ける(本体への1回の問い合わせの上限と同じ6秒)
+fn wait_for_cancelled_workers(pending: &Mutex<BTreeMap<String, Arc<Worker>>>, me: &str) -> anyhow::Result<()> {
+    let deadline = std::time::Instant::now() + Duration::from_secs(6);
+    loop {
+        {
+            let workers = pending.lock().unwrap();
+            ensure!(!workers.get(me).is_some_and(|w| w.cancelled.load(Ordering::Relaxed)), "wait cancelled");
+            let busy = workers.iter().any(|(key, w)| key != me && w.cancelled.load(Ordering::Relaxed) && w.tracing.load(Ordering::Relaxed));
+            if !busy {
+                return Ok(());
+            }
+        }
+        if std::time::Instant::now() >= deadline {
+            return Ok(());
+        }
+        thread::sleep(Duration::from_millis(2));
+    }
+}
+
+/// 待つことのあるツール。別のスレッドで処理し、その間も後続の要求とキャンセルを受け付ける
+fn is_waiting_tool(name: &Value) -> bool {
+    name == "wait" || name == "explain"
 }
 
 fn write_reply(output: &Mutex<impl Write>, reply: Value) -> std::io::Result<()> {
@@ -221,14 +268,28 @@ fn tools() -> Vec<Value> {
     }
     vec![
         tool("status", "本体の状態(BPM・拍・出力先・入力・送信するかどうか・設定の版など)", json!({}), &[]),
-        tool("fixture_list", "機材の一覧(ID・名前・機種・属性)", json!({}), &[]),
+        tool(
+            "fixture_list",
+            "機材の一覧(ID・名前・機種・属性)。LED バーなどのピクセルの属性は、red・green などのまとめた名前と、pixels(ピクセル数)で返す。まとめた名前は fixture_set・output_check・output_snapshot でそのまま使える",
+            json!({}),
+            &[],
+        ),
         tool(
             "fixture_set",
             "機材1台の属性の基準値を変える(DMX 0〜255)。禁止の値・動いてよい範囲は、出力の直前に本体が必ず直す",
             json!({"fixture": fixture, "attr": attr, "value": {"type": "number", "description": "DMX の値"}}),
             &["fixture", "attr", "value"],
         ),
-        tool("control_list", "画面・MIDI と同じ割り当て(ボタン・スライダー)の一覧。ID は binding:番号", json!({}), &[]),
+        tool(
+            "control_list",
+            "画面・MIDI と同じ割り当て(ボタン・スライダー)の一覧。ID は binding:番号。既定は ID・名前・種類・ページだけ。動作の中身も見るときは detail: true",
+            json!({
+                "page": {"type": "integer", "minimum": 0, "description": "このページ(0始まり)の割り当てと、全ページ共通の割り当てだけ"},
+                "query": {"type": "string", "description": "名前にこの文字を含むものだけ"},
+                "detail": {"type": "boolean", "description": "動作・きっかけ(MIDI・OSC)の中身も返す"},
+            }),
+            &[],
+        ),
         tool(
             "control_press",
             "割り当てを押す・離す・スライダーを動かす。click=少し押して離す、press/hold=hold_ms の間押す(期限で必ず離れる)、release=離す、set=スライダーを value(0〜1)にする",
@@ -248,9 +309,9 @@ fn tools() -> Vec<Value> {
         ),
         tool(
             "output_snapshot",
-            "安全の処理を通った最終の出力の値(DMX)。fixture・attrs で絞れる",
+            "機材1台の、安全の処理を通った最終の出力の値(DMX)。values は属性名と値の対応。attrs で絞れる(LED バーの red などのまとめた名前も可)",
             json!({"fixture": fixture, "attrs": {"type": "array", "items": {"type": "string"}}}),
-            &[],
+            &["fixture"],
         ),
         tool("output_check", "最終の出力が条件を満たすか確かめる(passed と実際の値を返す)", condition, &["fixture", "attr"]),
         tool("wait", "フレーム数・拍数・時間、または出力の条件(fixture・attr と equals/min/max)を満たすまで待つ", wait_props, &[]),
@@ -279,6 +340,85 @@ fn tools() -> Vec<Value> {
         ),
         tool("project_save", "今の設定をプロジェクトのファイルに保存する", json!({}), &[]),
     ]
+}
+
+// ピクセルの属性の判定(`red.12` → (`red`, Some(12)))は、本体の `Mode::attr_channels` と同じものを使う。
+// 番号は1以上の u16 だけ(`red.0` はピクセルではなく普通の属性名)
+use dmxctl_core::fixture::split_pixel;
+
+/// 機材の一覧を軽くする: ピクセルの属性(red.1〜red.90 など)を、まとめた名前とピクセル数にする
+fn compact_fixtures(mut list: Value) -> Value {
+    for f in list.as_array_mut().into_iter().flatten() {
+        let Some(attrs) = f["attrs"].as_array() else { continue };
+        let mut names = std::collections::BTreeSet::new();
+        let mut pixels = std::collections::BTreeSet::new();
+        for a in attrs.iter().filter_map(Value::as_str) {
+            match split_pixel(a) {
+                (base, Some(n)) => {
+                    names.insert(base.to_string());
+                    pixels.insert(n);
+                }
+                (name, None) => {
+                    names.insert(name.to_string());
+                }
+            }
+        }
+        f["attrs"] = json!(names);
+        if !pixels.is_empty() {
+            f["pixels"] = json!(pixels.len());
+        }
+    }
+    list
+}
+
+/// 割り当ての一覧を軽くする。既定は ID・名前・種類・ページ・押しているかだけ
+fn compact_controls(list: Value, page: Option<u64>, query: Option<&str>, detail: bool) -> Value {
+    let items = list.as_array().into_iter().flatten().filter(|c| {
+        page.is_none_or(|p| c["page"].is_null() || c["page"].as_u64() == Some(p)) && query.is_none_or(|q| c["name"].as_str().is_some_and(|n| n.contains(q)))
+    });
+    json!(items
+        .map(|c| {
+            if detail {
+                return c.clone();
+            }
+            let action = c["action"].as_object().and_then(|o| o.keys().next().cloned()).or_else(|| c["action"].as_str().map(String::from));
+            let mut short = json!({"id": c["id"], "name": c["name"], "kind": c["kind"], "action": action, "page": c["page"]});
+            for k in ["pressed", "remote_held"] {
+                if c[k] == true {
+                    short[k] = json!(true);
+                }
+            }
+            if c["remote_allowed"] == false {
+                short["remote_allowed"] = json!(false);
+            }
+            short
+        })
+        .collect::<Vec<_>>())
+}
+
+/// 機材1台の出力を、属性名と値の対応にする(チャンネルごとの番地などを省く)
+fn compact_snapshot(snap: Value) -> Value {
+    let channels = snap["channels"].as_array().cloned().unwrap_or_default();
+    let mut values = serde_json::Map::new();
+    for c in &channels {
+        let attr = c["attr"].as_str().unwrap_or("?").to_string();
+        match values.get_mut(&attr) {
+            // 同じ属性名のチャンネルが複数あるとき(16bit の細かい値など)は、並べる
+            Some(Value::Array(list)) => list.push(c["value"].clone()),
+            Some(prev) => *prev = json!([prev.clone(), c["value"].clone()]),
+            None => {
+                values.insert(attr, c["value"].clone());
+            }
+        }
+    }
+    let first = channels.first();
+    json!({
+        "frame": snap["frame"],
+        "t_ms": snap["t_ms"],
+        "universe": first.map(|c| c["universe"].clone()),
+        "first_address": first.map(|c| c["address"].clone()),
+        "values": values,
+    })
 }
 
 fn condition_of(args: &Value) -> Value {
@@ -310,13 +450,18 @@ fn call(request: Requester, name: &str, args: &Value) -> anyhow::Result<Value> {
     let attr = || arg(args, "attr", "a string", Value::as_str);
     match name {
         "status" => send(request, json!({"op": "status"})),
-        "fixture_list" => send(request, json!({"op": "fixtures", "include_attrs": true})),
+        "fixture_list" => Ok(compact_fixtures(send(request, json!({"op": "fixtures", "include_attrs": true}))?)),
         "fixture_set" => {
             let value = arg(args, "value", "a number", Value::as_f64)?;
             ensure!(value.is_finite(), "value must be finite");
             send(request, json!({"op": "command", "command": {"cmd": "set", "fixture": fixture()?, "attr": attr()?, "value": value}}))
         }
-        "control_list" => send(request, json!({"op": "controls"})),
+        "control_list" => {
+            let page = optional(args, "page", "a non-negative integer", Value::as_u64)?;
+            let query = optional(args, "query", "a string", Value::as_str)?;
+            let detail = optional(args, "detail", "a boolean", Value::as_bool)?.unwrap_or(false);
+            Ok(compact_controls(send(request, json!({"op": "controls"}))?, page, query, detail))
+        }
         "control_press" => {
             let mut command = json!({"cmd": "button", "control": arg(args, "control", "a string like binding:3", Value::as_str)?,
                 "event": arg(args, "event", "one of click/press/hold/release/set", Value::as_str)?});
@@ -333,14 +478,12 @@ fn call(request: Requester, name: &str, args: &Value) -> anyhow::Result<Value> {
             send(request, json!({"op": "command", "command": command}))
         }
         "output_snapshot" => {
-            let mut payload = json!({"op": "output"});
-            if let Some(f) = args.get("fixture") {
-                payload["fixture"] = f.clone();
-            }
+            // 全機材の出力は本番の設定で数百KBになるので、MCP では機材1台ずつにする
+            let mut payload = json!({"op": "output", "fixture": fixture()?});
             if let Some(a) = args.get("attrs") {
                 payload["attrs"] = a.clone();
             }
-            send(request, payload)
+            Ok(compact_snapshot(send(request, payload)?))
         }
         "output_check" => {
             fixture()?;
@@ -483,6 +626,335 @@ mod tests {
         assert_eq!(handle(&f, &rpc(2, "tools/call", json!({"name": "status", "arguments": [1]}))).unwrap()["error"]["code"], -32602);
         assert_eq!(handle(&f, &rpc(3, "tools/call", json!({}))).unwrap()["error"]["message"], "params.name is required");
         assert_eq!(handle(&f, &rpc(4, "tools/call", json!({"name": 7}))).unwrap()["error"]["message"], "params.name must be a string");
+    }
+
+    #[test]
+    fn large_lists_are_compacted_for_ai_clients() {
+        // LED バー: red.1〜red.90 などは、まとめた名前とピクセル数に
+        let mut attrs: Vec<String> = vec!["dimmer".into(), "red".into()];
+        for n in 1..=90 {
+            for c in ["red", "green", "blue", "white"] {
+                attrs.push(format!("{c}.{n}"));
+            }
+        }
+        let list = compact_fixtures(json!([{"id": 11, "attrs": attrs}, {"id": 1, "attrs": ["pan", "tilt", "dimmer"]}]));
+        assert_eq!(list[0]["attrs"], json!(["blue", "dimmer", "green", "red", "white"]));
+        assert_eq!(list[0]["pixels"], 90);
+        assert_eq!(list[1]["attrs"], json!(["dimmer", "pan", "tilt"]));
+        assert!(list[1].get("pixels").is_none());
+        assert_eq!(split_pixel("color.wheel"), ("color.wheel", None), "数字でない後ろは、ピクセルの番号ではない");
+        // 本体と同じく、red.0 や 70000 番はピクセルではないので、そのままの名前で残す(まとめた red では解決できないため)
+        let odd = compact_fixtures(json!([{"id": 2, "attrs": ["red.0", "green.70000", "blue.1", "blue.2"]}]));
+        assert_eq!(odd[0]["attrs"], json!(["blue", "green.70000", "red.0"]));
+        assert_eq!(odd[0]["pixels"], 2);
+
+        let controls = json!([
+            {"id": "binding:1", "name": "フラッシュ 白", "kind": "button", "page": null, "action": {"Flash": {"white": true}}, "pressed": false, "remote_allowed": true, "trigger": {"kind": "Note"}},
+            {"id": "binding:2", "name": "ARM", "kind": "button", "page": 1, "action": {"Arm": {}}, "pressed": false, "remote_allowed": false},
+            {"id": "binding:3", "name": "円", "kind": "button", "page": 0, "action": {"Motion": {}}, "pressed": true, "remote_allowed": true},
+        ]);
+        let short = compact_controls(controls.clone(), None, None, false);
+        assert_eq!(short[0], json!({"id": "binding:1", "name": "フラッシュ 白", "kind": "button", "action": "Flash", "page": null}));
+        assert_eq!(short[1]["remote_allowed"], false);
+        assert_eq!(short[2]["pressed"], true);
+        // ページ0: そのページと全ページ共通
+        let page0: Vec<_> = compact_controls(controls.clone(), Some(0), None, false).as_array().unwrap().iter().map(|c| c["id"].clone()).collect();
+        assert_eq!(page0, vec![json!("binding:1"), json!("binding:3")]);
+        assert_eq!(compact_controls(controls.clone(), None, Some("フラッシュ"), false).as_array().unwrap().len(), 1);
+        assert_eq!(compact_controls(controls.clone(), None, None, true), controls, "detail は今までどおり");
+
+        let snap = compact_snapshot(json!({"frame": 5, "t_ms": 9, "channels": [
+            {"attr": "pan", "universe": 1, "address": 1, "value": 128, "fixture": 1},
+            {"attr": "pan", "universe": 1, "address": 2, "value": 7, "fixture": 1},
+            {"attr": "dimmer", "universe": 1, "address": 6, "value": 255, "fixture": 1},
+        ]}));
+        assert_eq!(snap, json!({"frame": 5, "t_ms": 9, "universe": 1, "first_address": 1, "values": {"pan": [128, 7], "dimmer": 255}}));
+    }
+
+    /// trace_start が成立したあとに explain をキャンセルしても、本体のトレースの枠を空け、次の explain がすぐ成功する
+    #[test]
+    fn cancelling_explain_releases_the_trace_slot() {
+        use std::io::Write as _;
+        use std::sync::Mutex as M;
+        // 枠が1つの偽の本体。1件目の結果はいつまでもできない。2件目からはすぐできる
+        struct Host {
+            slot: Option<u64>,
+            next: u64,
+            log: Vec<Value>,
+        }
+        let host = Arc::new(M::new(Host { slot: None, next: 0, log: Vec::new() }));
+        let fake = {
+            let host = host.clone();
+            move |p: &Value, _: Duration| -> anyhow::Result<Value> {
+                let mut h = host.lock().unwrap();
+                h.log.push(p.clone());
+                match p["op"].as_str().unwrap_or("") {
+                    "trace_start" => {
+                        ensure!(h.slot.is_none(), "another trace is pending");
+                        h.next += 1;
+                        let t = h.next;
+                        h.slot = Some(t);
+                        Ok(json!({"ticket": t}))
+                    }
+                    "trace_result" => {
+                        let t = p["ticket"].as_u64().unwrap();
+                        ensure!(h.slot == Some(t), "trace is no longer available");
+                        if t == 1 {
+                            return Ok(json!({"ready": false}));
+                        }
+                        h.slot = None;
+                        Ok(json!({"ready": true, "trace": {"ticket": t}}))
+                    }
+                    "trace_cancel" => {
+                        let t = p["ticket"].as_u64().unwrap();
+                        let hit = h.slot == Some(t);
+                        if hit {
+                            h.slot = None;
+                        }
+                        Ok(json!({"cancelled": hit}))
+                    }
+                    _ => Ok(json!({})),
+                }
+            }
+        };
+        let (reader, mut writer) = std::io::pipe().unwrap();
+        #[derive(Clone)]
+        struct Out(Arc<M<Vec<u8>>>);
+        impl std::io::Write for Out {
+            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(b);
+                Ok(b.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let out = Out(Arc::new(M::new(Vec::new())));
+        let server = {
+            let out = out.clone();
+            std::thread::spawn(move || serve(&fake, std::io::BufReader::new(reader), out))
+        };
+        let explain = |id: u64| json!({"jsonrpc": "2.0", "id": id, "method": "tools/call", "params": {"name": "explain", "arguments": {"fixture": 1, "attr": "pan", "timeout_ms": 60000}}});
+        writeln!(writer, "{}", explain(1)).unwrap();
+        // trace_start が成立するまで待ってから、キャンセルする
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while host.lock().unwrap().slot.is_none() {
+            assert!(std::time::Instant::now() < deadline, "trace_start が呼ばれない");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        writeln!(writer, "{}", json!({"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 1}})).unwrap();
+        // 枠が空くまで待つ(キャンセルを受けたワーカーが trace_cancel を送る)
+        while host.lock().unwrap().slot.is_some() {
+            assert!(std::time::Instant::now() < deadline, "キャンセル後も枠が空かない");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        writeln!(writer, "{}", explain(2)).unwrap();
+        // 返事が届いてから入力を閉じる(閉じると、待っているものは取りやめになるため)
+        while out.0.lock().unwrap().is_empty() {
+            assert!(std::time::Instant::now() < deadline, "次の explain の返事が来ない");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        drop(writer);
+        server.join().unwrap().unwrap();
+        let text = String::from_utf8(out.0.lock().unwrap().clone()).unwrap();
+        let replies: Vec<Value> = text.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+        assert_eq!(replies.len(), 1, "キャンセルした explain には答えない: {text}");
+        assert_eq!(replies[0]["id"], 2);
+        assert_eq!(replies[0]["result"]["isError"], false, "次の explain はすぐ成功する: {text}");
+        let log = &host.lock().unwrap().log;
+        assert!(log.iter().any(|p| p["op"] == "trace_cancel" && p["ticket"] == 1), "{log:?}");
+    }
+
+    /// キャンセル通知と次の explain を続けて送っても、後片付けが終わってから次の trace_start が走る
+    #[test]
+    fn explain_right_after_a_cancel_waits_for_the_cleanup() {
+        use std::io::Write as _;
+        use std::sync::Mutex as M;
+        struct Host {
+            slot: Option<u64>,
+            next: u64,
+            log: Vec<String>,
+        }
+        let host = Arc::new(M::new(Host { slot: None, next: 0, log: Vec::new() }));
+        let fake = {
+            let host = host.clone();
+            move |p: &Value, _: Duration| -> anyhow::Result<Value> {
+                let op = p["op"].as_str().unwrap_or("").to_string();
+                let ticket = p["ticket"].as_u64();
+                host.lock().unwrap().log.push(format!("{op}:{}", ticket.unwrap_or(0)));
+                match op.as_str() {
+                    "trace_start" => {
+                        let mut h = host.lock().unwrap();
+                        ensure!(h.slot.is_none(), "another trace is pending");
+                        h.next += 1;
+                        let t = h.next;
+                        h.slot = Some(t);
+                        Ok(json!({"ticket": t}))
+                    }
+                    "trace_result" if ticket == Some(1) => {
+                        // 1件目の問い合わせは遅い(この間にキャンセルと次の explain が届く)
+                        std::thread::sleep(Duration::from_millis(150));
+                        Ok(json!({"ready": false}))
+                    }
+                    "trace_result" => {
+                        let mut h = host.lock().unwrap();
+                        ensure!(h.slot == ticket, "trace is no longer available");
+                        h.slot = None;
+                        Ok(json!({"ready": true, "trace": {}}))
+                    }
+                    "trace_cancel" => {
+                        let mut h = host.lock().unwrap();
+                        if h.slot == ticket {
+                            h.slot = None;
+                        }
+                        Ok(json!({}))
+                    }
+                    _ => Ok(json!({})),
+                }
+            }
+        };
+        let (reader, mut writer) = std::io::pipe().unwrap();
+        #[derive(Clone)]
+        struct Out(Arc<M<Vec<u8>>>);
+        impl std::io::Write for Out {
+            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(b);
+                Ok(b.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let out = Out(Arc::new(M::new(Vec::new())));
+        let server = {
+            let out = out.clone();
+            std::thread::spawn(move || serve(&fake, std::io::BufReader::new(reader), out))
+        };
+        let explain = |id: u64| json!({"jsonrpc": "2.0", "id": id, "method": "tools/call", "params": {"name": "explain", "arguments": {"fixture": 1, "attr": "pan", "timeout_ms": 60000}}});
+        writeln!(writer, "{}", explain(1)).unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        // 1件目が遅い問い合わせ(trace_result)に入るまで待つ
+        while !host.lock().unwrap().log.iter().any(|l| l == "trace_result:1") {
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        // キャンセルと次の explain を続けて送る(枠が空くのを待たない)
+        writeln!(writer, "{}\n{}", json!({"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 1}}), explain(2)).unwrap();
+        while out.0.lock().unwrap().is_empty() {
+            assert!(std::time::Instant::now() < deadline, "次の explain の返事が来ない");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        drop(writer);
+        server.join().unwrap().unwrap();
+        let text = String::from_utf8(out.0.lock().unwrap().clone()).unwrap();
+        let reply: Value = serde_json::from_str(text.lines().next().unwrap()).unwrap();
+        assert_eq!(reply["id"], 2);
+        assert_eq!(reply["result"]["isError"], false, "another trace is pending にならない: {text}");
+        let log = host.lock().unwrap().log.clone();
+        let cancel = log.iter().position(|l| l == "trace_cancel:1").expect("後片付けを送る");
+        let second = log.iter().rposition(|l| l.starts_with("trace_start")).unwrap();
+        assert!(cancel < second, "後片付けのあとに次の trace_start: {log:?}");
+    }
+
+    /// 後片付けを待っている explain を続けてキャンセルしても、待っている者どうしで待ち合わず、
+    /// キャンセルされた要求はトレースを始めない。次の explain はすぐ成功する
+    #[test]
+    fn cancelling_explains_that_wait_for_cleanup_does_not_deadlock() {
+        use std::io::Write as _;
+        use std::sync::Mutex as M;
+        struct Host {
+            slot: Option<u64>,
+            next: u64,
+            log: Vec<String>,
+        }
+        let host = Arc::new(M::new(Host { slot: None, next: 0, log: Vec::new() }));
+        let fake = {
+            let host = host.clone();
+            move |p: &Value, _: Duration| -> anyhow::Result<Value> {
+                let op = p["op"].as_str().unwrap_or("").to_string();
+                let ticket = p["ticket"].as_u64();
+                host.lock().unwrap().log.push(format!("{op}:{}", ticket.unwrap_or(0)));
+                match op.as_str() {
+                    "trace_start" => {
+                        let mut h = host.lock().unwrap();
+                        ensure!(h.slot.is_none(), "another trace is pending");
+                        h.next += 1;
+                        let t = h.next;
+                        h.slot = Some(t);
+                        Ok(json!({"ticket": t}))
+                    }
+                    "trace_result" if ticket == Some(1) => {
+                        // 1件目の問い合わせは遅い(この間に2件目・3件目が後片付け待ちに入り、キャンセルされる)
+                        std::thread::sleep(Duration::from_millis(300));
+                        Ok(json!({"ready": false}))
+                    }
+                    "trace_result" => {
+                        let mut h = host.lock().unwrap();
+                        ensure!(h.slot == ticket, "trace is no longer available");
+                        h.slot = None;
+                        Ok(json!({"ready": true, "trace": {}}))
+                    }
+                    "trace_cancel" => {
+                        let mut h = host.lock().unwrap();
+                        if h.slot == ticket {
+                            h.slot = None;
+                        }
+                        Ok(json!({}))
+                    }
+                    _ => Ok(json!({})),
+                }
+            }
+        };
+        let (reader, mut writer) = std::io::pipe().unwrap();
+        #[derive(Clone)]
+        struct Out(Arc<M<Vec<u8>>>);
+        impl std::io::Write for Out {
+            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(b);
+                Ok(b.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let out = Out(Arc::new(M::new(Vec::new())));
+        let server = {
+            let out = out.clone();
+            std::thread::spawn(move || serve(&fake, std::io::BufReader::new(reader), out))
+        };
+        let explain = |id: u64| json!({"jsonrpc": "2.0", "id": id, "method": "tools/call", "params": {"name": "explain", "arguments": {"fixture": 1, "attr": "pan", "timeout_ms": 60000}}});
+        let cancel = |id: u64| json!({"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": id}});
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        writeln!(writer, "{}", explain(1)).unwrap();
+        while !host.lock().unwrap().log.iter().any(|l| l == "trace_result:1") {
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        // 1件目をキャンセル。2件目は1件目の後片付けを待つ
+        writeln!(writer, "{}\n{}", cancel(1), explain(2)).unwrap();
+        std::thread::sleep(Duration::from_millis(30));
+        // 待っている2件目をキャンセルし、3件目も待ちに入れてからキャンセル
+        writeln!(writer, "{}\n{}", cancel(2), explain(3)).unwrap();
+        std::thread::sleep(Duration::from_millis(30));
+        let started = std::time::Instant::now();
+        writeln!(writer, "{}\n{}", cancel(3), explain(4)).unwrap();
+        while out.0.lock().unwrap().is_empty() {
+            assert!(std::time::Instant::now() < deadline, "4件目の返事が来ない");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let waited = started.elapsed();
+        drop(writer);
+        server.join().unwrap().unwrap();
+        let text = String::from_utf8(out.0.lock().unwrap().clone()).unwrap();
+        let replies: Vec<Value> = text.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+        assert_eq!(replies.len(), 1, "キャンセルした要求には答えない: {text}");
+        assert_eq!(replies[0]["id"], 4);
+        assert_eq!(replies[0]["result"]["isError"], false, "{text}");
+        // 1件目の後片付けが済めばすぐ進む(上限の6秒まで待たない)
+        assert!(waited < Duration::from_secs(2), "{waited:?}");
+        let log = host.lock().unwrap().log.clone();
+        let starts = log.iter().filter(|l| l.starts_with("trace_start")).count();
+        assert_eq!(starts, 2, "キャンセルされた2件目・3件目はトレースを始めない: {log:?}");
     }
 
     #[test]

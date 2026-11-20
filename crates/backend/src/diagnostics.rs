@@ -190,14 +190,20 @@ pub fn explain(request:Requester,mut payload:Value,timeout_ms:u64)->anyhow::Resu
     ensure!((1..=300000).contains(&timeout_ms),"invalid timeout-ms");payload["op"]=json!("trace_start");
     let started=Instant::now();let timeout=Duration::from_millis(timeout_ms);
     let start=request(&payload,timeout.min(Duration::from_secs(6)))?;
-    loop {
+    let ticket=start["ticket"].clone();
+    let result=(|| loop {
         let remaining=timeout.saturating_sub(started.elapsed());ensure!(!remaining.is_zero(),"trace timed out");
-        let result=request(&json!({"op":"trace_result","ticket":start["ticket"]}),poll_timeout(remaining))?;
-        // 締め切りの後に届いた答えは、結果ができていても時間切れにする(wait と同じ)
+        let result=request(&json!({"op":"trace_result","ticket":ticket}),poll_timeout(remaining))?;
+        // 締め切りの後に届いた答えは、結果ができていても時間切れにする(wait と同じ)。
+        // このとき結果は本体から受け取り済みで、下の trace_cancel はチケットが合わず何もしない
         ensure!(started.elapsed()<timeout,"trace timed out");
         if result["ready"]==true {return Ok(result["trace"].clone());}
         std::thread::sleep(Duration::from_millis(25).min(timeout.saturating_sub(started.elapsed())));
-    }
+    })();
+    // 結果を受け取らずに終わる(キャンセル・時間切れ・失敗)ときは、本体のトレースの枠を空ける。
+    // 空けないと、次の explain が最大5秒間 another trace is pending になる
+    if result.is_err() {let _=request(&json!({"op":"trace_cancel","ticket":ticket}),Duration::from_secs(2));}
+    result
 }
 
 #[cfg(test)]
@@ -206,6 +212,20 @@ mod tests {
     use super::*;
     use dmxctl_core::fixture::Library;
     fn core()->Core {let (lib,_)=Library::load(Path::new("none"));Core::new(Project::starter(&lib),Arc::new(lib))}
+    #[test]
+    fn cancelled_trace_frees_the_slot_for_the_next_one() {
+        let mut c=core();
+        let ticket=c.start_trace(1,"pan").unwrap()["ticket"].as_u64().unwrap();
+        assert!(c.start_trace(1,"pan").unwrap_err().to_string().contains("another trace is pending"));
+        // 違うチケットでは空けない
+        assert_eq!(c.cancel_trace(ticket+1)["cancelled"],false);
+        assert!(c.start_trace(1,"pan").is_err());
+        assert_eq!(c.cancel_trace(ticket)["cancelled"],true);
+        // すぐ次のトレースを始められる
+        let next=c.start_trace(1,"pan").unwrap()["ticket"].as_u64().unwrap();
+        assert!(next>ticket);
+    }
+
     #[test]
     fn trace_observes_real_effect_and_safety_stages_without_a_recorder() {
         let mut c=core();c.set_attr(&Selector::Fixture(1),"pan",50.0);

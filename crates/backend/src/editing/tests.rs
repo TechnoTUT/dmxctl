@@ -209,3 +209,30 @@ fn sacn_outputs_are_validated() {
     let kind:OutputKind=serde_json::from_value(json!({"Sacn":{"sacn_universe":3}})).unwrap();
     assert_eq!(kind,sacn("",3,100));
 }
+
+#[test]
+fn arm_and_laser_cue_bindings_are_read_only_from_cli() {
+    let mut c=core();
+    let arm=json!({"name":"ARM","trigger":null,"action":{"Arm":{"sel":"All","mode":"Toggle"}}});
+    let laser=json!({"name":"レーザー","trigger":null,"action":{"Laser":{"mode":"Momentary"}}});
+    let flash=json!({"name":"フラッシュ","trigger":null,"action":{"Flash":{"white":true,"mode":"Momentary"}}});
+    let rejected=|c:&mut Core,ops:Value| {
+        let e=apply(c,&ops,true).unwrap_err().to_string();
+        assert!(e.contains("ARM and laser cue bindings are read-only"),"{e}");
+    };
+    // 作れない(試すだけでも)
+    rejected(&mut c,json!([{"entity":"binding","op":"create","data":arm}]));
+    rejected(&mut c,json!([{"entity":"binding","op":"create","data":laser}]));
+    // 画面の編集では作れる
+    gui_apply(&mut c,&json!([{"entity":"binding","op":"create","data":arm},{"entity":"binding","op":"create","data":flash}])).unwrap();
+    let id=|c:&Core,name:&str|format!("binding:{}",c.project.bindings.iter().find(|b|b.name==name).unwrap().id);
+    let (arm_id,flash_id)=(id(&c,"ARM"),id(&c,"フラッシュ"));
+    // 既存の割り当てを ARM・レーザーの合図に差し替えられない
+    rejected(&mut c,json!([{"entity":"binding","op":"update","key":flash_id,"data":{"action":{"Laser":{"mode":"Momentary"}}}}]));
+    // ARM の割り当ての名前・きっかけ・削除も変えられない
+    rejected(&mut c,json!([{"entity":"binding","op":"update","key":arm_id,"data":{"name":"別名"}}]));
+    rejected(&mut c,json!([{"entity":"binding","op":"delete","key":arm_id}]));
+    // それ以外の割り当ては今までどおり編集できる
+    apply(&mut c,&json!([{"entity":"binding","op":"update","key":flash_id,"data":{"name":"白フラッシュ"}}]),false).unwrap();
+    assert!(c.project.bindings.iter().any(|b|b.name=="白フラッシュ"));
+}
