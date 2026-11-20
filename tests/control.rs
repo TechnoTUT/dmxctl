@@ -6,6 +6,7 @@ use std::{io::{BufRead, BufReader}, net::SocketAddr, path::PathBuf, process::{Ch
 
 static NEXT: AtomicU64 = AtomicU64::new(0);
 struct Running { child: Child, dir: PathBuf, address: SocketAddr }
+const ARTNET_LOOPBACK: &str = if cfg!(windows) { "127.0.0.2" } else { "127.0.0.1" };
 impl Running {
     fn start() -> Self {
         let dir = std::env::temp_dir().join(format!("dmxctl-control-{}-{}",std::process::id(),NEXT.fetch_add(1,Ordering::Relaxed)));
@@ -13,7 +14,7 @@ impl Running {
         let (lib,_) = Library::load(&dir.join("fixtures"));
         let mut project=Project::starter(&lib);
         project.fixtures[1].limits.insert("pan".into(),[20,90]);
-        project.outputs.push(OutputCfg {enabled:true,universe:0,kind:OutputKind::ArtNet{ip:"127.0.0.1".into(),art_universe:0}});
+        project.outputs.push(OutputCfg {enabled:true,universe:0,kind:OutputKind::ArtNet{ip:ARTNET_LOOPBACK.into(),art_universe:0}});
         project.midi_input="preserve this device".into();
         project.save(&dir.join("project.json")).unwrap();
         let mut child=Command::new(env!("CARGO_BIN_EXE_dmxctl"))
@@ -285,7 +286,7 @@ fn profiles_are_saved_validated_and_cannot_weaken_laser_guards() {
 
 #[test]
 fn disabled_output_keeps_rendering_without_sending_artnet() {
-    let receiver=std::net::UdpSocket::bind("127.0.0.1:6454").unwrap();
+    let receiver=std::net::UdpSocket::bind((ARTNET_LOOPBACK, 6454)).unwrap();
     receiver.set_read_timeout(Some(Duration::from_millis(200))).unwrap();
     let mut host=Running::start();
     let first=host.request(json!({"op":"status"}));

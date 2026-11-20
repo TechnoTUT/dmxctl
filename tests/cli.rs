@@ -155,12 +155,13 @@ fn guard_preserves_limits_when_safe_replacement_is_outside() {
 #[test]
 fn explicit_output_sends_and_logs_safe_shutdown_frames() {
     use dmxctl::core::project::{OutputCfg, OutputKind};
-    let receiver = std::net::UdpSocket::bind("127.0.0.1:6454").expect("loopback Art-Net test port is required");
+    let loopback = if cfg!(windows) { "127.0.0.2" } else { "127.0.0.1" };
+    let receiver = std::net::UdpSocket::bind((loopback, 6454)).expect("loopback Art-Net test port is required");
     receiver.set_read_timeout(Some(std::time::Duration::from_millis(100))).unwrap();
     let dir = Sandbox::new();
     let mut project = dir.project();
     project.fixtures[0].values[5]=180;
-    project.outputs.push(OutputCfg { enabled:true, universe:0, kind:OutputKind::ArtNet { ip:"127.0.0.1".into(), art_universe:0 } });
+    project.outputs.push(OutputCfg { enabled:true, universe:0, kind:OutputKind::ArtNet { ip:loopback.into(), art_universe:0 } });
     project.save(&dir.file("project.json")).unwrap();
     let log = events(&dir.run(&["run","--project","project.json","--duration","0.1","--output","--log","output.jsonl"]));
     assert_eq!(log[0]["output"],true);
