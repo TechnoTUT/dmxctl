@@ -186,7 +186,7 @@ cargo test --release perf -- --ignored --nocapture                              
 | `crates/backend/src/cli.rs` / `crates/backend/src/control.rs` / `crates/backend/src/commands.rs` / `crates/backend/src/editing.rs` / `crates/backend/src/recording.rs` / `crates/backend/src/diagnostics.rs` | 自動操作・検証用の [CLI](cli.md)。順に、サブコマンド / 制御用の接続 / 操作 / 設定の編集と検証 / 記録のファイル書き込み / `explain` などの診断 |
 | `crates/backend/src/mcp.rs` | [MCP](mcp.md) のサーバー。標準入出力の JSON-RPC を、制御用の接続の操作に変換して中継する。`wait` と `explain` は `diagnostics.rs` の処理を共有する |
 | `crates/backend/src/controls.rs` | 制御用の接続やパネルから、割り当てを押したり離したりする操作 |
-| `crates/backend/src/web.rs` / `crates/backend/build.rs` / `web/` | ブラウザの操作パネル。画面は `web/` の React と Tailwind で、`build.rs` が単一のHTMLにビルドして `include_str!` で埋め込む。サーバーは std の TCP で最小限の HTTP を話す。`GET /` でページ、`GET /api/state` で様子、`POST /api/cmd` で操作。合言葉は `X-Pin` ヘッダー |
+| `crates/backend/src/web.rs` / `crates/backend/build.rs` / `web/` | ブラウザの操作パネル。画面は `web/` の React と Tailwind で、`build.rs` が単一のHTMLにビルドして `include_str!` で埋め込む。サーバーは std の TCP で最小限の HTTP を話す。`GET /` でページ、`GET /api/state` で様子、`POST /api/cmd` で操作、`GET /api/events` で様子の変化を Server-Sent Events として受信する。`/api/events` は接続を保持し、同時に16件までで、超えると 503 を返す。画面は 503 のときだけ、1秒ごとに `/api/state` を読み直す。合言葉は `X-Pin` ヘッダー |
 
 ### ui
 
