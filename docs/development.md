@@ -18,15 +18,17 @@ NDI 機能はサブモジュール `moip-engine/` 内の `ndi` クレートを�
 
 1. **Rust**: https://rustup.rs の `rustup-init.exe` を既定のまま導入します。MSVC 版になります
 2. **Visual Studio Build Tools 2022** の「C++ によるデスクトップ開発」: Rust の MSVC 版がリンクに使用します
-3. **FTDI ドライバ**: FT232R の USB-DMX を接続すると、通常は Windows Update で導入されます。COMポート方式と D2XX 方式の両方が利用できます
-4. NDI を利用するなら **NDI Tools**: https://ndi.video/tools/
+3. **Node.js 20 系は 20.19 以降、または 22.12 以降**: https://nodejs.org から導入します。npm も同時に入ります。ブラウザの操作パネルのビルドに利用します
+4. **FTDI ドライバ**: FT232R の USB-DMX を接続すると、通常は Windows Update で導入されます。COMポート方式と D2XX 方式の両方が利用できます
+5. NDI を利用するなら **NDI Tools**: https://ndi.video/tools/
 
 ### Mac
 
 1. **Rust**: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
 2. **Xcode のコマンドラインツール**: `xcode-select --install`
-3. NDI を利用するなら **NDI Tools**
-4. Mac から Windows 版も作成するなら **MinGW-w64**: `brew install mingw-w64`
+3. **Node.js 20 系は 20.19 以降、または 22.12 以降**: `brew install node`。ブラウザの操作パネルのビルドに利用します
+4. NDI を利用するなら **NDI Tools**
+5. Mac から Windows 版も作成するなら **MinGW-w64**: `brew install mingw-w64`
 
 ### Linux
 
@@ -35,10 +37,11 @@ NDI 機能はサブモジュール `moip-engine/` 内の `ndi` クレートを�
    - Ubuntu / Debian: `sudo apt install build-essential pkg-config cmake libasound2-dev libudev-dev libdrm-dev libgbm-dev libegl-dev libgles-dev libxext-dev`
    - Fedora: `sudo dnf install gcc-c++ pkgconf cmake alsa-lib-devel systemd-devel libatomic libdrm-devel mesa-libgbm-devel mesa-libEGL-devel mesa-libGLES-devel libXext-devel`
    - Arch: `sudo pacman -S base-devel cmake alsa-lib libdrm mesa libxext`
-3. **日本語フォント**: `sudo apt install fonts-noto-cjk`
-4. **権限**: `sudo usermod -aG dialout,video,input $USER`。USB-DMX と、KMS/DRM の画面・キーボード・マウスに必要です
-5. NDI を利用するなら **NDI SDK for Linux** のライブラリ。導入方法は [Linux で NDI を使う](platforms.md#linux-で-ndi-を使う)
-6. Linux から Windows 版も作成するなら **MinGW-w64**: `sudo apt install mingw-w64`
+3. **Node.js 20 系は 20.19 以降、または 22.12 以降**: `sudo apt install nodejs npm` で入る版がこの範囲に入らないときは、https://nodejs.org から導入します。ブラウザの操作パネルのビルドに利用します
+4. **日本語フォント**: `sudo apt install fonts-noto-cjk`
+5. **権限**: `sudo usermod -aG dialout,video,input $USER`。USB-DMX と、KMS/DRM の画面・キーボード・マウスに必要です
+6. NDI を利用するなら **NDI SDK for Linux** のライブラリ。導入方法は [Linux で NDI を使う](platforms.md#linux-で-ndi-を使う)
+7. Linux から Windows 版も作成するなら **MinGW-w64**: `sudo apt install mingw-w64`
 
 ## ビルド
 
@@ -50,6 +53,8 @@ bash ./scripts/build-linux.sh          # Linux の上で dist/linux/dmxctl を�
 cargo build --release -p dmxctl-server # 画面を持たない dmxctl-server だけを作る。cmake や画面用のライブラリは不要
 ```
 
+- ブラウザの操作パネルは `web/` の React です。`crates/backend/build.rs` が Cargo のビルド中に `npm ci` と `npm run build` を実行し、1枚のHTMLにして実行ファイルへ埋め込みます。ビルド済みのファイルはコミットしません。`web/node_modules/` が無いとき、または `web/package-lock.json` より古いときに `npm ci` を実行するので、初回と依存の更新後はネットワークへの接続が必要です
+- Node.js と npm が無くても、`cargo build` と `cargo test` は通ります。警告を出し、操作パネルは「未ビルド」と知らせるページになります。`DMXCTL_CHECK_ONLY=1` のときは npm を呼びません。配布物にこのページが入らないよう、`scripts/build-*.sh`・CI・Containerfile は `DMXCTL_REQUIRE_WEB=1` を指定し、npm が無ければエラーにします
 - Windows の上では `cargo build --release` で `target\release\dmxctl.exe` ができます。追加の DLL は不要で、exe 1つで動作します
 - Linux 版は SDL2 を静的リンクしているので、1つの実行ファイルで、デスクトップ環境の有る画面と無い画面の両方に対応します
 - `cargo check --target …` で、他のOS向けの型チェックだけができます
@@ -65,6 +70,27 @@ cargo build --release -p dmxctl-server # 画面を持たない dmxctl-server だ
 | `v0.2.0` のような `v` で始まるタグ | Mac 用・Windows 用・Linux 用をビルドし、GitHub の Release に添付する。Windows と Linux は実行ファイルそのまま、Mac は .app の zip |
 
 Mac が手元に無くても、タグを push すれば Mac 用が作成されます。
+
+## 操作パネルの画面を開発する
+
+ブラウザの操作パネルは `web/` にあります。React 19、TypeScript、Tailwind CSS 4、Vite を利用します。
+
+```
+cd web
+npm ci                  # 初回だけ
+npm run dev             # 開発サーバー。http://localhost:5173/
+npm run typecheck       # 型の検査
+npm run build           # 単一のHTMLを web/dist/ に出力する
+```
+
+開発サーバーは `/api` を `dmxctl serve` へ中継します。操作パネルを有効にした設定で別のポートへ起動し、`DMXCTL_WEB_TARGET` で指定します。本番に触れないよう、`DMXCTL_CONFIG_DIR` と `DMXCTL_NO_MIDI=1` を付けます。
+
+```
+DMXCTL_CONFIG_DIR=/tmp/dmxctl-dev DMXCTL_NO_MIDI=1 dmxctl serve --project 設定.json --inputs configured --listen 127.0.0.1:9291
+DMXCTL_WEB_TARGET=http://127.0.0.1:8081 npm run dev
+```
+
+`設定.json` は `web_enabled` を true、`web_port` を 8081 にしたプロジェクトです。API の応答の型は `web/src/api.ts` にあり、`crates/backend/src/web.rs` の `state` と `command` に一致させます。片方を変えたら、もう片方も同じ変更で直します。
 
 ## テスト
 
@@ -95,6 +121,8 @@ cargo test --release perf -- --ignored --nocapture                              
 | もの | 利用方法 |
 |---|---|
 | `DMXCTL_CONFIG_DIR=フォルダ` | 本番の設定に触れずに、別の設定で起動する |
+| `DMXCTL_WEB_TARGET=http://127.0.0.1:8081` | `web/` で `npm run dev` を実行したときに、`/api` を中継する先のサーバー。指定が無ければ `http://127.0.0.1:8080`。中継先は、操作パネルを有効にした `dmxctl serve` を起動しておく |
+| `DMXCTL_REQUIRE_WEB=1` | ビルド時に、npm が無いことをエラーにする。指定が無ければ、操作パネルが未ビルドのページで続ける。配布物のビルドで利用する |
 | `DMXCTL_NO_MIDI=1` | MIDI 機器に自動で接続しない。本番と2つ起動するときに使う |
 | `DMXCTL_SHOT=保存先.png` + `DMXCTL_TAB=タブ名` / `DMXCTL_PAGE=2` / `DMXCTL_SIZE=1280x800` / `DMXCTL_UNIVERSE=2` | 画面を撮影して保存して終了する。見た目の確認用で、KMS/DRM でも利用できる。`DMXCTL_SHOT_FRAMES=150` で、撮影までのフレーム数を延長できる。操作を入れてから撮影するときに使う |
 | `DMXCTL_KEY_COLOR=1` | キーボードタブを色の段で開く |
@@ -158,7 +186,7 @@ cargo test --release perf -- --ignored --nocapture                              
 | `crates/backend/src/cli.rs` / `crates/backend/src/control.rs` / `crates/backend/src/commands.rs` / `crates/backend/src/editing.rs` / `crates/backend/src/recording.rs` / `crates/backend/src/diagnostics.rs` | 自動操作・検証用の [CLI](cli.md)。順に、サブコマンド / 制御用の接続 / 操作 / 設定の編集と検証 / 記録のファイル書き込み / `explain` などの診断 |
 | `crates/backend/src/mcp.rs` | [MCP](mcp.md) のサーバー。標準入出力の JSON-RPC を、制御用の接続の操作に変換して中継する。`wait` と `explain` は `diagnostics.rs` の処理を共有する |
 | `crates/backend/src/controls.rs` | 制御用の接続やパネルから、割り当てを押したり離したりする操作 |
-| `crates/backend/src/web.rs` / `crates/backend/src/web/panel.html` | ブラウザの操作パネル。std の TCP で最小限の HTTP を話す。`GET /` でページ、`GET /api/state` で様子、`POST /api/cmd` で操作。合言葉は `X-Pin` ヘッダー |
+| `crates/backend/src/web.rs` / `crates/backend/build.rs` / `web/` | ブラウザの操作パネル。画面は `web/` の React と Tailwind で、`build.rs` が単一のHTMLにビルドして `include_str!` で埋め込む。サーバーは std の TCP で最小限の HTTP を話す。`GET /` でページ、`GET /api/state` で様子、`POST /api/cmd` で操作。合言葉は `X-Pin` ヘッダー |
 
 ### ui
 

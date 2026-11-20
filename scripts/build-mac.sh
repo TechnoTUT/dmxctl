@@ -2,9 +2,12 @@
 # Mac用のアプリ(DMX Controller.app)を作る。Macのターミナルで実行する:
 #   ./scripts/build-mac.sh
 # 必要なもの: Rust(https://rustup.rs)と、Xcodeのコマンドラインツール(xcode-select --install)
+#   操作パネルのビルドに、Node.js 20系は20.19以降、または22.12以降(https://nodejs.org)も必要
 # できるもの: dist/mac/DMX Controller.app と dist/mac/DMX-Controller-mac.zip
 # (Apple Silicon と Intel の両方で動く、ユニバーサル版)
 set -euo pipefail
+# 操作パネルが未ビルドの配布物を作らないよう、npm が無いときはエラーにする
+export DMXCTL_REQUIRE_WEB=1
 cd "$(dirname "$0")/.."
 # NDIのクレート(サブモジュール moip-engine/)が無ければ取ってくる(--recursive を付けずに clone したとき)
 [ -f moip-engine/ndi/Cargo.toml ] || git submodule update --init moip-engine

@@ -8,11 +8,12 @@
 # ---- 1. ビルド ----
 FROM docker.io/library/rust:1-trixie AS build
 
-# 画面を持たない dmxctl-server をビルドするのに要るもの。音と MIDI の ALSA と、シリアルの udev の開発用ファイルだけ
+# 画面を持たない dmxctl-server をビルドするのに要るもの。音と MIDI の ALSA と、シリアルの udev の開発用ファイル、操作パネルをビルドする Node.js と npm
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       build-essential pkg-config \
       libasound2-dev libudev-dev \
+      nodejs npm \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
@@ -23,7 +24,7 @@ COPY . .
 # 呼び出しは `dmxctl serve` のまま使えるよう、イメージの中では dmxctl の名前で入れる
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/src/target \
-    cargo build --release --locked -p dmxctl-server \
+    DMXCTL_REQUIRE_WEB=1 cargo build --release --locked -p dmxctl-server \
  && cp target/release/dmxctl-server /dmxctl
 
 # ---- 2. 実行 ----
