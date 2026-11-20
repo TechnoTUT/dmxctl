@@ -74,6 +74,13 @@ pub fn wait_for(address:std::net::SocketAddr,target:&Value,timeout_ms:u64)->anyh
     wait_with(&|request:&Value,timeout:Duration|crate::control::request_with_timeout(address,request,timeout),target,timeout_ms)
 }
 
+/// 待機中の1回の問い合わせに与える時間。待機の残りが短くても1秒は待つ。
+/// 残りの時間をそのまま与えると、締め切りの直前の問い合わせが数ミリ秒で時間切れになり、
+/// 待機の時間切れではなく接続の失敗として返ってしまう。Windows はタイマーの粒度が粗く、起きやすい
+fn poll_timeout(remaining:Duration)->Duration {
+    remaining.clamp(Duration::from_secs(1),Duration::from_secs(6))
+}
+
 /// `target` の条件(frame・beat・ms・condition)を満たすまで待つ
 pub fn wait_with(request_with_timeout:Requester,target:&Value,timeout_ms:u64)->anyhow::Result<Value> {
     ensure!((1..=300000).contains(&timeout_ms),"timeout-ms must be in 1..300000");
@@ -84,9 +91,9 @@ pub fn wait_with(request_with_timeout:Requester,target:&Value,timeout_ms:u64)->a
         ensure!(!remaining.is_zero(),"wait timed out; last observation: {last}");
         let mut request=target.get("condition").cloned().unwrap_or_else(||json!({"op":"clock"}));
         if target.get("condition").is_some(){request["op"]=json!("check");}
-        last=request_with_timeout(&request,remaining.min(Duration::from_secs(6)))?;
+        last=request_with_timeout(&request,poll_timeout(remaining))?;
         let clock=if request["op"]=="check" {
-            request_with_timeout(&json!({"op":"clock"}),timeout.saturating_sub(started.elapsed()).min(Duration::from_secs(6)))?
+            request_with_timeout(&json!({"op":"clock"}),poll_timeout(timeout.saturating_sub(started.elapsed())))?
         }else{last.clone()};
         if let Some(session)=target.get("session") {ensure!(clock["session"]==*session,"application session changed while waiting");}
         ensure!(clock["emergency"]!=true,"application entered emergency stop while waiting");
@@ -180,7 +187,7 @@ pub fn explain(request:Requester,mut payload:Value,timeout_ms:u64)->anyhow::Resu
     let start=request(&payload,timeout.min(Duration::from_secs(6)))?;
     loop {
         let remaining=timeout.saturating_sub(started.elapsed());ensure!(!remaining.is_zero(),"trace timed out");
-        let result=request(&json!({"op":"trace_result","ticket":start["ticket"]}),remaining.min(Duration::from_secs(6)))?;
+        let result=request(&json!({"op":"trace_result","ticket":start["ticket"]}),poll_timeout(remaining))?;
         if result["ready"]==true {return Ok(result["trace"].clone());}
         std::thread::sleep(Duration::from_millis(25).min(timeout.saturating_sub(started.elapsed())));
     }
@@ -243,5 +250,23 @@ mod tests {
         assert!(c.check_version(&json!({"expected_revision":version["revision"]})).is_err());
         assert!(c.check_version(&json!({"expected_session":"previous process"})).is_err());
         let current=c.version();c.check_version(&json!({"expected_session":current["session"],"expected_revision":current["revision"]})).unwrap();
+    }
+    #[test]
+    fn waits_report_their_own_timeout_even_when_the_last_poll_is_slow() {
+        // 1回の答えに 40ms かかる本体。与えられた時間がそれより短ければ、接続の時間切れになる
+        let slow=|request:&Value,timeout:Duration|->anyhow::Result<Value> {
+            anyhow::ensure!(timeout>=Duration::from_millis(40),"os error 10060");
+            std::thread::sleep(Duration::from_millis(40));
+            Ok(match request["op"].as_str() {
+                Some("check")=>json!({"passed":false,"frame":1}),
+                _=>json!({"frame":1,"beat":0.0,"session":"s","emergency":false}),
+            })
+        };
+        for target in [json!({"frame":1000}),json!({"condition":{"fixture":1,"attr":"dimmer","equals":7}})] {
+            for timeout_ms in [1,30,95,130] {
+                let error=wait_with(&slow,&target,timeout_ms).unwrap_err().to_string();
+                assert!(error.starts_with("wait timed out"),"{target} {timeout_ms}ms: {error}");
+            }
+        }
     }
 }
