@@ -31,7 +31,7 @@ pub struct Launch {
     pub autosave: bool,
     /// LANのクライアント(`dmxctl connect`)を待ち受けるアドレス(`--remote-listen`)
     pub remote_listen: Option<SocketAddr>,
-    /// クライアントから、機材定義の安全の設定(安全な値・ARMが要るか)を変えることを許す(`--remote-allow-safety-edit`)。
+    /// クライアントから、安全の設定(機材定義の安全な値・ARMが要るか、動いてよい範囲・保護された機材のパッチ・向きの校正・ARM の割り当て)を変えることを許す(`--remote-allow-safety-edit`)。
     /// 画面の無いサーバーで安全の設定を変えるときに付けて起動し直す
     pub remote_allow_safety_edit: bool,
     /// サーバーにつなぐクライアントとして起動する(`dmxctl connect HOST`)

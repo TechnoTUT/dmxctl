@@ -53,6 +53,21 @@ impl std::fmt::Display for Conflict {
 
 impl std::error::Error for Conflict {}
 
+/// 当てられない編集(安全の設定に触れる・存在しない項目を指す など)。行き違いではないので、理由をそのまま知らせる
+#[derive(Debug)]
+pub struct Rejected(pub String);
+
+impl std::fmt::Display for Rejected {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for Rejected {}
+
+/// 安全の設定に触れる編集を拒んだときの理由
+pub const SAFETY_READ_ONLY: &str = "安全の設定(レーザーの動いてよい範囲・保護された機材のパッチ・ムービングの向きの校正・ARM とレーザーの合図の割り当て)は、サーバーのPCの画面か、サーバーを --remote-allow-safety-edit を付けて起動したときだけ変えられます";
+
 /// `old` から `new` への差分(サーバーからクライアントへ配るもの。前の値は付けない)
 pub fn diff(old: &Value, new: &Value) -> Vec<Change> {
     let mut out = Vec::new();
@@ -160,12 +175,32 @@ pub struct Applied {
 }
 
 pub trait CoreProjectPatch {
-    fn apply_project_patch(&mut self, changes: &[Change]) -> anyhow::Result<Applied>;
+    /// `guard_safety`: 安全の設定に触れる編集を拒む(リモートのクライアントから。`--remote-allow-safety-edit` なら false)
+    fn apply_project_patch(&mut self, changes: &[Change], guard_safety: bool) -> anyhow::Result<Applied>;
+}
+
+/// 編集が指す場所が、当てた後の設定に実在するか。存在しない項目(打ち間違い・古い版の項目)は、
+/// 書き込んでも設定に読み直すときに捨てられ、黙って何も変わらないので、ここで見つけて拒む
+fn path_exists(project: &Value, change: &Change) -> bool {
+    // 消す編集(value が無い)は、消えた後に無いのが正しい。親が実在すればよい
+    let path = if change.value.is_none() { change.path.split_last().map_or(&[][..], |(_, p)| p) } else { &change.path[..] };
+    let mut at = project;
+    for seg in path {
+        let next = match seg {
+            Seg::Key(k) => at.get(k.as_str()),
+            Seg::Index(i) => at.get(*i),
+        };
+        match next {
+            Some(v) => at = v,
+            None => return false,
+        }
+    }
+    true
 }
 
 impl CoreProjectPatch for dmxctl_core::engine::Core {
     /// 画面の編集の差分を当てる(厳しい検証はしない)。当てられなければ何も変えない
-    fn apply_project_patch(&mut self, changes: &[Change]) -> anyhow::Result<Applied> {
+    fn apply_project_patch(&mut self, changes: &[Change], guard_safety: bool) -> anyhow::Result<Applied> {
         if changes.is_empty() {
             return Ok(Applied::default());
         }
@@ -176,7 +211,16 @@ impl CoreProjectPatch for dmxctl_core::engine::Core {
         }
         let mut value = serde_json::to_value(&self.project)?;
         apply(&mut value, changes)?;
-        let project: Project = serde_json::from_value(value)?;
+        let project: Project = serde_json::from_value(value).map_err(|e| Rejected(format!("編集の値が正しくありません: {e}")))?;
+        let applied = serde_json::to_value(&project)?;
+        if let Some(c) = changes.iter().find(|c| !path_exists(&applied, c)) {
+            let path: Vec<String> = c.path.iter().map(|s| match s { Seg::Key(k) => k.clone(), Seg::Index(i) => i.to_string() }).collect();
+            return Err(Rejected(format!("存在しない項目です: {}", path.join("."))).into());
+        }
+        // 自動操作の窓口(ctl・MCP)と同じ安全の確認。レーザーの範囲・保護された機材・校正・ARM の割り当てを守る
+        if guard_safety {
+            crate::editing::safety_unchanged(&self.project, &project, &self.lib).map_err(|e| Rejected(format!("{SAFETY_READ_ONLY}({e})")))?;
+        }
         let services = changes.iter().any(|c| matches!(c.path.first(), Some(Seg::Key(k)) if SERVICE_KEYS.contains(&k.as_str())));
         // ARM(保存しない値)は機材IDで引き継ぎ、フェード・チェイス・出力などの後始末をする
         crate::editing::commit_with_arm(self, project, true);
@@ -265,11 +309,63 @@ mod tests {
         let after = serde_json::to_value(&client.project).unwrap();
         let changes = diff_project(&before, &after);
         assert_eq!(changes.len(), 1, "{changes:?}");
-        let applied = server.apply_project_patch(&changes).unwrap();
+        let applied = server.apply_project_patch(&changes, true).unwrap();
         assert_eq!(applied, Applied { services: false });
         assert_eq!(server.project.fixtures[0].values[0], 200);
         assert!(server.project.fixtures[0].armed, "ARM must survive a patch");
         assert!(server.project.midi_input.is_empty());
+    }
+
+    /// リモートの編集で、安全の設定(レーザーの範囲・保護された機材・校正・ARM の割り当て)は、
+    /// 許されたときだけ変えられる
+    #[test]
+    fn safety_settings_are_guarded_unless_allowed() {
+        let laser = |c: &Core| c.project.fixtures.iter().position(|f| f.profile == "stage-evolution/laserscan300").unwrap();
+        let edits = |c: &Core| -> Vec<Vec<Change>> {
+            let i = laser(c);
+            let mut bindings = serde_json::to_value(&c.project.bindings).unwrap();
+            bindings.as_array_mut().unwrap().push(json!({"id": 0, "name": "ARM", "trigger": null, "action": {"Arm": {"sel": "All", "mode": "Toggle"}}}));
+            vec![
+                vec![Change { path: vec![Seg::Key("fixtures".into()), Seg::Index(i), Seg::Key("limits".into())], value: Some(json!({"pan": [0, 255]})), base: None }],
+                vec![Change { path: vec![Seg::Key("motion".into()), Seg::Key("pan_front".into())], value: Some(json!(90.0)), base: None }],
+                vec![Change { path: vec![Seg::Key("bindings".into())], value: Some(bindings), base: None }],
+                vec![Change { path: vec![Seg::Key("fixtures".into()), Seg::Index(i), Seg::Key("address".into())], value: Some(json!(300)), base: None }],
+            ]
+        };
+        let mut c = core();
+        let before = serde_json::to_value(&c.project).unwrap();
+        for e in edits(&c) {
+            let err = c.apply_project_patch(&e, true).unwrap_err();
+            assert!(err.is::<Rejected>() && err.to_string().contains("--remote-allow-safety-edit"), "{e:?}: {err}");
+        }
+        assert_eq!(serde_json::to_value(&c.project).unwrap(), before, "拒んだ編集で何も変わらない");
+        // 安全に関わらない編集(レーザーの名前・値)は今までどおり
+        let i = laser(&c);
+        c.apply_project_patch(&[Change { path: vec![Seg::Key("fixtures".into()), Seg::Index(i), Seg::Key("name".into())], value: Some(json!("L")), base: None }], true).unwrap();
+        // 許されたときは変えられる
+        let mut c = core();
+        for e in edits(&c) {
+            c.apply_project_patch(&e, false).unwrap_or_else(|err| panic!("{e:?}: {err}"));
+        }
+        assert_eq!(c.project.fixtures[laser(&c)].limits.get("pan"), Some(&[0, 255]));
+        assert_eq!(c.project.motion.pan_front, 90.0);
+    }
+
+    /// 存在しない項目を指す編集は、黙って捨てずに拒む
+    #[test]
+    fn edits_to_missing_fields_are_rejected() {
+        let mut c = core();
+        let change = |path: Vec<Seg>, value: Option<serde_json::Value>| vec![Change { path, value, base: None }];
+        for e in [change(vec![Seg::Key("nope".into())], Some(json!(1))), change(vec![Seg::Key("fixtures".into()), Seg::Index(0), Seg::Key("nope".into())], Some(json!(1)))] {
+            let err = c.apply_project_patch(&e, true).unwrap_err();
+            assert!(err.is::<Rejected>() && err.to_string().starts_with("存在しない項目です"), "{err}");
+        }
+        // 値の型が合わないものも、理由を付けて拒む
+        let err = c.apply_project_patch(&change(vec![Seg::Key("bpm".into())], Some(json!("fast"))), true).unwrap_err();
+        assert!(err.is::<Rejected>(), "{err}");
+        // 実在する項目は通る
+        c.apply_project_patch(&change(vec![Seg::Key("bpm".into())], Some(json!(128.0))), true).unwrap();
+        assert_eq!(c.project.bpm, 128.0);
     }
 
     #[test]
@@ -279,9 +375,9 @@ mod tests {
         let mut p = c.project.clone();
         p.osc_port = 9100;
         let changes = diff_project(&before, &serde_json::to_value(&p).unwrap());
-        assert!(c.apply_project_patch(&changes).unwrap().services);
+        assert!(c.apply_project_patch(&changes, true).unwrap().services);
         assert_eq!(c.project.osc_port, 9100);
         let local = [Change { path: vec![Seg::Key("midi_input".into())], value: Some(json!("x")), base: None }];
-        assert!(c.apply_project_patch(&local).is_err());
+        assert!(c.apply_project_patch(&local, true).is_err());
     }
 }

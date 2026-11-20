@@ -94,7 +94,7 @@ pub struct RemoteServer {
 
 impl RemoteServer {
     /// LANのクライアントを待ち受ける
-    /// `allow_safety_edit`: クライアントから、機材定義の安全の設定を変えることを許す(`--remote-allow-safety-edit`)
+    /// `allow_safety_edit`: クライアントから、安全の設定(機材定義・動いてよい範囲・保護された機材・校正・ARM の割り当て)を変えることを許す(`--remote-allow-safety-edit`)
     pub fn start(core: Shared, ctx: dmxctl_core::wake::Wake, address: SocketAddr, allow_safety_edit: bool) -> anyhow::Result<Self> {
         let listener = TcpListener::bind(address).with_context(|| format!("クライアントの待ち受けを始められません({address})"))?;
         let address = listener.local_addr()?;
@@ -272,17 +272,21 @@ pub(super) fn serve_conn(stream: TcpStream, core: &Shared, ctx: &dmxctl_core::wa
                         services
                     }),
                     "patch" => {
-                        let changes: Vec<Change> = serde_json::from_value(v["changes"].clone()).unwrap_or_default();
-                        let r = c.apply_project_patch(&changes);
+                        // 形が合わない changes は、空の編集として黙って通さず、失敗として知らせる
+                        let parsed: anyhow::Result<Vec<Change>> = serde_json::from_value(v["changes"].clone())
+                            .map_err(|e| project_patch::Rejected(format!("編集の形が正しくありません: {e}")).into());
+                        let changes = parsed.as_ref().map(|c| c.as_slice()).unwrap_or(&[]);
+                        // 安全の設定に触れる編集は、--remote-allow-safety-edit のときだけ当てる
+                        let r = parsed.as_ref().map_err(|e| anyhow::anyhow!(project_patch::Rejected(e.to_string()))).and_then(|_| c.apply_project_patch(changes, !allow_safety_edit));
                         let mut s = guard(&conn.state);
                         // クライアントは、送った編集が通ったと思って自分の写しに当てる。こちらも同じように当てておき、
                         // 通らなかったときは次に全部を送り直す
-                        if r.is_err() || project_patch::apply(&mut s.sent, &changes).is_err() {
+                        if r.is_err() || project_patch::apply(&mut s.sent, changes).is_err() {
                             s.sent = Value::Null;
                         }
                         s.edits += 1;
                         // 当てる場所が無いのも、ほかのクライアントが一覧に追加・削除をした行き違い
-                        r.map(|a| a.services).map_err(|e| if e.is::<project_patch::Conflict>() { e } else { anyhow::anyhow!("{}({e})", project_patch::Conflict) })
+                        r.map(|a| a.services).map_err(|e| if e.is::<project_patch::Conflict>() || e.is::<project_patch::Rejected>() { e } else { anyhow::anyhow!("{}({e})", project_patch::Conflict) })
                     }
                     // 機材定義はサーバーのフォルダに保存する(変わった定義は、次の状態で全クライアントに配られる)。
                     // 自動操作の窓口と同じく、レーザーなどの安全の設定(安全な値・ARMが要るか)は変えさせない。

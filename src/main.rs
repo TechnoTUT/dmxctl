@@ -17,7 +17,7 @@ dmxctl kmsdrm
 dmxctl connect HOST[:PORT]
     サーバー(別のPCの dmxctl)につなぎ、画面とMIDIコントローラーだけを手元で動かす(ポートの既定は 9300)
     サーバーは --remote-listen ADDR を付けて起動する(例: dmxctl headless --remote-listen 192.168.1.10)
-    クライアントから機材定義の安全の設定も変えるなら、サーバーに --remote-allow-safety-edit も付ける
+    クライアントから安全の設定(機材定義の安全な値・動いてよい範囲・向きの校正・ARM の割り当てなど)も変えるなら、サーバーに --remote-allow-safety-edit も付ける
 dmxctl carabiner install
     Ableton Link に参加する Carabiner を、配布元から取って、設定フォルダに入れる。Linkを使うときに1回だけ要る
 dmxctl serve|ctl|mcp|inspect|simulate|run|watch|log|diff ...

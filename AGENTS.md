@@ -16,7 +16,7 @@ dmxctl を開発する人と AI エージェント向けのルールです。ビ
 照明、特にレーザーは人に向くと危ないので、次は崩さない。
 
 - 機材定義の `forbid` で禁止した値と、機材ごとの `limits` で決めた動いてよい範囲は、どの操作から来た値でも出力の直前に必ず直す。場所は `crates/core/src/engine/guard.rs` の `guard_values`。これを通らない出力の経路を作らない
-- ARM は起動のたびに解除し、保存しない。CLI・入力の再現・操作パネル・MCP からは ARM にできない。ARM・レーザーの合図の割り当ても、CLI・MCP からは作成・変更・削除できない。場所は `crates/backend/src/editing/validate.rs` の `safety_unchanged`
+- ARM は起動のたびに解除し、保存しない。CLI・入力の再現・操作パネル・MCP からは ARM にできない。ARM・レーザーの合図の割り当ても、CLI・MCP からは作成・変更・削除できない。場所は `crates/backend/src/editing/validate.rs` の `safety_unchanged`。LAN のクライアント(`dmxctl connect`)からの編集も、サーバーを `--remote-allow-safety-edit` で起動しない限り同じ確認を通す(`project_patch.rs` の `apply_project_patch`)
 - 落ちたとき・終了のシグナル・シャットダウンでは、レーザーOFF・明るさ0の安全なフレームを送ってから止まる。場所は `crates/core/src/engine/safety.rs` の `emergency_stop`
 - 通常の操作から安全設定をバイパスできるようにしない。安全設定そのものを変える機能は、演出の操作と分けて扱う
 
