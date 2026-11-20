@@ -9,6 +9,21 @@ use std::sync::Arc;
 pub const CATEGORIES: [&str; 6] = ["動き", "色", "光量", "形", "制御", "その他"];
 pub const OTHER: &str = "その他";
 
+/// 16 ビット DMX を粗値と細値で表したときの上限
+pub const DMX_FINE_MAX: f32 = 255.0 + 255.0 / 256.0;
+
+fn set_dmx_value(values: &mut [u8], coarse: usize, fine: Option<usize>, value: f32) {
+    let max = if fine.is_some() { DMX_FINE_MAX } else { 255.0 };
+    let value = value.clamp(0.0, max);
+    let whole = value.floor();
+    if let Some(slot) = values.get_mut(coarse) {
+        *slot = whole as u8;
+    }
+    if let Some(slot) = fine.and_then(|index| values.get_mut(index)) {
+        *slot = ((value - whole) * 256.0).floor() as u8;
+    }
+}
+
 /// カテゴリの表示順: 標準のものを先に、それ以外は名前順
 pub fn category_order(name: &str) -> (usize, String) {
     (CATEGORIES.iter().position(|c| *c == name).unwrap_or(CATEGORIES.len()), name.to_string())
@@ -254,15 +269,7 @@ impl Mode {
         }
     }
     pub fn set_f(&self, values: &mut [u8], ch: usize, v: f32) {
-        let v = v.clamp(0.0, 255.0);
-        let c = v.floor();
-        if let Some(slot) = values.get_mut(ch) {
-            *slot = c as u8;
-        }
-        if let Some(f) = self.fine_of(ch)
-            && let Some(slot) = values.get_mut(f) {
-            *slot = ((v - c) * 256.0).floor().min(255.0) as u8;
-        }
+        set_dmx_value(values, ch, self.fine_of(ch), v);
     }
 
     /// 値を反転する(左右反転など)。レンジのないチャンネルは 0〜最大 の中で反転。
@@ -431,15 +438,7 @@ impl ModeInfo {
 
     /// Mode::set_fと同じ(下位バイトを探し直さない)
     pub fn set_f(&self, values: &mut [u8], ch: usize, v: f32) {
-        let v = v.clamp(0.0, 255.0);
-        let c = v.floor();
-        if let Some(slot) = values.get_mut(ch) {
-            *slot = c as u8;
-        }
-        if let Some(f) = self.fine.get(ch).copied().flatten()
-            && let Some(slot) = values.get_mut(f) {
-            *slot = ((v - c) * 256.0).floor().min(255.0) as u8;
-        }
+        set_dmx_value(values, ch, self.fine.get(ch).copied().flatten(), v);
     }
 
     /// Mode::set_pixelと同じ
@@ -548,9 +547,8 @@ impl Library {
     pub fn preview_user(&self,profile:&Profile)->Self {
         let mut candidate=self.clone();let mut profile=profile.clone();
         for source in BUILTIN {
-            if let Ok(builtin)=serde_json::from_str::<Profile>(source) {
-                if builtin.id==profile.id {inherit_forbid(&mut profile,&builtin);}
-            }
+            if let Ok(builtin)=serde_json::from_str::<Profile>(source)
+                && builtin.id==profile.id {inherit_forbid(&mut profile,&builtin);}
         }
         candidate.add(profile);candidate
     }
@@ -560,7 +558,7 @@ impl Library {
     pub fn preview_delete(&self,id:&str)->Self {
         let mut candidate=self.clone();
         candidate.profiles.retain(|p|p.id!=id);candidate.infos.remove(id);candidate.user_files.remove(id);
-        for source in BUILTIN {if let Ok(profile)=serde_json::from_str::<Profile>(source) {if profile.id==id {candidate.add(profile);}}}
+        for source in BUILTIN {if let Ok(profile)=serde_json::from_str::<Profile>(source)&& profile.id==id {candidate.add(profile);}}
         let bar=generic_led_bar();if bar.id==id {candidate.add(bar);}
         candidate
     }

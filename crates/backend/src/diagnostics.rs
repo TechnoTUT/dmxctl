@@ -26,13 +26,35 @@ pub fn check(core:&Core,request:&Value)->anyhow::Result<Value> {
         "actual":actual,"condition":request,"unit":"DMX (coarse + fine/256)"}))
 }
 
+/// schema で選べる対象
+pub(crate) const SCHEMA_ENTITIES: [&str; 16] = [
+    "project", "fixture", "binding", "group", "scene", "position", "effect", "pixel", "chase", "pair", "output", "auto", "auto_preset", "motion", "profile", "action",
+];
+
+const PROJECT_SCHEMA_READ_ONLY: &[&str] = &["next_id", "next_binding_id", "master_seeded"];
+
+pub(crate) fn project_schema_summary(core: &mut Core) -> Value {
+    let mut result = schema_metadata("project", core.version(), PROJECT_SCHEMA_READ_ONLY);
+    summarize_project_schema(&mut result);
+    result
+}
+
+pub(crate) fn summarize_project_schema(result: &mut Value) {
+    if let Some(result) = result.as_object_mut() {
+        result.remove("schema");
+        result.remove("current");
+        result.insert("entities".into(), json!(&SCHEMA_ENTITIES[1..]));
+        result.insert("note".into(), json!("形と今の値は entity ごとに schema で取得する。設定全体が要るときは full: true"));
+    }
+}
+
 fn schema_value<T:schemars::JsonSchema>()->Value {serde_json::to_value(schemars::schema_for!(T)).unwrap()}
 
 pub fn schema(core:&mut Core,entity:&str)->anyhow::Result<Value> {
     let version=core.version();
     let project=crate::editing::redact(&serde_json::to_value(&core.project)?);
     let (schema,current,read_only)=match entity {
-        "project"=>(schema_value::<Project>(),project,vec!["next_id","next_binding_id","master_seeded"]),
+        "project"=>(schema_value::<Project>(),project,PROJECT_SCHEMA_READ_ONLY.to_vec()),
         "fixture"=>(schema_value::<FixtureInstance>(),project["fixtures"].clone(),vec!["id","armed","limits"]),
         "binding"=>(schema_value::<Binding>(),project["bindings"].clone(),vec!["id"]),
         "group"=>(schema_value::<Group>(),project["groups"].clone(),vec![]),
@@ -49,10 +71,17 @@ pub fn schema(core:&mut Core,entity:&str)->anyhow::Result<Value> {
         "action"=>(schema_value::<Action>(),Value::Null,vec!["Arm is not remotely executable"]),
         _=>bail!("unknown schema entity"),
     };
-    Ok(json!({"entity":entity,"schema":schema,"current":current,"read_only":read_only,"version":version,
+    let mut result = schema_metadata(entity, version, &read_only);
+    result["schema"] = schema;
+    result["current"] = current;
+    Ok(result)
+}
+
+fn schema_metadata(entity: &str, version: Value, read_only: &[&str]) -> Value {
+    json!({"entity":entity,"read_only":read_only,"version":version,
         "rules":{"bpm":[BPM_MIN,BPM_MAX],"slider":[0,1],"dmx":[0,255.99609375],"hold_ms":[1,5000],"scene_fade_seconds":[0,120],
             "indices":"zero-based; DMX addresses one-based","validation":"edit --dry-run also checks references, patch overlap and safety policy"},
-        "commands":command_catalog()}))
+        "commands":command_catalog()})
 }
 
 fn command_catalog()->Value {
@@ -142,21 +171,21 @@ pub fn client(address:std::net::SocketAddr,args:&[&str],options:&std::collection
     }
     for option in options.keys(){ensure!(allowed.contains(option),"option is not supported by this command: {option}");}
     match command {
-        "schema"|"version"=>println!("{}",crate::control::request(address,&payload)?),
+        "schema"|"version"=>crate::cli::stdout_line(format_args!("{}",crate::control::request(address,&payload)?))?,
         "assert"=>{
             payload["op"]=json!("check");let result=crate::control::request(address,&payload)?;
-            println!("{result}");ensure!(result["passed"]==true,"output assertion failed");
+            crate::cli::stdout_line(format_args!("{result}"))?;ensure!(result["passed"]==true,"output assertion failed");
         }
         "explain"=>{
             let requester=|request:&Value,timeout:Duration|crate::control::request_with_timeout(address,request,timeout);
-            println!("{}",explain(&requester,payload,timeout)?);
+            crate::cli::stdout_line(format_args!("{}",explain(&requester,payload,timeout)?))?;
         }
         "wait"=>{
             let frames=options.get("--frames").map(|v|v.parse::<u64>()).transpose()?;
             let beats=options.get("--beats").map(|v|v.parse::<f64>()).transpose()?;
             let ms=options.get("--ms").map(|v|v.parse::<u64>()).transpose()?;
             let requester=|request:&Value,timeout:Duration|crate::control::request_with_timeout(address,request,timeout);
-            println!("{}",wait(&requester,frames,beats,ms,payload,timeout)?);
+            crate::cli::stdout_line(format_args!("{}",wait(&requester,frames,beats,ms,payload,timeout)?))?;
         }
         _=>unreachable!(),
     }

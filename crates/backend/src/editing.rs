@@ -20,6 +20,14 @@ pub fn list(core:&Core,entity:&str)->anyhow::Result<Value> {
     Ok(json!(array(&project,collection(entity)?)?.iter().enumerate().map(|(index,value)|json!({"index":index,"data":redact(value)})).collect::<Vec<_>>()))
 }
 
+pub(crate) fn get(core: &Core, entity: &str, selection: &Value) -> anyhow::Result<Value> {
+    let field = collection(entity)?;
+    let project = serde_json::to_value(&core.project)?;
+    let items = array(&project, field)?;
+    let index = select(items, selection, entity == "binding")?;
+    Ok(json!({"index": index, "data": redact(&items[index])}))
+}
+
 fn array<'a>(project:&'a Value,field:&str)->anyhow::Result<&'a Vec<Value>> {
     let value=if field=="auto.presets" {&project["auto"]["presets"]}else{&project[field]};
     value.as_array().context("collection is not an array")
@@ -29,7 +37,7 @@ fn array_mut<'a>(project:&'a mut Value,field:&str)->anyhow::Result<&'a mut Vec<V
     value.as_array_mut().context("collection is not an array")
 }
 
-fn select(items:&[Value],operation:&Value)->anyhow::Result<usize> {
+pub(crate) fn select(items:&[Value],operation:&Value,binding_key:bool)->anyhow::Result<usize> {
     if let Some(index)=operation.get("index") {
         let index=usize::try_from(index.as_u64().context("index must be an integer")?)?;
         ensure!(index<items.len(),"index is out of range"); return Ok(index);
@@ -38,7 +46,7 @@ fn select(items:&[Value],operation:&Value)->anyhow::Result<usize> {
     let hits:Vec<_>=items.iter().enumerate().filter(|(_,item)| {
         if let Some(id)=key.as_u64() {item["id"]==id}
         else if let Some(key)=key.as_str() {
-            if let Some(id)=key.strip_prefix("binding:").and_then(|s|s.parse::<u64>().ok()).filter(|_|item.get("id").is_some()) {item["id"]==id}
+            if binding_key && let Some(id)=key.strip_prefix("binding:").and_then(|s|s.parse::<u64>().ok()).filter(|_|item.get("id").is_some()) {item["id"]==id}
             else {item["name"]==key}
         } else {false}
     }).map(|(i,_)|i).collect();
@@ -96,7 +104,8 @@ fn new_fixture(project:&mut Value,data:&Value,lib:&Library)->anyhow::Result<Valu
     for f in items.iter().filter(|f|f["universe"]==universe as u64) {
         let Some(mode)=f["profile"].as_str().and_then(|p|lib.mode(p,f["mode"].as_u64().unwrap_or(0) as usize)) else{continue;};
         let start=f["address"].as_u64().unwrap_or(1).saturating_sub(1) as usize;
-        for slot in start..start.saturating_add(mode.channels.len()).min(512) {used[slot]=true;}
+        let end=start.saturating_add(mode.channels.len()).min(512);
+        if let Some(slots)=used.get_mut(start..end) {slots.fill(true);}
     }
     let n=definition.channels.len();
     ensure!(n>0 && n<=512,"invalid channel count");

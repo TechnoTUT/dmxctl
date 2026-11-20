@@ -7,7 +7,8 @@ use std::{io::{BufRead, BufReader}, net::SocketAddr, path::PathBuf, process::{Ch
 static NEXT: AtomicU64 = AtomicU64::new(0);
 struct Running { child: Child, dir: PathBuf, address: SocketAddr }
 impl Running {
-    fn start() -> Self {
+    fn start() -> Self { Self::start_with(|_| {}) }
+    fn start_with(configure: impl FnOnce(&mut Project)) -> Self {
         let dir = std::env::temp_dir().join(format!("dmxctl-control-{}-{}",std::process::id(),NEXT.fetch_add(1,Ordering::Relaxed)));
         std::fs::create_dir_all(&dir).unwrap();
         let (lib,_) = Library::load(&dir.join("fixtures"));
@@ -15,6 +16,7 @@ impl Running {
         project.fixtures[1].limits.insert("pan".into(),[20,90]);
         project.outputs.push(OutputCfg {enabled:true,universe:0,kind:OutputKind::ArtNet{ip:"127.0.0.1".into(),art_universe:0}});
         project.midi_input="preserve this device".into();
+        configure(&mut project);
         project.save(&dir.join("project.json")).unwrap();
         let mut child=Command::new(env!("CARGO_BIN_EXE_dmxctl"))
             .args(["serve","--project","project.json","--listen","127.0.0.1:0","--inputs","none"])
@@ -516,4 +518,54 @@ fn connections_opened_for_state_changing_requests_are_not_reused() {
     assert_eq!(control::request(address,&json!({"op":"save"})).unwrap()["connection"],1);
     // 次の読み取りは、操作の接続ではなく、最初の読み取りの接続を使い回す
     assert_eq!(control::request(address,&json!({"op":"clock"})).unwrap()["connection"],0);
+}
+
+#[test]
+fn get_returns_one_item_by_key_or_index() {
+    let mut host=Running::start();
+    let out=host.cli(&["fixture","get","1"]);
+    assert!(out.status.success(),"{}",String::from_utf8_lossy(&out.stdout));
+    let one:Value=serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(one["data"]["id"],1,"{one}");
+    let out=host.cli(&["fixture","get","--index","0"]);
+    let first:Value=serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(first["index"],0);
+    assert!(first["data"].is_object());
+    // 引数が無ければ一覧
+    let out=host.cli(&["fixture","get"]);
+    assert!(serde_json::from_slice::<Value>(&out.stdout).unwrap().is_array());
+    // 無い ID は失敗
+    let out=host.cli(&["fixture","get","999"]);
+    assert!(!out.status.success());
+    host.stop();
+}
+
+#[test]
+fn fixture_get_accepts_a_name() {
+    let host = Running::start_with(|project| {
+        project.fixtures[0].name = "客席照明".into();
+        project.fixtures[1].name = "binding:1".into();
+    });
+    for (name, id) in [("客席照明", 1), ("binding:1", 2)] {
+        let out = host.cli(&["fixture", "get", name]);
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        let one: Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(one["data"]["id"], id);
+    }
+    let ambiguous = host.cli(&["fixture", "get", "1", "--index", "1"]);
+    assert!(!ambiguous.status.success());
+}
+
+#[test]
+fn fixture_get_does_not_transfer_unselected_items() {
+    let host = Running::start_with(|project| {
+        project.fixtures[1].name = "x".repeat(4 * 1024 * 1024);
+    });
+    let all = host.cli(&["fixture", "get"]);
+    assert!(!all.status.success());
+    assert!(String::from_utf8_lossy(&all.stderr).contains("response is too large"));
+    let one = host.cli(&["fixture", "get", "1"]);
+    assert!(one.status.success(), "{}", String::from_utf8_lossy(&one.stderr));
+    let result: Value = serde_json::from_slice(&one.stdout).unwrap();
+    assert_eq!(result["data"]["id"], 1);
 }

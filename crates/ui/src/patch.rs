@@ -139,11 +139,10 @@ impl App {
                     }
                 });
             }
-            if let Some((old, new)) = rename {
-                if let Err(error) = dmxctl_backend::editing::gui_rename_group(core, &old, &new) {
+            if let Some((old, new)) = rename
+                && let Err(error) = dmxctl_backend::editing::gui_rename_group(core, &old, &new) {
                     self.host.notice = format!("グループの名前を変えられません: {error}");
                 }
-            }
             if let Some(name) = del_group {
                 self.group_rename = None;
                 // 消したグループを指す割り当て・エフェクトも片付ける。残すと検証に通らず、以後の編集がすべて失敗する

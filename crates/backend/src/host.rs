@@ -386,7 +386,7 @@ impl Host {
             self.ndi = ndi_on.then(|| dmxctl_core::io::ndi::NdiService::start(self.core.clone(), Some(self.ctx.clone())));
         }
         let want = osc_on.then_some(port);
-        if self.osc.as_ref().map(|s| s.port) != want {
+        if self.osc.as_ref().map(|s| s.requested_port) != want {
             self.osc = None;
             match want {
                 Some(port) => match dmxctl_core::io::osc::OscServer::start(self.core.clone(), Some(self.ctx.clone()), port) {

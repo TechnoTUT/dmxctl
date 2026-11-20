@@ -297,17 +297,16 @@ impl App {
                             }
                         });
                     });
-                    let n = c.steps.len();
-                    for si in 0..n {
+                    for (si, step) in c.steps.iter_mut().enumerate() {
                         ui.horizontal(|ui| {
                             let mark = if now_step == Some(si) { "▶" } else { " " };
                             ui.label(RichText::new(format!("{mark}{:>2}", si + 1)).monospace().color(if now_step == Some(si) { Color32::from_rgb(255, 150, 30) } else { ui.visuals().text_color() }));
-                            let missing = !scenes.contains(&c.steps[si]);
-                            let text = if missing { RichText::new(format!("{} (見つかりません)", c.steps[si])).color(WARN) } else { RichText::new(c.steps[si].as_str()) };
+                            let missing = !scenes.contains(step);
+                            let text = if missing { RichText::new(format!("{step} (見つかりません)")).color(WARN) } else { RichText::new(step.as_str()) };
                             egui::ComboBox::from_id_salt(format!("cstep{ci}_{si}")).selected_text(text).width(220.0).show_ui(ui, |ui| {
                                 for s in &scenes {
-                                    if ui.selectable_label(c.steps[si] == *s, s).clicked() {
-                                        c.steps[si] = s.clone();
+                                    if ui.selectable_label(*step == *s, s).clicked() {
+                                        step.clone_from(s);
                                         changed = true;
                                     }
                                 }

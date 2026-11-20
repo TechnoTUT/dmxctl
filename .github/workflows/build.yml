@@ -72,6 +72,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Install build dependencies
         run: sudo apt-get update && sudo apt-get install -y $LINUX_DEPS
+      - name: Clippy
+        # 警告を残さない(新しい変更が警告を増やしていないかを見分けられるように)
+        run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Test
         run: cargo test
 
