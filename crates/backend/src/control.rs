@@ -413,8 +413,12 @@ pub fn request_with_timeout(address:SocketAddr,value:&Value,timeout:Duration)->a
     ensure!(line.len() as u64 + 1 <= MAX_REQUEST, "request is too large");
     let started=Instant::now();
     // 直前に同じ接続先へ送っていれば、その接続を使い回す。待機の問い合わせで、接続を張り直し続けないようにするため。
-    // スレッドごとに持つので、MCP の待機が並んでも、それぞれの接続で順に送る
-    if let Some(mut connection)=REUSABLE.with(|cell|cell.borrow_mut().take()).filter(|c|c.address==address && c.used.elapsed()<REUSE_WITHIN) {
+    // スレッドごとに持つので、MCP の待機が並んでも、それぞれの接続で順に送る。
+    // 使い回すのは、送り直しても影響の無い問い合わせだけ。使い回した接続は本体が閉じた後かもしれず、そのときは
+    // 送り直すが、答えが無いまま切れたとき、本体が要求を受け取らなかったのか、実行した後に答えが届かなかったのかを
+    // 区別できない。状態を変える操作(tap など)を送り直すと二重に実行されるので、それらは新しい接続で1回だけ送る
+    let reusable_op=retry_safe(value);
+    if let Some(mut connection)=reusable_op.then(||REUSABLE.with(|cell|cell.borrow_mut().take())).flatten().filter(|c|c.address==address && c.used.elapsed()<REUSE_WITHIN) {
         match exchange(&mut connection.stream,&line,started,timeout) {
             Ok(response) => return finish(response,Some(connection)),
             // サーバーが要求を読まずに閉じた後だったときだけ、新しい接続で送り直す。
@@ -430,6 +434,12 @@ pub fn request_with_timeout(address:SocketAddr,value:&Value,timeout:Duration)->a
         Exchange::Failed(e) => e,
     })?;
     finish(response,Some(Reusable{address,stream,used:Instant::now()}))
+}
+
+/// 送り直しても影響の無い問い合わせか(読み取りだけのもの)。待機・監視で繰り返し送るのは、これらだけ。
+/// `trace_result` は結果を受け取ると本体の枠を空けるが、送り直しても「もう無い」というエラーになるだけで、操作は起きない
+fn retry_safe(value:&Value)->bool {
+    matches!(value["op"].as_str(),Some("clock"|"check"|"trace_result"|"status"|"version"|"output"|"fixtures"|"controls"|"schema"|"inspect"|"profile_list"|"project_diff"))
 }
 
 struct Reusable { address:SocketAddr, stream:TcpStream, used:Instant }

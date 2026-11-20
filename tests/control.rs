@@ -442,3 +442,51 @@ fn the_control_server_answers_several_requests_on_one_connection_and_closes_when
     std::thread::sleep(Duration::from_millis(1200));
     assert!(control::request(host.address,&json!({"op":"status"})).is_ok());
 }
+
+/// 状態を変える操作は、使い回しの接続に載せず、新しい接続で1回だけ送る。答えが無いまま切れても送り直さない。
+/// 本体が実行した後に答えが届かなかったのか、受け取らなかったのかを区別できず、送り直すと二重に実行されるため
+#[test]
+fn state_changing_requests_are_sent_once_on_a_new_connection() {
+    use std::io::Write;
+    let listener=std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address=listener.local_addr().unwrap();
+    let accepted=std::sync::Arc::new(AtomicU64::new(0));
+    let commands=std::sync::Arc::new(AtomicU64::new(0));
+    {
+        let (accepted,commands)=(accepted.clone(),commands.clone());
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream)=stream else { break };
+                accepted.fetch_add(1,Ordering::Relaxed);
+                let commands=commands.clone();
+                std::thread::spawn(move || {
+                    let mut reader=BufReader::new(stream.try_clone().unwrap());
+                    loop {
+                        let mut line=String::new();
+                        if reader.read_line(&mut line).unwrap_or(0)==0 { break; }
+                        let request:Value=serde_json::from_str(&line).unwrap();
+                        if request["op"]=="command" {
+                            // 実行したが、答えを書く前に切れた
+                            commands.fetch_add(1,Ordering::Relaxed);
+                            break;
+                        }
+                        if writeln!(stream,"{}",json!({"ok":true,"result":{"frame":1}})).is_err() { break; }
+                    }
+                });
+            }
+        });
+    }
+    // 読み取りの問い合わせで、使い回せる接続ができる
+    control::request(address,&json!({"op":"clock"})).unwrap();
+    assert_eq!(accepted.load(Ordering::Relaxed),1);
+    // 操作は新しい接続で送る。答えが無いまま切れたら失敗にし、送り直さない
+    let error=control::request(address,&json!({"op":"command","command":{"cmd":"tap"}})).unwrap_err();
+    assert!(error.to_string().contains("incomplete"),"{error}");
+    std::thread::sleep(Duration::from_millis(100));
+    assert_eq!(commands.load(Ordering::Relaxed),1,"tap は1回だけ届く");
+    assert_eq!(accepted.load(Ordering::Relaxed),2,"操作は使い回しの接続に載せない");
+    // 読み取りの問い合わせは、続けて使い回せる
+    control::request(address,&json!({"op":"clock"})).unwrap();
+    control::request(address,&json!({"op":"clock"})).unwrap();
+    assert_eq!(accepted.load(Ordering::Relaxed),2,"最初の接続を使い回す");
+}
