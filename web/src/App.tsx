@@ -33,8 +33,8 @@ export function App() {
           <img src={logoDark} alt="TechnoTUT" className="hidden h-9 w-auto max-w-[140px] object-contain sm:h-10 sm:max-w-[170px] dark:block" />
           <div className="h-8 w-px shrink-0 bg-slate-200 dark:bg-slate-800" />
           <div className="min-w-0">
-            <h1 className="truncate text-sm font-bold tracking-tight">DMX 操作パネル</h1>
-            <p className="truncate text-[11px] text-slate-500 dark:text-slate-400">{error ? `⚠ ${error}` : 'dmxctl'}</p>
+            <h1 className="truncate text-sm font-bold tracking-tight">DMX Controller</h1>
+            <p className="truncate text-[11px] text-slate-500 dark:text-slate-400">{error ? `⚠ ${error}` : 'Lighting control for "The Utopia Tone"'}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
