@@ -490,3 +490,30 @@ fn state_changing_requests_are_sent_once_on_a_new_connection() {
     control::request(address,&json!({"op":"clock"})).unwrap();
     assert_eq!(accepted.load(Ordering::Relaxed),2,"最初の接続を使い回す");
 }
+
+/// 状態を変える操作で開いた接続は、成功しても使い回さない。読み取りは、読み取りで開いた接続を使い続ける
+#[test]
+fn connections_opened_for_state_changing_requests_are_not_reused() {
+    use std::io::Write;
+    let listener=std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address=listener.local_addr().unwrap();
+    std::thread::spawn(move || {
+        // 接続ごとに番号を付け、答えにその番号を入れる
+        for (n,stream) in listener.incoming().enumerate() {
+            let Ok(mut stream)=stream else { break };
+            std::thread::spawn(move || {
+                let mut reader=BufReader::new(stream.try_clone().unwrap());
+                loop {
+                    let mut line=String::new();
+                    if reader.read_line(&mut line).unwrap_or(0)==0 { break; }
+                    if writeln!(stream,"{}",json!({"ok":true,"result":{"connection":n}})).is_err() { break; }
+                }
+            });
+        }
+    });
+    assert_eq!(control::request(address,&json!({"op":"clock"})).unwrap()["connection"],0);
+    // 操作は新しい接続で送る
+    assert_eq!(control::request(address,&json!({"op":"save"})).unwrap()["connection"],1);
+    // 次の読み取りは、操作の接続ではなく、最初の読み取りの接続を使い回す
+    assert_eq!(control::request(address,&json!({"op":"clock"})).unwrap()["connection"],0);
+}

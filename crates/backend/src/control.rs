@@ -433,7 +433,8 @@ pub fn request_with_timeout(address:SocketAddr,value:&Value,timeout:Duration)->a
         Exchange::Closed => anyhow::anyhow!("response is too large or incomplete"),
         Exchange::Failed(e) => e,
     })?;
-    finish(response,Some(Reusable{address,stream,used:Instant::now()}))
+    // 使い回すのは読み取りの問い合わせで開いた接続だけ(状態を変える操作の接続は、答えを受けたら閉じる)
+    finish(response,reusable_op.then(||Reusable{address,stream,used:Instant::now()}))
 }
 
 /// 送り直しても影響の無い問い合わせか(読み取りだけのもの)。待機・監視で繰り返し送るのは、これらだけ。
