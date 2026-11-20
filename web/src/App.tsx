@@ -29,9 +29,9 @@ export function App() {
     <>
       <header className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-slate-200 bg-white/90 px-4 py-3 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-900/80">
         <div className="flex min-w-0 items-center gap-3">
-          <img src={logo} alt="TechnoTUT" className="h-8 w-auto max-w-[120px] object-contain dark:hidden" />
-          <img src={logoDark} alt="TechnoTUT" className="hidden h-8 w-auto max-w-[120px] object-contain dark:block" />
-          <div className="h-8 w-px bg-slate-200 dark:bg-slate-800" />
+          <img src={logo} alt="TechnoTUT" className="h-9 w-auto max-w-[140px] object-contain sm:h-10 sm:max-w-[170px] dark:hidden" />
+          <img src={logoDark} alt="TechnoTUT" className="hidden h-9 w-auto max-w-[140px] object-contain sm:h-10 sm:max-w-[170px] dark:block" />
+          <div className="h-8 w-px shrink-0 bg-slate-200 dark:bg-slate-800" />
           <div className="min-w-0">
             <h1 className="truncate text-sm font-bold tracking-tight">DMX 操作パネル</h1>
             <p className="truncate text-[11px] text-slate-500 dark:text-slate-400">{error ? `⚠ ${error}` : 'dmxctl'}</p>
@@ -42,7 +42,7 @@ export function App() {
             ? 'border-emerald-200 bg-emerald-50 text-emerald-600 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-400'
             : 'border-rose-200 bg-rose-50 text-rose-600 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-400'}`}>
             <span className={`size-2 rounded-full ${online ? 'animate-pulse bg-emerald-500' : 'bg-rose-500'}`} />
-            {online ? 'Online' : 'Offline'}
+            <span className="hidden sm:inline">{online ? 'Online' : 'Offline'}</span>
           </div>
           <button
             onClick={toggle}
