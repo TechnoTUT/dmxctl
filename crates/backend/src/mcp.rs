@@ -46,7 +46,7 @@ pub fn serve(
     output: impl Write + Send,
 ) -> anyhow::Result<()> {
     let output = Mutex::new(output);
-    let pending = Mutex::new(BTreeMap::<String, Arc<AtomicBool>>::new());
+    let pending = Mutex::new(BTreeMap::<String, Arc<Worker>>::new());
     thread::scope(|scope| {
         let mut workers: Vec<thread::ScopedJoinHandle<'_, std::io::Result<()>>> = Vec::new();
         let input_result = (|| -> anyhow::Result<()> {
@@ -67,8 +67,8 @@ pub fn serve(
                 };
                 if message["jsonrpc"] == "2.0" && message["method"] == "notifications/cancelled" && message.get("id").is_none() {
                     let request_id = message["params"]["requestId"].to_string();
-                    if let Some(cancelled) = pending.lock().unwrap().get(&request_id) {
-                        cancelled.store(true, Ordering::Relaxed);
+                    if let Some(worker) = pending.lock().unwrap().get(&request_id) {
+                        worker.cancelled.store(true, Ordering::Relaxed);
                     }
                     continue;
                 }
@@ -85,19 +85,23 @@ pub fn serve(
                         write_reply(&output, tool_reply(id.clone(), Err(anyhow::anyhow!("too many pending wait/explain requests"))))?;
                         continue;
                     }
-                    let cancelled = Arc::new(AtomicBool::new(false));
-                    waits.insert(key.clone(), Arc::clone(&cancelled));
+                    let worker = Arc::new(Worker::default());
+                    waits.insert(key.clone(), Arc::clone(&worker));
                     let pending = &pending;
                     let output = &output;
                     // 待機中も、後続の操作やキャンセルを標準入力から受け付ける
                     workers.push(thread::Builder::new().spawn_scoped(scope, move || {
+                        let cancelled = &worker.cancelled;
                         let poll = |payload: &Value, timeout: Duration| {
                             // キャンセル後も、本体の枠を空ける後片付け(trace_cancel)だけは送る
                             ensure!(!cancelled.load(Ordering::Relaxed) || payload["op"] == "trace_cancel", "wait cancelled");
                             // 本体のトレースの枠は1つ。キャンセル済みのワーカーが後片付けを終える前に始めると、
                             // another trace is pending になるので、終わるのを待ってから始める
                             if payload["op"] == "trace_start" {
-                                wait_for_cancelled_workers(pending, &key);
+                                wait_for_cancelled_workers(pending, &key)?;
+                                // 待っている間にキャンセルされたら、トレースを始めない
+                                ensure!(!cancelled.load(Ordering::Relaxed), "wait cancelled");
+                                worker.tracing.store(true, Ordering::Relaxed);
                             }
                             request(payload, timeout)
                         };
@@ -115,8 +119,8 @@ pub fn serve(
             }
             Ok(())
         })();
-        for cancelled in pending.lock().unwrap().values() {
-            cancelled.store(true, Ordering::Relaxed);
+        for worker in pending.lock().unwrap().values() {
+            worker.cancelled.store(true, Ordering::Relaxed);
         }
         input_result?;
         for worker in workers {
@@ -126,14 +130,33 @@ pub fn serve(
     })
 }
 
-/// キャンセル済みのワーカー(自分以外)が後片付けを終えて抜けるまで待つ。
-/// ワーカーは次の問い合わせの前にキャンセルに気づき、後片付けを送って抜けるので、普通はすぐ終わる。
+/// wait・explain を処理しているワーカーの状態
+#[derive(Default)]
+struct Worker {
+    /// クライアントがキャンセルした
+    cancelled: AtomicBool,
+    /// 本体のトレースを始めた(枠を握っている可能性がある)。後片付けを送って抜けるまで true
+    tracing: AtomicBool,
+}
+
+/// キャンセル済みで、トレースを始めているワーカー(自分以外)が、後片付けを終えて抜けるまで待つ。
+/// トレースを始める前に待っているだけのワーカーは枠を握っていないので、待つ相手にしない
+/// (キャンセルが続いたときに、待っている者どうしが互いを待たないように)。
+/// 待っている間に自分がキャンセルされたら、すぐ抜ける。
 /// 本体が応答しないときに固まらないよう、上限を設ける(本体への1回の問い合わせの上限と同じ6秒)
-fn wait_for_cancelled_workers(pending: &Mutex<BTreeMap<String, Arc<AtomicBool>>>, me: &str) {
+fn wait_for_cancelled_workers(pending: &Mutex<BTreeMap<String, Arc<Worker>>>, me: &str) -> anyhow::Result<()> {
     let deadline = std::time::Instant::now() + Duration::from_secs(6);
-    while pending.lock().unwrap().iter().any(|(key, cancelled)| key != me && cancelled.load(Ordering::Relaxed)) {
+    loop {
+        {
+            let workers = pending.lock().unwrap();
+            ensure!(!workers.get(me).is_some_and(|w| w.cancelled.load(Ordering::Relaxed)), "wait cancelled");
+            let busy = workers.iter().any(|(key, w)| key != me && w.cancelled.load(Ordering::Relaxed) && w.tracing.load(Ordering::Relaxed));
+            if !busy {
+                return Ok(());
+            }
+        }
         if std::time::Instant::now() >= deadline {
-            break;
+            return Ok(());
         }
         thread::sleep(Duration::from_millis(2));
     }
@@ -829,6 +852,107 @@ mod tests {
         let cancel = log.iter().position(|l| l == "trace_cancel:1").expect("後片付けを送る");
         let second = log.iter().rposition(|l| l.starts_with("trace_start")).unwrap();
         assert!(cancel < second, "後片付けのあとに次の trace_start: {log:?}");
+    }
+
+    /// 後片付けを待っている explain を続けてキャンセルしても、待っている者どうしで待ち合わず、
+    /// キャンセルされた要求はトレースを始めない。次の explain はすぐ成功する
+    #[test]
+    fn cancelling_explains_that_wait_for_cleanup_does_not_deadlock() {
+        use std::io::Write as _;
+        use std::sync::Mutex as M;
+        struct Host {
+            slot: Option<u64>,
+            next: u64,
+            log: Vec<String>,
+        }
+        let host = Arc::new(M::new(Host { slot: None, next: 0, log: Vec::new() }));
+        let fake = {
+            let host = host.clone();
+            move |p: &Value, _: Duration| -> anyhow::Result<Value> {
+                let op = p["op"].as_str().unwrap_or("").to_string();
+                let ticket = p["ticket"].as_u64();
+                host.lock().unwrap().log.push(format!("{op}:{}", ticket.unwrap_or(0)));
+                match op.as_str() {
+                    "trace_start" => {
+                        let mut h = host.lock().unwrap();
+                        ensure!(h.slot.is_none(), "another trace is pending");
+                        h.next += 1;
+                        let t = h.next;
+                        h.slot = Some(t);
+                        Ok(json!({"ticket": t}))
+                    }
+                    "trace_result" if ticket == Some(1) => {
+                        // 1件目の問い合わせは遅い(この間に2件目・3件目が後片付け待ちに入り、キャンセルされる)
+                        std::thread::sleep(Duration::from_millis(300));
+                        Ok(json!({"ready": false}))
+                    }
+                    "trace_result" => {
+                        let mut h = host.lock().unwrap();
+                        ensure!(h.slot == ticket, "trace is no longer available");
+                        h.slot = None;
+                        Ok(json!({"ready": true, "trace": {}}))
+                    }
+                    "trace_cancel" => {
+                        let mut h = host.lock().unwrap();
+                        if h.slot == ticket {
+                            h.slot = None;
+                        }
+                        Ok(json!({}))
+                    }
+                    _ => Ok(json!({})),
+                }
+            }
+        };
+        let (reader, mut writer) = std::io::pipe().unwrap();
+        #[derive(Clone)]
+        struct Out(Arc<M<Vec<u8>>>);
+        impl std::io::Write for Out {
+            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(b);
+                Ok(b.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let out = Out(Arc::new(M::new(Vec::new())));
+        let server = {
+            let out = out.clone();
+            std::thread::spawn(move || serve(&fake, std::io::BufReader::new(reader), out))
+        };
+        let explain = |id: u64| json!({"jsonrpc": "2.0", "id": id, "method": "tools/call", "params": {"name": "explain", "arguments": {"fixture": 1, "attr": "pan", "timeout_ms": 60000}}});
+        let cancel = |id: u64| json!({"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": id}});
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        writeln!(writer, "{}", explain(1)).unwrap();
+        while !host.lock().unwrap().log.iter().any(|l| l == "trace_result:1") {
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        // 1件目をキャンセル。2件目は1件目の後片付けを待つ
+        writeln!(writer, "{}\n{}", cancel(1), explain(2)).unwrap();
+        std::thread::sleep(Duration::from_millis(30));
+        // 待っている2件目をキャンセルし、3件目も待ちに入れてからキャンセル
+        writeln!(writer, "{}\n{}", cancel(2), explain(3)).unwrap();
+        std::thread::sleep(Duration::from_millis(30));
+        let started = std::time::Instant::now();
+        writeln!(writer, "{}\n{}", cancel(3), explain(4)).unwrap();
+        while out.0.lock().unwrap().is_empty() {
+            assert!(std::time::Instant::now() < deadline, "4件目の返事が来ない");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let waited = started.elapsed();
+        drop(writer);
+        server.join().unwrap().unwrap();
+        let text = String::from_utf8(out.0.lock().unwrap().clone()).unwrap();
+        let replies: Vec<Value> = text.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+        assert_eq!(replies.len(), 1, "キャンセルした要求には答えない: {text}");
+        assert_eq!(replies[0]["id"], 4);
+        assert_eq!(replies[0]["result"]["isError"], false, "{text}");
+        // 1件目の後片付けが済めばすぐ進む(上限の6秒まで待たない)
+        assert!(waited < Duration::from_secs(2), "{waited:?}");
+        let log = host.lock().unwrap().log.clone();
+        let starts = log.iter().filter(|l| l.starts_with("trace_start")).count();
+        assert_eq!(starts, 2, "キャンセルされた2件目・3件目はトレースを始めない: {log:?}");
     }
 
     #[test]
