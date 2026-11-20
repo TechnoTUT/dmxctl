@@ -316,12 +316,11 @@ mod tests {
 
     #[test]
     fn artnet_loopback_receives_frame() {
-        let loopback = if cfg!(windows) { "127.0.0.2" } else { "127.0.0.1" };
-        let rx = UdpSocket::bind((loopback, 6454));
+        let rx = UdpSocket::bind("127.0.0.1:6454");
         // 他のプロセスがポートを使っていればスキップ
         let Ok(rx) = rx else { return };
         rx.set_read_timeout(Some(std::time::Duration::from_secs(1))).unwrap();
-        let mut a = ArtNet::new(loopback, 3).unwrap();
+        let mut a = ArtNet::new("127.0.0.1", 3).unwrap();
         let mut f = [0u8; 512];
         f[0] = 255;
         f[9] = 42;
