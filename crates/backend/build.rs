@@ -12,7 +12,7 @@ const PLACEHOLDER: &str = r#"<!doctype html>
 <html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>DMX Controller</title></head>
 <body style="font-family:sans-serif;padding:24px">
 <h1>操作パネルは未ビルドです</h1>
-<p>このビルドには、操作パネルの画面が含まれていません。Node.js 20.19 以上を導入してから、もう一度ビルドしてください。</p>
+<p>このビルドには、操作パネルの画面が含まれていません。Node.js 20.19 以上、または 22.12 以上を導入してから、もう一度ビルドしてください。</p>
 <p>API の <code>/api/state</code> と <code>/api/cmd</code> は利用できます。</p>
 </body></html>
 "#;
@@ -73,10 +73,10 @@ fn main() {
         return;
     }
     if env_set("DMXCTL_REQUIRE_WEB") {
-        panic!("npm was not found, but DMXCTL_REQUIRE_WEB is set. Install Node.js 20.19 or later to build the web panel in web/. See docs/development.md.");
+        panic!("npm was not found, but DMXCTL_REQUIRE_WEB is set. Install Node.js 20.19+ or 22.12+ to build the web panel in web/. See docs/development.md.");
     }
     if !env_set("DMXCTL_CHECK_ONLY") {
-        println!("cargo:warning=npm was not found. The web panel in web/ is not built, and a placeholder page is embedded. Install Node.js 20.19 or later to build it.");
+        println!("cargo:warning=npm was not found. The web panel in web/ is not built, and a placeholder page is embedded. Install Node.js 20.19+ or 22.12+ to build it.");
     }
     std::fs::create_dir_all(&out).unwrap();
     std::fs::write(out.join("index.html"), PLACEHOLDER).unwrap();

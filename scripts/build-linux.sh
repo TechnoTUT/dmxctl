@@ -2,7 +2,7 @@
 # Linux用の dmxctl を作る。Linuxのターミナルで実行する:
 #   ./scripts/build-linux.sh
 # 必要なもの: Rust(https://rustup.rs)と、C++コンパイラ・開発用ライブラリ
-#   操作パネルのビルドに、Node.js 20.19以上(https://nodejs.org)も必要
+#   操作パネルのビルドに、Node.js 20.19以上または22.12以上(https://nodejs.org)も必要
 #   Ubuntu/Debian: sudo apt install build-essential pkg-config cmake libasound2-dev libudev-dev libdrm-dev libgbm-dev libegl-dev libgles-dev libxext-dev
 #   Fedora:        sudo dnf install gcc-c++ pkgconf cmake alsa-lib-devel systemd-devel libatomic libdrm-devel mesa-libgbm-devel mesa-libEGL-devel mesa-libGLES-devel libXext-devel
 #   Arch:          sudo pacman -S base-devel cmake alsa-lib libdrm mesa libxext

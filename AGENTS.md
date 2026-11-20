@@ -6,7 +6,7 @@ dmxctl を開発する人と AI エージェント向けのルールです。ビ
 
 - コミットの前に `cargo test --release` を通す。ドキュメント (docs/*) は対象外。
 - 他のOS向けのコードを変えたときは、`DMXCTL_CHECK_ONLY=1 cargo check --target …` で型チェックする。この場合 C++ はビルドしない
-- ブラウザの操作パネルは `web/` の React で、画面のビルドに Node.js 20.19 以上が必要になる。無い環境でも Rust 側のビルドとテストは通り、操作パネルは未ビルドのページになる。`web/` を変えたら `cd web && npm run typecheck` を通す。見た目は `npm run dev` で確かめる。手順は [docs/development.md](docs/development.md)
+- ブラウザの操作パネルは `web/` の React で、画面のビルドに Node.js 20.19 以上、または 22.12 以上が必要になる。無い環境でも Rust 側のビルドとテストは通り、操作パネルは未ビルドのページになる。`web/` を変えたら `cd web && npm run typecheck` を通す。見た目は `npm run dev` で確かめる。手順は [docs/development.md](docs/development.md)
 - 画面の見た目は `DMXCTL_SHOT=保存先.png DMXCTL_TAB=タブ名` で撮って確かめる
 - 動作は CLI の `dmxctl serve` / `ctl` / `simulate` で最終DMX値を検証できる。使い方は [docs/cli.md](docs/cli.md)
 - 本番の設定や機器に触れない。`DMXCTL_CONFIG_DIR` で別の設定を使い、本番と同じPCで試すときは `DMXCTL_NO_MIDI=1` を付ける。`serve` は既定で実機送信・自動保存・入力を切っている

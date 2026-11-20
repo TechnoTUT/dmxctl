@@ -18,7 +18,7 @@ NDI 機能はサブモジュール `moip-engine/` 内の `ndi` クレートを�
 
 1. **Rust**: https://rustup.rs の `rustup-init.exe` を既定のまま導入します。MSVC 版になります
 2. **Visual Studio Build Tools 2022** の「C++ によるデスクトップ開発」: Rust の MSVC 版がリンクに使用します
-3. **Node.js 20.19 以上**: https://nodejs.org から導入します。npm も同時に入ります。ブラウザの操作パネルのビルドに利用します
+3. **Node.js 20.19 以上、または 22.12 以上**: https://nodejs.org から導入します。npm も同時に入ります。ブラウザの操作パネルのビルドに利用します
 4. **FTDI ドライバ**: FT232R の USB-DMX を接続すると、通常は Windows Update で導入されます。COMポート方式と D2XX 方式の両方が利用できます
 5. NDI を利用するなら **NDI Tools**: https://ndi.video/tools/
 
@@ -26,7 +26,7 @@ NDI 機能はサブモジュール `moip-engine/` 内の `ndi` クレートを�
 
 1. **Rust**: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
 2. **Xcode のコマンドラインツール**: `xcode-select --install`
-3. **Node.js 20.19 以上**: `brew install node`。ブラウザの操作パネルのビルドに利用します
+3. **Node.js 20.19 以上、または 22.12 以上**: `brew install node`。ブラウザの操作パネルのビルドに利用します
 4. NDI を利用するなら **NDI Tools**
 5. Mac から Windows 版も作成するなら **MinGW-w64**: `brew install mingw-w64`
 
@@ -37,7 +37,7 @@ NDI 機能はサブモジュール `moip-engine/` 内の `ndi` クレートを�
    - Ubuntu / Debian: `sudo apt install build-essential pkg-config cmake libasound2-dev libudev-dev libdrm-dev libgbm-dev libegl-dev libgles-dev libxext-dev`
    - Fedora: `sudo dnf install gcc-c++ pkgconf cmake alsa-lib-devel systemd-devel libatomic libdrm-devel mesa-libgbm-devel mesa-libEGL-devel mesa-libGLES-devel libXext-devel`
    - Arch: `sudo pacman -S base-devel cmake alsa-lib libdrm mesa libxext`
-3. **Node.js 20.19 以上**: `sudo apt install nodejs npm` で入る版が 20.19 より古いときは、https://nodejs.org から導入します。ブラウザの操作パネルのビルドに利用します
+3. **Node.js 20.19 以上、または 22.12 以上**: `sudo apt install nodejs npm` で入る版がこの範囲に入らないときは、https://nodejs.org から導入します。ブラウザの操作パネルのビルドに利用します
 4. **日本語フォント**: `sudo apt install fonts-noto-cjk`
 5. **権限**: `sudo usermod -aG dialout,video,input $USER`。USB-DMX と、KMS/DRM の画面・キーボード・マウスに必要です
 6. NDI を利用するなら **NDI SDK for Linux** のライブラリ。導入方法は [Linux で NDI を使う](platforms.md#linux-で-ndi-を使う)
