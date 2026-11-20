@@ -20,7 +20,7 @@ function Card({ title, note, children, tone }: { title?: string; note?: string; 
     : tone === 'warn' ? 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300'
     : 'border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900'
   return (
-    <section className={`mb-4 rounded-2xl border p-4 shadow-sm ${toneCls}`}>
+    <section className={`mb-4 rounded-2xl border p-4 shadow-sm short:mb-3 short:p-3 ${toneCls}`}>
       {title && (
         <h2 className="mb-3 flex flex-wrap items-baseline gap-x-2 text-sm font-bold text-slate-500 dark:text-slate-400">
           <span className="whitespace-nowrap">{title}</span>
@@ -33,7 +33,7 @@ function Card({ title, note, children, tone }: { title?: string; note?: string; 
 }
 
 function Sub({ children }: { children: React.ReactNode }) {
-  return <h3 className="mb-2 mt-4 text-xs font-bold uppercase tracking-wider text-slate-400">{children}</h3>
+  return <h3 className="mb-2 mt-4 short:mt-3 text-xs font-bold uppercase tracking-wider text-slate-400">{children}</h3>
 }
 
 function Choice({ label, on, onClick, style, className = '' }: { label: string; on?: boolean; onClick: () => void; style?: React.CSSProperties; className?: string }) {
@@ -130,7 +130,7 @@ function MasterSlider({ value, send }: { value: number; send: Send }) {
   }
   const shown = drag ?? server
   return (
-    <div className="mt-4 flex items-center gap-3">
+    <div className="mt-4 flex items-center gap-3 short:mt-3">
       <span className="whitespace-nowrap text-xs font-semibold text-slate-500 dark:text-slate-400">全体光量</span>
       <input
         type="range" min={0} max={100} step={1} value={shown}
@@ -151,7 +151,7 @@ function Flash({ send }: { send: Send }) {
   const down = (e: React.PointerEvent) => { e.preventDefault(); setHeld(true); send({ cmd: 'flash', on: true }) }
   const up = (e: React.PointerEvent) => { if (!held) return; e.preventDefault(); setHeld(false); send({ cmd: 'flash', on: false }) }
   return (
-    <button className={`${btn} flex-1 py-5 ${held ? active : idle}`} onPointerDown={down} onPointerUp={up} onPointerLeave={up} onPointerCancel={up}>
+    <button className={`${btn} flex-1 py-5 short:py-3 ${held ? active : idle}`} onPointerDown={down} onPointerUp={up} onPointerLeave={up} onPointerCancel={up}>
       FLASH
     </button>
   )
@@ -162,12 +162,12 @@ export function Master({ s, send }: { s: PanelState; send: Send }) {
     <Card>
       <div className="flex gap-2">
         <button
-          className={`${btn} flex-1 py-5 ${s.blackout ? 'border-rose-600 bg-rose-600 text-white' : idle}`}
+          className={`${btn} flex-1 py-5 short:py-3 ${s.blackout ? 'border-rose-600 bg-rose-600 text-white' : idle}`}
           onClick={() => send({ cmd: 'blackout' })}
         >
           BLACKOUT
         </button>
-        <Choice className="flex-1 py-5" label="暗転" on={s.fading} onClick={() => send({ cmd: 'fade' })} />
+        <Choice className="flex-1 py-5 short:py-3" label="暗転" on={s.fading} onClick={() => send({ cmd: 'fade' })} />
         <Flash send={send} />
       </div>
       <MasterSlider value={s.master} send={send} />

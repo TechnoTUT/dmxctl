@@ -1,6 +1,8 @@
 @import "tailwindcss";
 
 @custom-variant dark (&:where(.dark, .dark *));
+/* 高さの低い画面。余白を詰める */
+@custom-variant short (@media (max-height: 760px));
 
 @layer base {
   :root {
