@@ -20,8 +20,9 @@ function Card({ title, note, children, tone }: { title?: string; note?: string; 
   return (
     <section className={`mb-4 rounded-2xl border p-4 shadow-sm ${toneCls}`}>
       {title && (
-        <h2 className="mb-3 text-sm font-bold text-slate-500 dark:text-slate-400">
-          {title} {note && <span className="ml-1 text-xs font-normal">{note}</span>}
+        <h2 className="mb-3 flex flex-wrap items-baseline gap-x-2 text-sm font-bold text-slate-500 dark:text-slate-400">
+          <span className="whitespace-nowrap">{title}</span>
+          {note && <span className="text-xs font-normal">{note}</span>}
         </h2>
       )}
       {children}
@@ -61,7 +62,7 @@ export function PinBox({ onSubmit }: { onSubmit: (pin: string) => void }) {
 
 function Chip({ children, tone }: { children: React.ReactNode; tone?: 'ok' | 'bad' }) {
   const t = tone === 'ok' ? 'text-emerald-600 dark:text-emerald-400' : tone === 'bad' ? 'text-rose-600 dark:text-rose-400' : 'text-slate-500 dark:text-slate-400'
-  return <span className={`rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-xs font-semibold dark:border-slate-800 dark:bg-slate-950 ${t}`}>{children}</span>
+  return <span className={`whitespace-nowrap rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-xs font-semibold dark:border-slate-800 dark:bg-slate-950 ${t}`}>{children}</span>
 }
 
 export function Status({ s }: { s: PanelState }) {
@@ -106,7 +107,7 @@ function MasterSlider({ value, send }: { value: number; send: Send }) {
   }
   return (
     <div className="mt-4 flex items-center gap-3">
-      <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">全体光量</span>
+      <span className="whitespace-nowrap text-xs font-semibold text-slate-500 dark:text-slate-400">全体光量</span>
       <input
         type="range" min={0} max={100} step={1} value={shown}
         className="h-8 flex-1 accent-[#C7000A]"
@@ -148,7 +149,7 @@ export function Master({ s, send }: { s: PanelState; send: Send }) {
       <div className="mt-3 flex items-center gap-2">
         <Choice label="TAP" onClick={() => send({ cmd: 'tap' })} />
         <Choice label="頭出し" onClick={() => send({ cmd: 'resync' })} />
-        <span className="font-mono text-xs text-slate-500 dark:text-slate-400">BPM {s.bpm.toFixed(1)}</span>
+        <span className="whitespace-nowrap font-mono text-xs text-slate-500 dark:text-slate-400">BPM {s.bpm.toFixed(1)}</span>
       </div>
     </Card>
   )
@@ -162,14 +163,14 @@ export function Auto({ s, send }: { s: PanelState; send: Send }) {
       <div className="flex flex-wrap items-center gap-2">
         <Choice label={a.enabled ? 'オート ON' : 'オート OFF'} on={a.enabled} onClick={() => send({ cmd: 'auto' })} />
         {a.manual != null && <Choice label="オートに戻す" onClick={() => send({ cmd: 'auto_resume' })} />}
-        <span className="text-xs text-slate-500 dark:text-slate-400">{note}</span>
+        <span className="whitespace-nowrap text-xs text-slate-500 dark:text-slate-400">{note}</span>
       </div>
       <Sub>プリセット</Sub>
-      <div className="flex gap-2">
-        {a.presets.map((n, i) => <Choice key={i} className="flex-1" label={n} on={i === a.preset} onClick={() => send({ cmd: 'preset', index: i })} />)}
+      <div className="flex flex-wrap gap-2">
+        {a.presets.map((n, i) => <Choice key={i} className="min-w-24 flex-1" label={n} on={i === a.preset} onClick={() => send({ cmd: 'preset', index: i })} />)}
       </div>
       <Sub>フレーズを試す</Sub>
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(92px,1fr))] gap-2">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(96px,1fr))] gap-2">
         {s.phrases.map((p) => <Choice key={p.key} label={p.label} on={a.look === p.key} onClick={() => send({ cmd: 'look', phrase: p.key })} />)}
       </div>
     </Card>
@@ -191,7 +192,7 @@ export function Colors({ s, send }: { s: PanelState; send: Send }) {
         {slotBtn('sub', 'サブ', s.sub)}
         <Choice label="入れ替え" onClick={() => send({ cmd: 'swap' })} />
       </div>
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(92px,1fr))] gap-2">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(96px,1fr))] gap-2">
         {s.colors.map((c) => (
           <button
             key={c.name}
@@ -211,7 +212,7 @@ export function Scenes({ s, send }: { s: PanelState; send: Send }) {
   if (!s.scenes.length) return null
   return (
     <Card title="シーン">
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(92px,1fr))] gap-2">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(96px,1fr))] gap-2">
         {s.scenes.map((n) => <Choice key={n} label={n} on={s.last_scene === n} onClick={() => send({ cmd: 'scene', name: n })} />)}
       </div>
     </Card>

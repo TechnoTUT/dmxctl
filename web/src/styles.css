@@ -10,6 +10,11 @@
   body {
     font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", "Yu Gothic UI", sans-serif;
     @apply bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100;
+    /* 日本語を文節の途中で折り返さない。非対応のブラウザでは無視される */
+    word-break: auto-phrase;
+    text-wrap: pretty;
   }
-  button { touch-action: manipulation; user-select: none; cursor: pointer; }
+  h1, h2, h3 { text-wrap: balance; }
+  /* ボタンの文字は折り返さず、入り切らないときは省略する */
+  button { touch-action: manipulation; user-select: none; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 }
