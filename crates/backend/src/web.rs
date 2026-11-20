@@ -78,51 +78,71 @@ struct Request {
     body: Vec<u8>,
 }
 
+/// 要求の本文の上限
+const MAX_BODY: usize = 64 * 1024;
+/// 要求のヘッダーの上限
+const MAX_HEAD: usize = 16 * 1024;
+
+/// 要求を読めなかった理由。接続が切れた(Closed)とき以外は、理由を答えてから閉じる
+enum ReadError {
+    Closed,
+    /// HTTP の状態と、理由
+    Reply(&'static str, &'static str),
+}
+
 /// 要求を読む(ヘッダーは16KB、本文は64KBまで)
-fn read_request(stream: &mut TcpStream) -> Option<Request> {
+fn read_request(stream: &mut TcpStream) -> Result<Request, ReadError> {
+    let bad = ReadError::Reply("400 Bad Request", "bad request");
     let mut buf = Vec::new();
     let mut chunk = [0u8; 2048];
     let head_end = loop {
-        let n = stream.read(&mut chunk).ok()?;
+        let n = stream.read(&mut chunk).map_err(|_| ReadError::Closed)?;
         if n == 0 {
-            return None;
+            return Err(ReadError::Closed);
         }
         buf.extend_from_slice(&chunk[..n]);
         if let Some(i) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
             break i;
         }
-        if buf.len() > 16 * 1024 {
-            return None;
+        if buf.len() > MAX_HEAD {
+            return Err(ReadError::Reply("431 Request Header Fields Too Large", "header too large"));
         }
     };
     let head = String::from_utf8_lossy(&buf[..head_end]).to_string();
     let mut lines = head.split("\r\n");
-    let mut first = lines.next()?.split_whitespace();
-    let method = first.next()?.to_string();
-    let path = first.next()?.split('?').next()?.to_string();
+    let mut first = lines.next().ok_or(ReadError::Closed)?.split_whitespace();
+    let method = first.next().ok_or(ReadError::Reply("400 Bad Request", "bad request line"))?.to_string();
+    let path = first.next().and_then(|p| p.split('?').next()).ok_or(ReadError::Reply("400 Bad Request", "bad request line"))?.to_string();
     let mut len = 0usize;
     let mut pin = None;
     for l in lines {
         let Some((k, v)) = l.split_once(':') else { continue };
         match k.trim().to_ascii_lowercase().as_str() {
-            "content-length" => len = v.trim().parse().ok()?,
+            "content-length" => len = v.trim().parse().map_err(|_| ReadError::Reply("400 Bad Request", "invalid Content-Length"))?,
             "x-pin" => pin = Some(v.trim().to_string()),
             _ => {}
         }
     }
-    if len > 64 * 1024 {
-        return None;
+    if len > MAX_BODY {
+        return Err(ReadError::Reply("413 Payload Too Large", "body too large (max 64KB)"));
     }
     let mut body = buf[head_end + 4..].to_vec();
     while body.len() < len {
-        let n = stream.read(&mut chunk).ok()?;
+        let n = stream.read(&mut chunk).map_err(|_| bad_body())?;
         if n == 0 {
             break;
         }
         body.extend_from_slice(&chunk[..n]);
     }
+    if body.len() < len {
+        return Err(bad);
+    }
     body.truncate(len);
-    Some(Request { method, path, pin, body })
+    Ok(Request { method, path, pin, body })
+}
+
+fn bad_body() -> ReadError {
+    ReadError::Reply("400 Bad Request", "incomplete body")
 }
 
 fn respond(stream: &mut TcpStream, status: &str, ctype: &str, body: &[u8]) {
@@ -135,10 +155,25 @@ fn serve(mut stream: TcpStream, core: &Shared, ctx: Option<&dmxctl_core::wake::W
     let _ = stream.set_nonblocking(false);
     let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
-    let Some(req) = read_request(&mut stream) else { return };
+    let req = match read_request(&mut stream) {
+        Ok(req) => req,
+        Err(ReadError::Closed) => return,
+        Err(ReadError::Reply(status, reason)) => {
+            respond(&mut stream, status, "application/json", json!({ "error": reason }).to_string().as_bytes());
+            return;
+        }
+    };
     match (req.method.as_str(), req.path.as_str()) {
         ("GET", "/") | ("GET", "/index.html") => respond(&mut stream, "200 OK", "text/html; charset=utf-8", PAGE.as_bytes()),
-        (m, "/api/state") | (m, "/api/cmd") if m == "GET" || m == "POST" => {
+        // 状態は GET、操作は POST だけ(GET で操作が実行されないように)
+        ("POST", "/api/state") | ("GET", "/api/cmd") | ("PUT" | "DELETE" | "PATCH", "/api/state" | "/api/cmd") => {
+            let allow = if req.path == "/api/cmd" { "POST" } else { "GET" };
+            let body = json!({ "error": format!("method not allowed (use {allow})") }).to_string();
+            let head = format!("HTTP/1.1 405 Method Not Allowed\r\nAllow: {allow}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n", body.len());
+            let _ = stream.write_all(head.as_bytes());
+            let _ = stream.write_all(body.as_bytes());
+        }
+        ("GET", "/api/state") | ("POST", "/api/cmd") => {
             let mut c = lock(core);
             // 合言葉を決めていれば、APIはそれが合うときだけ
             let pin = c.project.web_pin.trim().to_string();
@@ -201,12 +236,24 @@ pub fn state(c: &Core) -> Value {
 /// 操作(パネルのボタン)。{"cmd": "...", ...}
 pub fn command(c: &mut Core, v: &Value) -> Result<(), String> {
     let cmd = v["cmd"].as_str().ok_or("cmd がありません")?;
-    let on = v["on"].as_bool();
+    // on は真偽値だけ(文字列などを切り替えとして扱わない)。無ければ切り替え
+    let on = match v.get("on") {
+        None | Some(Value::Null) => None,
+        Some(Value::Bool(b)) => Some(*b),
+        Some(_) => return Err("on は true か false です".into()),
+    };
     let num = v["value"].as_f64().map(|x| x as f32);
     let text = |k: &str| v[k].as_str().map(str::to_string).ok_or(format!("{k} がありません"));
     match cmd {
         "blackout" => c.rt.blackout = on.unwrap_or(!c.rt.blackout),
-        "master" => c.rt.master = num.ok_or("value がありません")?.clamp(0.0, 1.0),
+        // 範囲外は黙って丸めずに拒否する(ctl・MCP と同じ)
+        "master" => {
+            let v = num.ok_or("value がありません")?;
+            if !(0.0..=1.0).contains(&v) {
+                return Err("value は 0〜1 です".into());
+            }
+            c.rt.master = v;
+        }
         "fade" => {
             let dark = on.unwrap_or(c.rt.dim > 0.5);
             // secs があればその秒数(OSC の /dmx/fade と同じ)。無ければ設定の秒数
@@ -220,7 +267,13 @@ pub fn command(c: &mut Core, v: &Value) -> Result<(), String> {
         "flash" => c.set_flash(on.unwrap_or(false).then_some(true)),
         "tap" => c.tap(),
         "resync" => c.resync(),
-        "bpm" => c.set_bpm(num.ok_or("value がありません")?),
+        "bpm" => {
+            let v = num.ok_or("value がありません")?;
+            if !(dmxctl_core::project::BPM_MIN..=dmxctl_core::project::BPM_MAX).contains(&v) {
+                return Err(format!("value は {}〜{} です", dmxctl_core::project::BPM_MIN, dmxctl_core::project::BPM_MAX));
+            }
+            c.set_bpm(v);
+        }
         "auto" => {
             c.project.auto.enabled = on.unwrap_or(!c.project.auto.enabled);
             c.dirty = true;
@@ -265,4 +318,73 @@ pub fn command(c: &mut Core, v: &Value) -> Result<(), String> {
         _ => return Err(format!("知らない操作です: {cmd}")),
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use dmxctl_core::fixture::Library;
+    use dmxctl_core::project::Project;
+
+    fn core() -> Core {
+        let (lib, _) = Library::load(std::path::Path::new("none"));
+        Core::new(Project::starter(&lib), Arc::new(lib))
+    }
+
+    #[test]
+    fn on_must_be_a_boolean_and_values_must_be_in_range() {
+        let mut c = core();
+        // 真偽値でない on は、切り替えとして扱わずに拒む
+        assert_eq!(command(&mut c, &json!({"cmd": "blackout", "on": "no"})).unwrap_err(), "on は true か false です");
+        assert!(!c.rt.blackout);
+        assert!(command(&mut c, &json!({"cmd": "auto", "on": "off"})).is_err());
+        command(&mut c, &json!({"cmd": "blackout", "on": true})).unwrap();
+        assert!(c.rt.blackout);
+        command(&mut c, &json!({"cmd": "blackout"})).unwrap();
+        assert!(!c.rt.blackout, "on が無ければ切り替え");
+        // 範囲外の全体光量・BPM は、丸めずに拒む
+        for v in [json!({"cmd": "master", "value": 2}), json!({"cmd": "master", "value": -0.1}), json!({"cmd": "bpm", "value": 99999}), json!({"cmd": "bpm", "value": -5})] {
+            assert!(command(&mut c, &v).is_err(), "{v}");
+        }
+        assert_eq!((c.rt.master, c.project.bpm), (1.0, 120.0));
+        command(&mut c, &json!({"cmd": "master", "value": 0.5})).unwrap();
+        command(&mut c, &json!({"cmd": "bpm", "value": 128})).unwrap();
+        assert_eq!((c.rt.master, c.project.bpm), (0.5, 128.0));
+    }
+
+    /// 操作パネルの HTTP の窓口に、生の要求を送って、答えの1行目を返す
+    fn http(port: u16, request: &[u8]) -> String {
+        let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let _ = s.write_all(request);
+        // 送り終えたことを伝える(本文が途中で切れた要求でも、本体が続きを待ち続けないように)
+        let _ = s.shutdown(std::net::Shutdown::Write);
+        let mut out = String::new();
+        let _ = s.read_to_string(&mut out);
+        out.lines().next().unwrap_or("").to_string()
+    }
+
+    #[test]
+    fn methods_and_malformed_requests_get_an_answer() {
+        let shared: Shared = Arc::new(std::sync::Mutex::new(core()));
+        let port = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+        let _server = WebServer::start(shared.clone(), None, port).unwrap();
+        let cmd = br#"{"cmd":"blackout","on":true}"#;
+        let with_body = |method: &str, path: &str, body: &[u8]| {
+            let mut r = format!("{method} {path} HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n", body.len()).into_bytes();
+            r.extend_from_slice(body);
+            r
+        };
+        // 操作は POST だけ。GET では実行しない
+        assert!(http(port, &with_body("GET", "/api/cmd", cmd)).contains("405"));
+        assert!(!lock(&shared).rt.blackout, "GET で操作が実行された");
+        assert!(http(port, &with_body("POST", "/api/state", b"")).contains("405"));
+        assert!(http(port, &with_body("POST", "/api/cmd", cmd)).contains("200"));
+        assert!(lock(&shared).rt.blackout);
+        assert!(http(port, b"GET /api/state HTTP/1.1\r\nHost: x\r\n\r\n").contains("200"));
+        // 読めない要求にも、理由を答える
+        assert!(http(port, &with_body("POST", "/api/cmd", &vec![b'a'; 70 * 1024])).contains("413"));
+        assert!(http(port, b"POST /api/cmd HTTP/1.1\r\nHost: x\r\nContent-Length: abc\r\n\r\n").contains("400"));
+        assert!(http(port, b"POST /api/cmd HTTP/1.1\r\nHost: x\r\nContent-Length: 50\r\n\r\n{\"cmd\"").contains("400"), "本文が途中で切れた");
+    }
 }
