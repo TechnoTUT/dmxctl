@@ -10,7 +10,7 @@ const ink = (c: Rgb) => (c[0] * 0.299 + c[1] * 0.587 + c[2] * 0.114 > 150 ? '#11
 
 const btn = 'whitespace-nowrap rounded-xl border px-3.5 py-3 text-sm font-semibold transition active:scale-[.97]'
 // 並べるボタン。長い名前は、1行に入り切らないときだけ中で折り返す
-const wrap = 'max-w-full min-w-24 grow whitespace-normal [overflow-wrap:anywhere]'
+const wrap = 'max-w-full min-w-24 grow !whitespace-normal [overflow-wrap:anywhere]'
 const idle = 'border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-200 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800'
 const active = 'border-[#C7000A] bg-[#C7000A] text-white shadow-md shadow-[#C7000A]/20'
 
@@ -192,7 +192,7 @@ export function Auto({ s, send }: { s: PanelState; send: Send }) {
       </div>
       <Sub>プリセット</Sub>
       <div className="flex flex-wrap gap-2">
-        {a.presets.map((n, i) => <Choice key={i} className="min-w-24 flex-1" label={n} on={i === a.preset} onClick={() => send({ cmd: 'preset', index: i })} />)}
+        {a.presets.map((n, i) => <Choice key={i} className="min-w-24 max-w-full flex-1 !whitespace-normal [overflow-wrap:anywhere]" label={n} on={i === a.preset} onClick={() => send({ cmd: 'preset', index: i })} />)}
       </div>
       <Sub>フレーズを試す</Sub>
       <div className="flex flex-wrap gap-2">
