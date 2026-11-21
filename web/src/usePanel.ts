@@ -5,6 +5,8 @@ import { ApiError, Command, PanelState, PinError, StreamUnavailable, fetchState,
 const RETRY_MS = 1000
 /** サーバーは10秒ごとに合図を送る。これだけ何も届かなければ切れたものとする */
 const SILENT_MS = 30_000
+/** ストリームを断られて読み直しに切り替えたあと、ストリームに戻れるか試すまでの時間 */
+const STREAM_RETRY_MS = 30_000
 
 /** 中断できる待ち。中断されたら待たずに戻る */
 function sleep(ms: number, signal: AbortSignal) {
@@ -57,8 +59,10 @@ export function usePanel() {
 
   useEffect(() => {
     const ac = new AbortController()
-    const pollLoop = async () => {
-      while (!ac.signal.aborted) {
+    // 一定時間だけ1秒ごとに読み直す。そのあとストリームを試し直す
+    const pollFor = async (ms: number) => {
+      const end = Date.now() + ms
+      while (!ac.signal.aborted && Date.now() < end) {
         try {
           apply(await fetchState())
         } catch (e) {
@@ -78,7 +82,10 @@ export function usePanel() {
             setNeedPin(true)
             return
           }
-          if (e instanceof StreamUnavailable) return pollLoop()
+          if (e instanceof StreamUnavailable) {
+            await pollFor(STREAM_RETRY_MS)
+            continue
+          }
           setOffline(true)
         }
         await sleep(RETRY_MS, ac.signal)
