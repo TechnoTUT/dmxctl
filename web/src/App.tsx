@@ -22,7 +22,7 @@ function useTheme() {
 }
 
 export function App() {
-  const { state, offline, notice, needPin, send, poll } = usePanel()
+  const { state, offline, notice, needPin, send, reconnect } = usePanel()
   const { dark, toggle } = useTheme()
   const online = !offline && state !== null
   return (
@@ -56,7 +56,7 @@ export function App() {
       {/* 広い画面では2列にして、スクロールせずに全体を操作できるようにする */}
       <main className="mx-auto max-w-3xl px-4 pb-10 pt-4 lg:flex lg:h-[calc(100dvh-4.25rem)] lg:max-w-[1600px] lg:flex-col lg:pb-3">
         {notice && <Notice text={notice} />}
-        {needPin && <PinBox onSubmit={(p) => { savePin(p); poll() }} />}
+        {needPin && <PinBox onSubmit={(p) => { savePin(p); reconnect() }} />}
         {state && (
           <div className="lg:grid lg:min-h-0 lg:flex-1 lg:grid-cols-2 lg:gap-x-4">
             <div className="lg:min-h-0 lg:overflow-y-auto">
@@ -70,7 +70,6 @@ export function App() {
             </div>
           </div>
         )}
-        <p className="text-xs text-slate-500 dark:text-slate-400 lg:shrink-0">このページは dmxctl が出しています。1秒ごとに様子を読み直します。</p>
       </main>
     </>
   )
