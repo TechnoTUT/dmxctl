@@ -43,16 +43,16 @@ fn read_until(s: &mut TcpStream, got: &mut String, needle: &str) -> bool {
     got.contains(needle)
 }
 
-fn port(offset: u16) -> u16 {
-    39500 + offset + (std::process::id() % 200) as u16
+/// ポート 0 で待ち受け、割り当てられたポートで接続する。固定のポートだと、ほかのプロセスと重なって失敗することがある
+fn start(core: Shared) -> WebServer {
+    WebServer::start(core, None, 0).expect("待ち受けできない")
 }
 
 #[test]
 fn events_push_state_changes() {
     let core = shared("");
-    let port = port(0);
-    let _server = WebServer::start(core.clone(), None, port).expect("待ち受けできない");
-    let mut s = open(port, None);
+    let server = start(core.clone());
+    let mut s = open(server.port, None);
     let mut got = String::new();
     assert!(read_until(&mut s, &mut got, "event: state"), "最初の様子が届かない: {got}");
     assert!(got.starts_with("HTTP/1.1 200 OK"));
@@ -66,8 +66,8 @@ fn events_push_state_changes() {
 #[test]
 fn events_need_the_pin() {
     let core = shared("secret");
-    let port = port(1);
-    let _server = WebServer::start(core, None, port).expect("待ち受けできない");
+    let server = start(core);
+    let port = server.port;
     let mut denied = open(port, Some("wrong"));
     let mut got = String::new();
     read_until(&mut denied, &mut got, "401");
@@ -75,4 +75,39 @@ fn events_need_the_pin() {
     let mut allowed = open(port, Some("secret"));
     let mut got = String::new();
     assert!(read_until(&mut allowed, &mut got, "event: state"), "{got}");
+}
+
+#[test]
+fn events_refuse_more_than_the_limit() {
+    let server = start(shared(""));
+    // 上限まではつながり、それを超えると 503 で断られる
+    let mut open_streams: Vec<TcpStream> = Vec::new();
+    for _ in 0..16 {
+        let mut s = open(server.port, None);
+        let mut got = String::new();
+        assert!(read_until(&mut s, &mut got, "event: state"), "{got}");
+        open_streams.push(s);
+    }
+    let mut over = open(server.port, None);
+    let mut got = String::new();
+    read_until(&mut over, &mut got, "503");
+    assert!(got.starts_with("HTTP/1.1 503"), "{got}");
+}
+
+#[test]
+fn events_are_quiet_while_nothing_changes() {
+    let server = start(shared(""));
+    let mut s = open(server.port, None);
+    let mut got = String::new();
+    assert!(read_until(&mut s, &mut got, "event: state"));
+    // 変化が無ければ、続けて様子は届かない
+    got.clear();
+    let until = Instant::now() + Duration::from_millis(1500);
+    let mut buf = [0u8; 4096];
+    while Instant::now() < until {
+        if let Ok(n) = s.read(&mut buf) {
+            got.push_str(&String::from_utf8_lossy(&buf[..n]));
+        }
+    }
+    assert!(!got.contains("event: state"), "変化が無いのに送られた: {got}");
 }
