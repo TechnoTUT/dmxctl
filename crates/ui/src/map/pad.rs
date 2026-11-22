@@ -401,7 +401,8 @@ pub(super) fn fader_cell(ui: &mut egui::Ui, rect: Rect, ctl: Ctl, info: &Info, v
     let resp = ui.interact(rect, ui.id().with(("apc", ctl.trigger().1, true)), Sense::click());
     let p = ui.painter();
     let radius = 8.0;
-    let accent = info.color.unwrap_or(theme::TEXT_FAINT);
+    // F1〜F8 はブランドの色にそろえる。MASTER は割り当ての色のまま
+    let accent = if matches!(ctl, Ctl::Fader(0..=7)) { theme::ACCENT } else { info.color.unwrap_or(theme::TEXT_FAINT) };
     p.rect_filled(rect, radius, if resp.hovered() { mix(PAD, Color32::WHITE, 0.04) } else { mix(PAD, Color32::BLACK, 0.15) });
     p.rect_stroke(rect, radius, Stroke::new(1.0, mix(PAD, Color32::WHITE, 0.06)), StrokeKind::Inside);
 
