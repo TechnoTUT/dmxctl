@@ -437,8 +437,7 @@ fn fill_polygon(points: &[Pos2], color: Color32) -> egui::Mesh {
     let cross = |a: Pos2, b: Pos2, c: Pos2| (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
     let area: f32 = (0..points.len()).map(|i| { let (a, b) = (points[i], points[(i + 1) % points.len()]); a.x * b.y - b.x * a.y }).sum();
     let sign = if area >= 0.0 { 1.0 } else { -1.0 };
-    let mut mesh = egui::Mesh::default();
-    mesh.vertices = points.iter().map(|&pos| egui::epaint::Vertex { pos, uv: egui::epaint::WHITE_UV, color }).collect();
+    let mut mesh = egui::Mesh { vertices: points.iter().map(|&pos| egui::epaint::Vertex { pos, uv: egui::epaint::WHITE_UV, color }).collect(), ..Default::default() };
     let mut rest: Vec<u32> = (0..points.len() as u32).collect();
     while rest.len() > 3 {
         let n = rest.len();
