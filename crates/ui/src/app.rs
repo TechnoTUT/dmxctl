@@ -6,7 +6,7 @@ use dmxctl_core::fixture::{Library, Range};
 use dmxctl_backend::host::{Host, Revisions};
 use dmxctl_core::io::midi;
 use dmxctl_core::project::*;
-use eframe::egui::{self, Align, Color32, Layout, RichText};
+use eframe::egui::{self, Align, Color32, Layout, Pos2, RichText};
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
@@ -412,17 +412,53 @@ fn output_has_error(status: &str) -> bool {
     ["エラー", "失敗", "見つかりません", "開けません"].iter().any(|k| status.contains(k))
 }
 
-/// 左上のロゴ
+/// 左上のロゴ。Web 操作パネルのファビコンと同じ図形を、塗りつぶした三角形で描く
 fn brand(ui: &mut egui::Ui) {
     use crate::theme;
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(22.0, 22.0), egui::Sense::hover());
-    let p = ui.painter();
-    let c = rect.center();
-    // 3色の光が重なるマーク
-    for (dx, dy, color) in [(-3.5, -2.5, Color32::from_rgb(255, 70, 110)), (3.5, -2.5, Color32::from_rgb(70, 140, 255)), (0.0, 3.5, theme::ACCENT)] {
-        p.rect_filled(egui::Rect::from_center_size(c + egui::vec2(dx, dy), egui::vec2(9.5, 9.5)), 2.0, theme::alpha(color, 0.85));
+    // ファビコンの viewBox は 61×69 で、左上は (5, 3)
+    const HEIGHT: f32 = 24.0;
+    const ORIGIN: [f32; 2] = [5.0, 3.0];
+    const SIDE: &[[f32; 2]] = &[[45.21, 26.6], [45.21, 48.36], [52.35, 44.23], [52.38, 38.99], [56.92, 41.6], [64.05, 37.48]];
+    const WALL: &[[f32; 2]] = &[[17.34, 10.51], [7.11, 4.6], [7.11, 70.36], [14.28, 66.21], [14.28, 17.0], [17.34, 18.75], [17.34, 64.44], [24.52, 60.3], [24.52, 22.93], [29.48, 25.81], [33.07, 19.59]];
+    const RED: &[[f32; 2]] = &[[45.84, 26.97], [38.68, 22.83], [38.67, 43.92], [35.64, 45.68], [35.64, 21.08], [28.47, 16.94], [28.46, 58.03], [45.85, 47.99]];
+    let scale = HEIGHT / 69.0;
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(61.0 * scale, HEIGHT), egui::Sense::hover());
+    let at = |q: &[f32; 2]| rect.min + egui::vec2((q[0] - ORIGIN[0]) * scale, (q[1] - ORIGIN[1]) * scale);
+    for (points, color) in [(SIDE, theme::TEXT), (WALL, theme::TEXT), (RED, theme::BRAND)] {
+        let points: Vec<Pos2> = points.iter().map(at).collect();
+        ui.painter().add(egui::Shape::mesh(fill_polygon(&points, color)));
     }
+    ui.add_space(2.0);
     ui.label(RichText::new("DMX").font(theme::bold(15.0)).color(theme::TEXT));
+}
+
+/// 凹みのある多角形を、耳切り法で三角形に分けて塗る
+fn fill_polygon(points: &[Pos2], color: Color32) -> egui::Mesh {
+    let cross = |a: Pos2, b: Pos2, c: Pos2| (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+    let area: f32 = (0..points.len()).map(|i| { let (a, b) = (points[i], points[(i + 1) % points.len()]); a.x * b.y - b.x * a.y }).sum();
+    let sign = if area >= 0.0 { 1.0 } else { -1.0 };
+    let mut mesh = egui::Mesh::default();
+    mesh.vertices = points.iter().map(|&pos| egui::epaint::Vertex { pos, uv: egui::epaint::WHITE_UV, color }).collect();
+    let mut rest: Vec<u32> = (0..points.len() as u32).collect();
+    while rest.len() > 3 {
+        let n = rest.len();
+        let ear = (0..n).find(|&i| {
+            let (a, b, c) = (points[rest[(i + n - 1) % n] as usize], points[rest[i] as usize], points[rest[(i + 1) % n] as usize]);
+            cross(a, b, c) * sign > 0.0
+                && !rest.iter().any(|&j| {
+                    let q = points[j as usize];
+                    q != a && q != b && q != c && cross(a, b, q) * sign >= 0.0 && cross(b, c, q) * sign >= 0.0 && cross(c, a, q) * sign >= 0.0
+                })
+        });
+        // 図形が不正なときは、無限ループを避けて残りを諦める
+        let Some(i) = ear else { break };
+        mesh.add_triangle(rest[(i + n - 1) % n], rest[i], rest[(i + 1) % n]);
+        rest.remove(i);
+    }
+    if rest.len() == 3 {
+        mesh.add_triangle(rest[0], rest[1], rest[2]);
+    }
+    mesh
 }
 
 /// タブのボタン(選ばれているタブはうっすら色付きの角丸)

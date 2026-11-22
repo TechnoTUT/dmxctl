@@ -22,8 +22,10 @@ pub const WIDGET_ACTIVE: Color32 = rgb(0x38, 0x3F, 0x4C);
 pub const TEXT: Color32 = rgb(0xE7, 0xEA, 0xF0);
 pub const TEXT_DIM: Color32 = rgb(0x8C, 0x94, 0xA3);
 pub const TEXT_FAINT: Color32 = rgb(0x5A, 0x61, 0x6E);
-/// 選択中のタブなど
-pub const ACCENT: Color32 = rgb(0x5E, 0xE6, 0xD0);
+/// ロゴの赤。塗りには、透明度を付けるか薄めて利用する
+pub const BRAND: Color32 = rgb(0xC7, 0x00, 0x0A);
+/// 選択中のタブなど。黒い地で文字が読めるよう、BRAND を4割ほど白に寄せた色
+pub const ACCENT: Color32 = rgb(0xDD, 0x66, 0x6A);
 pub const OK: Color32 = rgb(0x4A, 0xDE, 0x80);
 pub const WARN: Color32 = rgb(0xF5, 0xA5, 0x24);
 pub const DANGER: Color32 = rgb(0xEF, 0x44, 0x44);
