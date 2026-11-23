@@ -537,6 +537,26 @@ mod tests {
         let err = c.apply_project_patch(&set(at(&["fixtures"], None), fixtures), true).unwrap_err();
         assert!(err.to_string().contains("overlap"), "{err}");
 
+        // 4回目のレビュー: 安全な値がある機材の値の数、使わない機材を使い始めて重ねる、sACN の同じ送り先
+        let err = c.apply_project_patch(&set(at(&["fixtures", "values"], Some(spot)), json!([0])), true).unwrap_err();
+        assert!(err.to_string().contains("values length"), "{err}");
+        let mut c2 = core();
+        c2.project.add_fixture(&lib, "glint/glp-185l").unwrap();
+        let other2 = c2.project.fixtures.len() - 1;
+        let spot2 = c2.project.fixtures.iter().position(|f| f.profile == "stage-evolution/minispot30").unwrap();
+        let (u2, a2) = (c2.project.fixtures[spot2].universe, c2.project.fixtures[spot2].address);
+        c2.apply_project_patch(&[set(at(&["fixtures", "enabled"], Some(other2)), json!(false)), set(at(&["fixtures", "universe"], Some(other2)), json!(u2)), set(at(&["fixtures", "address"], Some(other2)), json!(a2))].concat(), false).unwrap();
+        let err = c2.apply_project_patch(&set(at(&["fixtures", "enabled"], Some(other2)), json!(true)), true).unwrap_err();
+        assert!(err.to_string().contains("overlap"), "{err}");
+        let laser_universe = c2.project.fixtures.iter().find(|f| f.profile == "stage-evolution/laserscan300").unwrap().universe;
+        let mut outputs = serde_json::to_value(&c2.project.outputs).unwrap();
+        outputs.as_array_mut().unwrap().push(json!({"enabled": true, "universe": laser_universe, "kind": {"Sacn": {"ip": "10.0.0.7", "sacn_universe": 1, "priority": 100}}}));
+        c2.apply_project_patch(&set(at(&["outputs"], None), outputs), false).unwrap();
+        let mut outputs = serde_json::to_value(&c2.project.outputs).unwrap();
+        outputs.as_array_mut().unwrap().push(json!({"enabled": true, "universe": 3, "kind": {"Sacn": {"ip": "10.0.0.7", "sacn_universe": 1, "priority": 50}}}));
+        let err = c2.apply_project_patch(&set(at(&["outputs"], None), outputs), true).unwrap_err();
+        assert!(err.to_string().contains("outputs that reach protected fixtures"), "{err}");
+
         // グループで ARM の対象を選ぶ割り当てがあるとき、グループの中身を変えて対象を増やせない
         let mut bindings = serde_json::to_value(&c.project.bindings).unwrap();
         bindings.as_array_mut().unwrap().push(json!({"id": 0, "name": "ARM", "trigger": null, "action": {"Arm": {"sel": {"Group": "G"}, "mode": "Toggle"}}}));

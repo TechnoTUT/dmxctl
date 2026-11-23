@@ -33,9 +33,10 @@ fn has_safe_values(f:&FixtureInstance,lib:&Library)->bool {
 
 /// 保護された機材・安全な値がある機材のチャンネルのうち、別の機材が重なっているもの
 /// (保護された機材のID, 重なる機材のID, ユニバース, アドレス, 重なる機材が後に書くか)。
-/// 出力は機材の並び順に書き、後の機材が上書きする。異常時のフレームは使わない機材も書くので、使う・使わないに関係なく数える
-fn protected_overlaps(project:&Project,lib:&Library)->std::collections::BTreeSet<(u32,u32,usize,usize,bool)> {
-    let spans:Vec<_>=project.fixtures.iter().filter_map(|f| {
+/// 出力は機材の並び順に書き、後の機材が上書きする。`emergency`: 異常時のフレーム(使わない機材も書く)。
+/// false なら通常の出力(使う機材だけが書く)
+fn protected_overlaps(project:&Project,lib:&Library,emergency:bool)->std::collections::BTreeSet<(u32,u32,usize,usize,bool)> {
+    let spans:Vec<_>=project.fixtures.iter().filter(|f|emergency || f.enabled).filter_map(|f| {
         let len=lib.mode(&f.profile,f.mode)?.channels.len();
         Some((f,f.address as usize,f.address as usize+len))
     }).collect();
@@ -49,11 +50,22 @@ fn protected_overlaps(project:&Project,lib:&Library)->std::collections::BTreeSet
     slots
 }
 
-/// 保護された機材に届く出力の経路。保護された機材のあるユニバースを送る出力と、その送り先へ送る出力
-fn protected_outputs(project:&Project,universes:&HashSet<usize>)->anyhow::Result<Vec<Value>> {
-    let outputs=project.outputs.iter().map(|o|Ok((o.universe,serde_json::to_value(&o.kind)?,serde_json::to_value(o)?))).collect::<anyhow::Result<Vec<_>>>()?;
-    let kinds:Vec<&Value>=outputs.iter().filter(|(u,..)|universes.contains(u)).map(|(_,k,_)|k).collect();
-    Ok(outputs.iter().filter(|(u,k,_)|universes.contains(u) || kinds.contains(&k)).map(|(..,o)|o.clone()).collect())
+/// 出力の送り先(届く機器)。sACN の優先度のように、送り先を変えない設定は含めない
+fn destination(kind:&OutputKind)->(&'static str,String,u32) {
+    match kind {
+        OutputKind::ArtNet{ip,art_universe}=>("artnet",ip.trim().to_string(),*art_universe as u32),
+        OutputKind::Sacn{ip,sacn_universe,..}=>("sacn",ip.trim().to_string(),*sacn_universe as u32),
+        OutputKind::OpenDmxSerial{port}=>("serial",port.trim().to_string(),0),
+        OutputKind::OpenDmxD2xx{index}=>("d2xx",String::new(),*index),
+    }
+}
+
+/// 保護された機材に届く出力の経路。保護された機材のあるユニバースを送る出力と、その送り先へ送る出力(設定ごと比べる)
+fn protected_outputs(old:&Project,new:&Project,universes:&HashSet<usize>)->anyhow::Result<(Vec<Value>,Vec<Value>)> {
+    let destinations:HashSet<_>=old.outputs.iter().chain(&new.outputs).filter(|o|universes.contains(&o.universe)).map(|o|destination(&o.kind)).collect();
+    let pick=|project:&Project|project.outputs.iter().filter(|o|universes.contains(&o.universe) || destinations.contains(&destination(&o.kind)))
+        .map(|o|Ok(serde_json::to_value(o)?)).collect::<anyhow::Result<Vec<_>>>();
+    Ok((pick(old)?,pick(new)?))
 }
 
 pub fn safety_unchanged(old:&Project,new:&Project,lib:&Library)->anyhow::Result<()> {
@@ -65,8 +77,8 @@ pub fn safety_unchanged(old:&Project,new:&Project,lib:&Library)->anyhow::Result<
     // 機材の ID が重なると、下の比べ方で同じ ID の別の機材を見てしまう
     let mut ids=HashSet::new();
     ensure!(new.fixtures.iter().all(|f|ids.insert(f.id)),"duplicate fixture id");
-    // 保護された機材の値の数がチャンネル数と違うと、出力でその機材ごと飛ばされ、安全の値も範囲も当たらない
-    for f in new.fixtures.iter().filter(|f|is_protected(f,lib)) {
+    // 保護された機材・安全な値がある機材の値の数がチャンネル数と違うと、出力でその機材ごと飛ばされ、安全の値も範囲も当たらない
+    for f in new.fixtures.iter().filter(|f|has_safe_values(f,lib)) {
         if let Some(mode)=lib.mode(&f.profile,f.mode) {
             ensure!(f.values.len()==mode.channels.len(),"protected fixture values length mismatch: {}",f.name);
         }
@@ -79,10 +91,14 @@ pub fn safety_unchanged(old:&Project,new:&Project,lib:&Library)->anyhow::Result<
     }
     // 保護された機材のアドレスに別の機材を重ねると、出力で後の機材の値に上書きされ、安全の値が保たれない。
     // もともと重なっているチャンネル(画面で作ったもの)は、並び順も含めてそのままなら認める
-    ensure!(protected_overlaps(new,lib).is_subset(&protected_overlaps(old,lib)),"fixtures cannot overlap the addresses of protected fixtures from CLI");
+    // 通常の出力(使う機材)と、異常時のフレーム(使わない機材も)の両方で比べる。使わない機材を使い始めて重ねることも拒む
+    for emergency in [false,true] {
+        ensure!(protected_overlaps(new,lib,emergency).is_subset(&protected_overlaps(old,lib,emergency)),"fixtures cannot overlap the addresses of protected fixtures from CLI");
+    }
     // 出力の送り先・送るユニバースを変えると、保護された機材に別のフレームが届く
     let universes:HashSet<usize>=old.fixtures.iter().chain(&new.fixtures).filter(|f|is_protected(f,lib)).map(|f|f.universe).collect();
-    ensure!(protected_outputs(old,&universes)?==protected_outputs(new,&universes)?,"outputs that reach protected fixtures are read-only from CLI");
+    let (before,after)=protected_outputs(old,new,&universes)?;
+    ensure!(before==after,"outputs that reach protected fixtures are read-only from CLI");
     Ok(())
 }
 
