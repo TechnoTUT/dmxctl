@@ -37,6 +37,8 @@ impl crate::host::Host {
     pub(crate) fn reload_text(&mut self,text:&str,source:&str,remote:bool,dry_run:bool)->anyhow::Result<Value> {
         let path=source;
         let mut project:Project=serde_json::from_str(text.trim_start_matches('\u{feff}'))?;
+        // 起動と同じく、右端のフェーダーに全体光量を割り当てる(まだ作っていなければ)
+        project.seed_master_binding();
         let previous={
             let core=dmxctl_core::engine::lock(&self.core);
             ensure_idle(&core)?;

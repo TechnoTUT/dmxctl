@@ -362,6 +362,9 @@ pub fn state(c: &Core) -> Value {
     })
 }
 
+/// 操作パネルの FLASH は、on: true が届いてからこの時間で消える。画面は押している間 `FLASH_RESEND_MS` ごとに送り直す
+pub const WEB_FLASH_HOLD: Duration = Duration::from_millis(1500);
+
 /// 操作(パネルのボタン)。{"cmd": "...", ...}
 pub fn command(c: &mut Core, v: &Value) -> Result<(), String> {
     let cmd = v["cmd"].as_str().ok_or("cmd がありません")?;
@@ -371,13 +374,19 @@ pub fn command(c: &mut Core, v: &Value) -> Result<(), String> {
         Some(Value::Bool(b)) => Some(*b),
         Some(_) => return Err("on は true か false です".into()),
     };
-    let num = v["value"].as_f64();
+    // value が無いときと、数値でないときを分けて知らせる
+    let num = || -> Result<f64, String> {
+        match v.get("value") {
+            None => Err("value がありません".into()),
+            Some(n) => n.as_f64().ok_or_else(|| "value は数値で指定してください".into()),
+        }
+    };
     let text = |k: &str| v[k].as_str().map(str::to_string).ok_or(format!("{k} がありません"));
     match cmd {
         "blackout" => c.rt.blackout = on.unwrap_or(!c.rt.blackout),
         // 範囲外は黙って丸めずに拒否する(ctl・MCP と同じ)
         "master" => {
-            let v = num.ok_or("value がありません")?;
+            let v = num()?;
             if !(0.0..=1.0).contains(&v) {
                 return Err("value は 0〜1 です".into());
             }
@@ -392,12 +401,17 @@ pub fn command(c: &mut Core, v: &Value) -> Result<(), String> {
             };
             c.fade_to_black(dark, secs);
         }
-        // 押している間だけ(ボタンを離したら on: false が来る)
-        "flash" => c.set_flash(on.unwrap_or(false).then_some(true)),
+        // 押している間だけ。画面は押している間 on: true を送り続け、離したら on: false を送る。
+        // 電波切れやタブを閉じて離した合図が届かなくても、送り続けが途絶えたら消える
+        "flash" => {
+            let on = on.unwrap_or(false);
+            c.set_flash(on.then_some(true));
+            c.rt.flash_deadline = on.then(|| c.now() + WEB_FLASH_HOLD);
+        }
         "tap" => c.tap(),
         "resync" => c.resync(),
         "bpm" => {
-            let v = num.ok_or("value がありません")?;
+            let v = num()?;
             use dmxctl_core::project::{BPM_MAX, BPM_MIN};
             if !(f64::from(BPM_MIN)..=f64::from(BPM_MAX)).contains(&v) {
                 return Err(format!("value は {BPM_MIN}〜{BPM_MAX} です"));
@@ -557,5 +571,18 @@ mod tests {
         assert!(http(port, &with_body("POST", "/api/cmd", &vec![b'a'; 70 * 1024])).contains("413"));
         assert!(http(port, b"POST /api/cmd HTTP/1.1\r\nHost: x\r\nContent-Length: abc\r\n\r\n").contains("400"));
         assert!(http(port, b"POST /api/cmd HTTP/1.1\r\nHost: x\r\nContent-Length: 50\r\n\r\n{\"cmd\"").contains("400"), "本文が途中で切れた");
+    }
+
+    /// #109: 操作パネルの FLASH は、送り続けが途絶えたら消える
+    #[test]
+    fn panel_flash_expires_without_resend() {
+        let (lib, _) = dmxctl_core::fixture::Library::load(std::path::Path::new("none"));
+        let mut c = Core::new(dmxctl_core::project::Project::starter(&lib), std::sync::Arc::new(lib));
+        command(&mut c, &json!({"cmd":"flash","on":true})).unwrap();
+        assert_eq!(c.rt.flash, Some(true));
+        assert!(c.rt.flash_deadline.is_some_and(|d| d <= c.now() + WEB_FLASH_HOLD));
+        command(&mut c, &json!({"cmd":"flash","on":false})).unwrap();
+        assert!(c.rt.flash.is_none() && c.rt.flash_deadline.is_none());
+        assert_eq!(command(&mut c, &json!({"cmd":"bpm","value":"abc"})).unwrap_err(), "value は数値で指定してください");
     }
 }

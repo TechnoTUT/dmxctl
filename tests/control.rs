@@ -483,7 +483,7 @@ fn state_changing_requests_are_sent_once_on_a_new_connection() {
     assert_eq!(accepted.load(Ordering::Relaxed),1);
     // 操作は新しい接続で送る。答えが無いまま切れたら失敗にし、送り直さない
     let error=control::request(address,&json!({"op":"command","command":{"cmd":"tap"}})).unwrap_err();
-    assert!(error.to_string().contains("incomplete"),"{error}");
+    assert!(error.to_string().contains("without answering"),"{error}");
     std::thread::sleep(Duration::from_millis(100));
     assert_eq!(commands.load(Ordering::Relaxed),1,"tap は1回だけ届く");
     assert_eq!(accepted.load(Ordering::Relaxed),2,"操作は使い回しの接続に載せない");
@@ -568,4 +568,40 @@ fn fixture_get_does_not_transfer_unselected_items() {
     assert!(one.status.success(), "{}", String::from_utf8_lossy(&one.stderr));
     let result: Value = serde_json::from_slice(&one.stdout).unwrap();
     assert_eq!(result["data"]["id"], 1);
+}
+
+/// #108・#114・#116: 空行の読み飛ばし、接続数の上限で断る答え、記録の t_ms
+#[test]
+fn blank_lines_busy_replies_and_recording_time() {
+    use std::io::Write;
+    let mut host=Running::start();
+    // 空行は答えずに読み飛ばし、次の要求に答える
+    let mut stream=std::net::TcpStream::connect(host.address).unwrap();
+    let mut reader=BufReader::new(stream.try_clone().unwrap());
+    write!(stream,"\n\n{}\n",json!({"op":"clock"})).unwrap();
+    let mut line=String::new();
+    reader.read_line(&mut line).unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&line).unwrap()["ok"],true,"{line}");
+    drop((stream,reader));
+
+    // 上限まで接続を開いたままにすると、次の要求は「実行していない」と分かる答えで断られる
+    let held:Vec<_>=(0..32).map(|_|std::net::TcpStream::connect(host.address).unwrap()).collect();
+    std::thread::sleep(Duration::from_millis(200));
+    let error=control::request(host.address,&json!({"op":"command","command":{"cmd":"tap"}})).unwrap_err().to_string();
+    assert!(error.contains("too many control connections") && error.contains("not run"),"{error}");
+    drop(held);
+    std::thread::sleep(Duration::from_millis(300));
+
+    // ctl record の t_ms は記録の開始から数え、本体の時間は engine_t_ms に入る
+    std::thread::sleep(Duration::from_millis(300));
+    let path=host.dir.join("rec.jsonl");
+    host.request(json!({"op":"record_start","file":path}));
+    std::thread::sleep(Duration::from_millis(100));
+    host.request(json!({"op":"record_stop"}));
+    let events:Vec<Value>=std::fs::read_to_string(&path).unwrap().lines().map(|l|serde_json::from_str(l).unwrap()).collect();
+    assert_eq!(events[0]["t_ms"],0);
+    assert!(events[0]["engine_t_ms"].as_u64().unwrap()>=300);
+    let first_frame=events.iter().find(|e|e["type"]=="frame").unwrap();
+    assert!(first_frame["t_ms"].as_u64().unwrap()<1000,"{first_frame}");
+    host.stop();
 }

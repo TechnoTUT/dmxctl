@@ -241,3 +241,53 @@ fn invalid_command_still_fails_when_stderr_is_closed() {
         .status().unwrap();
     assert_eq!(status.code(), Some(1));
 }
+
+/// #105・#110・#113・#115: ログの絞り込みと途中で切れたログ、新しい版のファイル、全体光量の割り当て
+#[test]
+fn logs_filters_truncation_newer_files_and_master_binding() {
+    let dir = Sandbox::new();
+    let mut project = dir.project();
+    project.fixtures[1].limits.insert("pan".into(), [20, 90]);
+    project.save(&dir.file("project.json")).unwrap();
+    std::fs::write(dir.file("scenario.json"), r#"[{"at_ms":0,"command":{"cmd":"set","fixture":2,"attr":"pan","value":200}}]"#).unwrap();
+    events(&dir.run(&["simulate","--project","project.json","--scenario","scenario.json","--duration","0.2","--log","a.jsonl"]));
+    // safety にも --fixture が効く
+    let all = events(&dir.run(&["log","query","a.jsonl"]));
+    assert!(all.iter().any(|e| e["safety"].as_array().is_some_and(|s| !s.is_empty())), "補正が記録される");
+    let other = events(&dir.run(&["log","query","a.jsonl","--fixture","99"]));
+    assert!(other.iter().all(|e| e["safety"].as_array().is_none_or(|s| s.is_empty())), "機材99の絞り込みに機材2の補正が残らない");
+    let own = events(&dir.run(&["log","query","a.jsonl","--fixture","2","--attrs","pan"]));
+    assert!(own.iter().any(|e| e["safety"].as_array().is_some_and(|s| !s.is_empty())));
+
+    // 最後の行が途中で切れたログも読める。diff は拒む
+    let text = std::fs::read_to_string(dir.file("a.jsonl")).unwrap();
+    std::fs::write(dir.file("cut.jsonl"), &text[..text.len() - 30]).unwrap();
+    let summary = events(&dir.run(&["log","summarize","cut.jsonl"]));
+    assert!(summary[0]["truncated_line"].is_u64(), "{}", summary[0]);
+    let query = events(&dir.run(&["log","query","cut.jsonl"]));
+    assert_eq!(query[0]["type"], "truncated");
+    assert!(!dir.run(&["diff","cut.jsonl","a.jsonl"]).status.success());
+
+    // 全体光量の割り当ては、simulate でも作る(ctl button list と同じ binding:1)
+    let stdin = r#"{"cmd":"button","control":"binding:1","event":"set","value":0.5}"#;
+    let mut child = Command::new(env!("CARGO_BIN_EXE_dmxctl")).args(["run","--project","project.json","--stdin","--duration","0.2"])
+        .current_dir(&dir.0).stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).spawn().unwrap();
+    use std::io::Write;
+    writeln!(child.stdin.take().unwrap(), "{stdin}").unwrap();
+    let out = child.wait_with_output().unwrap();
+    let log = String::from_utf8_lossy(&out.stdout);
+    assert!(!log.contains("unknown control"), "{log}");
+
+    // 新しい版で保存したファイル(知らない割り当ての種類)でも、--project で起動できる。元のファイルは別名で残す
+    let mut value: Value = serde_json::from_str(&std::fs::read_to_string(dir.file("project.json")).unwrap()).unwrap();
+    value["bindings"].as_array_mut().unwrap().push(json!({"name":"x","trigger":{"kind":"Note","channel":0,"number":1},"action":{"FutureAction":{}}}));
+    std::fs::write(dir.file("future.json"), value.to_string()).unwrap();
+    let mut serve = Command::new(env!("CARGO_BIN_EXE_dmxctl")).args(["serve","--project","future.json","--listen","127.0.0.1:0"])
+        .current_dir(&dir.0).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::null()).spawn().unwrap();
+    let mut line = String::new();
+    std::io::BufRead::read_line(&mut std::io::BufReader::new(serve.stdout.take().unwrap()), &mut line).unwrap();
+    let _ = serve.kill();
+    let _ = serve.wait();
+    assert!(line.contains("\"ready\":true"), "{line}");
+    assert!(std::fs::read_dir(&dir.0).unwrap().any(|e| e.unwrap().file_name().to_string_lossy().starts_with("future.broken-")));
+}

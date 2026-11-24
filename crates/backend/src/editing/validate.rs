@@ -78,8 +78,21 @@ pub fn validate(project:&Project,lib:&Library)->anyhow::Result<()> {
     let selector=|sel:&Selector|->anyhow::Result<()> {
         ensure!(match sel {Selector::All=>true,Selector::Fixture(id)=>fixtures.contains(id),Selector::Group(name)=>groups.contains(name.as_str()),Selector::Profile(id)=>lib.get(id).is_some()},"dangling selector: {sel:?}");Ok(())
     };
+    // 選んだ機材(使う・使わないに関係なく)。属性やピクセルがあるかを確かめる。1台も選ばないときは確かめない
+    let chosen=|sel:&Selector|->Vec<&FixtureInstance> {project.fixtures.iter().filter(|f|match sel {
+        Selector::All=>true,Selector::Fixture(id)=>f.id==*id,
+        Selector::Group(name)=>project.groups.iter().any(|g|g.name==*name && g.fixtures.contains(&f.id)),
+        Selector::Profile(p)=>f.profile==*p,
+    }).collect()};
+    let has_attr=|sel:&Selector,attr:&str|{let fs=chosen(sel);fs.is_empty() || fs.iter().any(|f|lib.info(&f.profile,f.mode).is_some_and(|i|!i.channels(attr).is_empty()))};
+    let has_pixels=|sel:&Selector|{let fs=chosen(sel);fs.is_empty() || fs.iter().any(|f|lib.info(&f.profile,f.mode).is_some_and(|i|!i.pixels.is_empty()))};
     for f in &project.fixtures {ensure!(!f.name.trim().is_empty(),"fixture name is empty");}
-    for group in &project.groups {ensure!(group.fixtures.iter().all(|id|fixtures.contains(id)),"group references unknown fixture");}
+    // 名前で機材を選べるように、名前は重ねない
+    unique(project.fixtures.iter().map(|f|f.name.as_str()),"fixture")?;
+    for group in &project.groups {
+        ensure!(group.fixtures.iter().all(|id|fixtures.contains(id)),"group references unknown fixture");
+        ensure!(group.fixtures.iter().collect::<HashSet<_>>().len()==group.fixtures.len(),"group {} lists the same fixture more than once",group.name);
+    }
     for scene in project.scenes.iter().chain(&project.positions) {
         ensure!((0.0..=120.0).contains(&scene.fade),"invalid scene fade");
         for v in &scene.values {
@@ -89,11 +102,27 @@ pub fn validate(project:&Project,lib:&Library)->anyhow::Result<()> {
     }
     for effect in &project.effects {
         selector(&effect.sel)?;ensure!(!effect.name.trim().is_empty() && !effect.attr.trim().is_empty(),"effect name/attr is empty");
-        ensure!((0.0..=255.0).contains(&effect.min) && (0.0..=255.0).contains(&effect.max)
-            && effect.rate_hz.is_finite() && effect.rate_hz>=0.0 && effect.beats.is_finite() && effect.beats>=0.0
-            && effect.phase.is_finite() && effect.spread.is_finite(),"invalid effect parameters");
+        let name=&effect.name;
+        // 使うエフェクトだけ確かめる(使わないものは、機材を入れ替えたあとにも残っていてよい)
+        ensure!(!effect.enabled || has_attr(&effect.sel,&effect.attr),"effect {name}: no selected fixture has attribute {}",effect.attr);
+        ensure!((0.0..=255.0).contains(&effect.min) && (0.0..=255.0).contains(&effect.max),"effect {name}: min and max must be 0..255");
+        ensure!(effect.rate_hz.is_finite() && (0.0..=MAX_RATE_HZ).contains(&effect.rate_hz),"effect {name}: rate_hz must be 0..{MAX_RATE_HZ}");
+        ensure!(effect.beats.is_finite() && (0.0..=MAX_BEATS).contains(&effect.beats),"effect {name}: beats must be 0..{MAX_BEATS}");
+        ensure!(effect.beats>0.0 || effect.rate_hz>0.0,"effect {name}: beats or rate_hz must be greater than 0");
+        ensure!(effect.phase.is_finite() && effect.spread.is_finite(),"effect {name}: phase and spread must be finite");
     }
-    for effect in &project.pixel_fx {selector(&effect.sel)?;ensure!(!effect.name.trim().is_empty() && effect.beats.is_finite() && effect.beats>=0.0 && effect.width.is_finite() && effect.width>=0.0 && effect.skew.is_finite(),"invalid pixel effect");}
+    unique(project.pixel_fx.iter().map(|s|s.name.as_str()),"pixel effect")?;
+    for effect in &project.pixel_fx {
+        selector(&effect.sel)?;
+        let name=&effect.name;
+        ensure!(!effect.enabled || has_pixels(&effect.sel),"pixel effect {name}: no selected fixture has pixels");
+        ensure!(effect.beats.is_finite() && (0.0..=MAX_BEATS).contains(&effect.beats),"pixel effect {name}: beats must be 0..{MAX_BEATS}");
+        ensure!(effect.width.is_finite() && (0.0..=MAX_PIXEL_WIDTH).contains(&effect.width),"pixel effect {name}: width must be 0..{MAX_PIXEL_WIDTH}");
+        ensure!(effect.skew.is_finite() && effect.skew.abs()<=MAX_PIXEL_SKEW,"pixel effect {name}: skew must be -{MAX_PIXEL_SKEW}..{MAX_PIXEL_SKEW}");
+        for color in [&effect.a,&effect.b] {
+            if let dmxctl_core::pixel::PixelColor::Custom(rgb)=color {ensure!(rgb.iter().all(|v|(0.0..=1.0).contains(v)),"pixel effect {name}: Custom color components must be 0..1");}
+        }
+    }
     for chase in &project.chases {ensure!(chase.steps.iter().all(|s|scenes.contains(s.as_str())) && chase.step_beats.is_finite() && chase.step_beats>0.0 && chase.fade_beats.is_finite() && chase.fade_beats>=0.0,"invalid chase or dangling scene reference");}
     let mut followers=HashSet::new();let mut links=BTreeMap::new();
     for pair in &project.pairs {
@@ -107,7 +136,10 @@ pub fn validate(project:&Project,lib:&Library)->anyhow::Result<()> {
         if let Some(t)=binding.trigger {ensure!(t.channel.is_none_or(|c|c<16) && (t.kind==TriggerKind::Key || t.number<128),"invalid MIDI trigger");}
         if let Some(osc)=&binding.osc {ensure!(osc.starts_with('/'),"invalid OSC binding address");}
         match &binding.action {
-            Action::SetValue{sel,attr,on,off,..}=>{selector(sel)?;ensure!(!attr.is_empty() && (0.0..256.0).contains(on) && (0.0..256.0).contains(off),"invalid value binding");}
+            Action::SetValue{sel,attr,on,off,..}=>{
+                selector(sel)?;ensure!(!attr.is_empty() && (0.0..256.0).contains(on) && (0.0..256.0).contains(off),"invalid value binding");
+                ensure!(has_attr(sel,attr),"binding {}: no selected fixture has attribute {attr}",binding.name);
+            }
             Action::Level{sel}|Action::Mute{sel,..}|Action::Role{sel,..}|Action::Arm{sel,..}=>selector(sel)?,
             Action::Scene{name}=>ensure!(scenes.contains(name.as_str()),"binding references unknown scene"),
             Action::Position{name}=>ensure!(positions.contains(name.as_str()),"binding references unknown position"),
@@ -144,11 +176,19 @@ pub fn validate(project:&Project,lib:&Library)->anyhow::Result<()> {
         }
     }
     let motion=&project.motion;
-    ensure!(motion.beats.is_finite() && motion.beats>0.0 && (0.0..=1.0).contains(&motion.size)
-        && (0.0..=1.0).contains(&motion.glide) && motion.position.is_none_or(|p|p<4)
-        && motion.points.iter().flatten().all(|v|v.is_finite() && v.abs()<=90.0),"invalid motion parameters");
+    ensure!(motion.beats.is_finite() && motion.beats>0.0 && motion.beats<=MAX_BEATS,"motion beats must be greater than 0 and at most {MAX_BEATS}");
+    ensure!((0.0..=1.0).contains(&motion.size),"motion size must be 0..1");
+    ensure!((0.0..=1.0).contains(&motion.glide),"motion glide must be 0..1");
+    ensure!(motion.position.is_none_or(|p|p<4),"motion position must be 0..3");
+    ensure!(motion.points.iter().flatten().all(|v|v.is_finite() && v.abs()<=90.0),"motion points must be -90..90");
     Ok(())
 }
+
+/// エフェクトの周期の上限(拍)と速さの上限(Hz)、ピクセル効果の幅・ずれの上限。画面で選べる範囲より十分に広い
+const MAX_BEATS:f32=1024.0;
+const MAX_RATE_HZ:f32=50.0;
+const MAX_PIXEL_WIDTH:f32=1024.0;
+const MAX_PIXEL_SKEW:f32=64.0;
 
 pub(super) fn unique<'a>(names:impl Iterator<Item=&'a str>,kind:&str)->anyhow::Result<HashSet<&'a str>> {
     let mut set=HashSet::new();for name in names {ensure!(!name.trim().is_empty() && set.insert(name),"empty or duplicate {kind} name");}Ok(set)

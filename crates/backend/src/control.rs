@@ -126,6 +126,10 @@ fn serve_connection(stream: TcpStream, tx: &mpsc::SyncSender<Request>, ctx: &dmx
         if !first && line.is_empty() {
             return;
         }
+        // 空行は要求として扱わずに読み飛ばす(`watch --stdin` と同じ)
+        if line.last() == Some(&b'\n') && line.iter().all(u8::is_ascii_whitespace) {
+            continue;
+        }
         let result = (|| -> anyhow::Result<Value> {
             read?;
             ensure!(line.len() as u64 <= MAX_REQUEST && line.last() == Some(&b'\n'), "request is too large or incomplete");
@@ -164,6 +168,11 @@ impl Server {
                     Ok((stream, _)) => {
                         if active.fetch_add(1, Ordering::Relaxed) >= MAX_CONNECTIONS {
                             active.fetch_sub(1, Ordering::Relaxed);
+                            // 黙って閉じると、クライアントには答えが壊れたように見える。実行していないことを知らせてから閉じる
+                            let _ = stream.set_nonblocking(false);
+                            let _ = stream.set_write_timeout(Some(Duration::from_millis(100)));
+                            let busy = json!({"ok":false,"busy":true,"error":format!("too many control connections (limit {MAX_CONNECTIONS}); the request was not run")});
+                            let _ = (&stream).write_all(format!("{busy}\n").as_bytes());
                             continue;
                         }
                         let (tx, ctx, active) = (tx.clone(), ctx.clone(), active.clone());
@@ -351,9 +360,12 @@ impl Server {
                 let mut core = engine::lock(&app.core);
                 let mut project = serde_json::to_value(&core.project)?;
                 project["web_pin"] = json!("");
+                // t_ms は記録の開始から数える(simulate と同じ)。本体の起動からの時間は engine_t_ms に入る
+                let engine_t_ms = core.now().saturating_duration_since(core.rt.t0).as_millis() as u64;
+                recording.recorder.set_origin(engine_t_ms);
                 recording.recorder.emit(json!({"type":"start","version":1,"hz":40,"clock":"real",
                     "output":app.launch.output,"project":project,"frame":core.rt.frame_id,
-                    "t_ms":core.now().saturating_duration_since(core.rt.t0).as_millis() as u64,
+                    "t_ms":engine_t_ms,
                     "configuration_version":core.version(),
                     "profiles":core.lib.profiles.iter().map(|p|p.as_ref()).collect::<Vec<_>>()}));
                 core.rt.observe.set_recorder(Some(recording.recorder.clone()));
@@ -451,7 +463,7 @@ pub fn request_with_timeout(address:SocketAddr,value:&Value,timeout:Duration)->a
         .with_context(||format!("cannot connect to running application at {address}; start it with `dmxctl serve` or the GUI with `--control` (or check --connect)"))?;
     stream.set_nodelay(true)?;
     let response = exchange(&mut stream,&line,started,timeout).map_err(|e|match e {
-        Exchange::Closed => anyhow::anyhow!("response is too large or incomplete"),
+        Exchange::Closed => anyhow::anyhow!("the application closed the connection without answering; check whether the request took effect"),
         Exchange::Failed(e) => e,
     })?;
     // 使い回すのは読み取りの問い合わせで開いた接続だけ(状態を変える操作の接続は、答えを受けたら閉じる)
@@ -673,7 +685,7 @@ pub fn client(args: &[String]) -> anyhow::Result<()> {
         // 旧版の本体は selection を無視し、一覧を返す
         if let (Some(selection), Some(list)) = (payload.get("selection"), result.as_array()) {
             let items: Vec<Value> = list.iter().map(|item| item["data"].clone()).collect();
-            let index = crate::editing::select(&items, selection, payload["entity"] == "binding")?;
+            let index = crate::editing::select(&items, selection, payload["entity"].as_str().unwrap_or(""))?;
             result = list[index].clone();
         }
         if let Some(before)=before {

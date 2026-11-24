@@ -60,7 +60,7 @@ All commands return JSON/JSONL. simulate advances a virtual 40 Hz clock without 
 run/watch stream at real time; --stdin accepts one command JSON object per line.
 simulate/run/watch open no MIDI/OSC/NDI/Link input and never save the source project.
 Only run --output or serve --output live sends to configured DMX outputs.
-serve defaults to configured inputs; use --inputs none for an isolated session.
+serve opens no inputs by default; use --inputs configured to open the configured MIDI/OSC inputs.
 ARM and safety definitions remain read-only through CLI controls.
 Scenario: [{"at_ms":0,"command":{"cmd":"set","fixture":1,"attr":"pan","value":50}}]
 Commands: set, effect, motion, blackout, master, fade, flash, bpm, auto, auto_resume,
@@ -148,6 +148,9 @@ pub fn run(args: Vec<String>) -> anyhow::Result<()> {
     ensure!(errors.is_empty(), "fixture errors: {}", errors.join("; "));
     let source = std::fs::read_to_string(project_path)?;
     let mut project: Project = serde_json::from_str(source.trim_start_matches('\u{feff}'))?;
+    // 起動・読み込みと同じく、右端のフェーダーに全体光量を割り当てる(ctl button list と同じ binding の ID になる)
+    project.seed_master_binding();
+    project.ensure_binding_ids();
     validate(&project, &lib)?;
     // Do not start external clocks or inputs, even if saved as enabled.
     project.tempo_source = TempoSource::Internal;
@@ -260,11 +263,25 @@ fn record_command(core: &mut Core, value: &Value, elapsed: u64) {
     }
 }
 
+/// ログを読む。強制終了で最後の行だけが途中で切れているときは、その行を読み飛ばし、`truncated` に行番号を返す
+fn read_log_lenient(path: &str) -> anyhow::Result<(Vec<Value>, Option<usize>)> {
+    let lines: Vec<String> = std::io::BufReader::new(std::fs::File::open(path)?).lines().collect::<Result<_,_>>()?;
+    let mut events = Vec::with_capacity(lines.len());
+    for (i, line) in lines.iter().enumerate() {
+        match serde_json::from_str(line) {
+            Ok(v) => events.push(v),
+            Err(_) if i + 1 == lines.len() => return Ok((events, Some(i + 1))),
+            Err(e) => return Err(anyhow::anyhow!("invalid log line {}: {e}", i + 1)),
+        }
+    }
+    Ok((events, None))
+}
+
+/// 完全なログだけを読む(diff 用)
 fn read_log(path: &str) -> anyhow::Result<Vec<Value>> {
-    std::io::BufReader::new(std::fs::File::open(path)?).lines().enumerate().map(|(i,line)| {
-        let line = line?;
-        serde_json::from_str(&line).with_context(|| format!("invalid log line {}",i+1))
-    }).collect()
+    let (events, truncated) = read_log_lenient(path)?;
+    ensure!(truncated.is_none(), "invalid log line {}: the last line is incomplete", truncated.unwrap_or(0));
+    Ok(events)
 }
 
 fn log_command(args: &Args) -> anyhow::Result<()> {
@@ -272,8 +289,9 @@ fn log_command(args: &Args) -> anyhow::Result<()> {
     let mode = args.positional.get(1).context("summarize or query required")?;
     let path = args.positional.get(2).context("log path required")?;
     ensure!(args.positional.len()==3, "unexpected argument");
-    let events = read_log(path)?;
+    let (events, truncated) = read_log_lenient(path)?;
     if mode == "scenario" {
+        ensure!(truncated.is_none(), "invalid log line {}: the last line is incomplete", truncated.unwrap_or(0));
         args.allow(&["--out"])?;
         return export_scenario(&events,args.path("--out").context("--out NEW_DIRECTORY is required")?);
     } else if mode == "summarize" {
@@ -289,7 +307,8 @@ fn log_command(args: &Args) -> anyhow::Result<()> {
             "sequence_gaps":events.iter().filter_map(|v|v["seq"].as_u64()).scan(0u64,|next,seq| {
                 let gap=seq.saturating_sub(*next); *next=seq+1; Some(gap)
             }).sum::<u64>(),
-            "dropped":events.last().filter(|e|e["type"]=="end").map(|e|&e["dropped"])})))?;
+            "dropped":events.last().filter(|e|e["type"]=="end").map(|e|&e["dropped"]),
+            "truncated_line":truncated})))?;
     } else if mode == "query" {
         args.allow(&["--from-ms","--to-ms","--universe","--address","--fixture","--attrs"])?;
         let from = args.number("--from-ms",0)?;
@@ -299,8 +318,23 @@ fn log_command(args: &Args) -> anyhow::Result<()> {
         let address = args.number("--address",0)?;
         let fixture = args.number("--fixture",0)?;
         let attrs:Vec<&str> = args.options.get("--attrs").map(|s|s.split(',').collect()).unwrap_or_default();
+        // safety の補正は機材とチャンネルで記録している。ユニバース・アドレスは、記録の先頭のパッチから求める
+        let patch: BTreeMap<u64,(u64,u64)> = events.first().and_then(|s|s["project"]["fixtures"].as_array()).map(|fixtures| fixtures.iter()
+            .filter_map(|f|Some((f["id"].as_u64()?,(f["universe"].as_u64()?+1,f["address"].as_u64()?)))).collect()).unwrap_or_default();
+        let keep_safety = |v: &Value| {
+            let id = v["fixture"].as_u64();
+            let at = id.and_then(|id|patch.get(&id)).map(|&(u,a)|(u,a+v["channel"].as_u64().unwrap_or(1)-1));
+            (fixture==0 || id==Some(fixture)) && (attrs.is_empty() || v["attr"].as_str().is_some_and(|s|attrs.contains(&s)))
+                && (universe==0 || at.is_some_and(|(u,_)|u==universe)) && (address==0 || at.is_some_and(|(_,a)|a==address))
+        };
         let stdout = std::io::stdout();
         let mut out = stdout.lock();
+        if let Some(line) = truncated
+            && let Err(error) = writeln!(out, "{}", json!({"type":"truncated","line":line})).and_then(|_| out.flush())
+            && !stdout_closed(&error)
+        {
+            return Err(error.into());
+        }
         for mut event in events {
             let Some(t) = event["t_ms"].as_u64() else {continue};
             if t < from || t > to {continue;}
@@ -310,6 +344,9 @@ fn log_command(args: &Args) -> anyhow::Result<()> {
                     changes.retain(|v| (universe==0 || v["universe"]==universe) && (address==0 || v["address"]==address)
                         && (fixture==0 || v["fixture"]==fixture)
                         && (attrs.is_empty() || v["attr"].as_str().is_some_and(|s|attrs.contains(&s))));
+                }
+                if let Some(safety) = event["safety"].as_array_mut() {
+                    safety.retain(|v| keep_safety(v));
                 }
                 event["filtered"] = json!(true);
             }

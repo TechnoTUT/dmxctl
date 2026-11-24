@@ -9,6 +9,9 @@ struct State {
     seq: u64,
     frame: u64,
     previous: Vec<Vec<u8>>,
+    /// 記録を始めたときの本体の経過時間(ミリ秒)。動いている本体の記録(`ctl record`)だけ。
+    /// あれば、各イベントの `t_ms` を記録の開始からの時間にし、本体の時間は `engine_t_ms` に残す
+    origin_ms: Option<u64>,
 }
 
 #[derive(Clone)]
@@ -22,7 +25,7 @@ pub struct Recorder {
 impl Recorder {
     /// 書き込み側へ送る口を受け取る。`dropped` は送れなかった数を数える
     pub fn new(tx: mpsc::SyncSender<Value>, dropped: Arc<AtomicU64>, lossless: bool) -> Self {
-        Recorder { tx, state: Arc::new(Mutex::new(State { seq: 0, frame: 0, previous: Vec::new() })), dropped, lossless }
+        Recorder { tx, state: Arc::new(Mutex::new(State { seq: 0, frame: 0, previous: Vec::new(), origin_ms: None })), dropped, lossless }
     }
 
     pub fn next_frame(&self) -> u64 {
@@ -33,8 +36,17 @@ impl Recorder {
         self.state.lock().unwrap_or_else(|e| e.into_inner()).seq
     }
 
+    /// 記録の時間の基準を、本体の起動からこの時点(ミリ秒)に移す。最初のイベントより前に呼ぶ
+    pub fn set_origin(&self, engine_t_ms: u64) {
+        self.state.lock().unwrap_or_else(|e| e.into_inner()).origin_ms = Some(engine_t_ms);
+    }
+
     pub fn emit(&self, mut event: Value) {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if let (Some(origin), Some(t)) = (state.origin_ms, event.get("t_ms").and_then(Value::as_u64)) {
+            event["engine_t_ms"] = json!(t);
+            event["t_ms"] = json!(t.saturating_sub(origin));
+        }
         event["seq"] = json!(state.seq);
         state.seq += 1;
         let failed = if self.lossless { self.tx.send(event).is_err() } else { self.tx.try_send(event).is_err() };
