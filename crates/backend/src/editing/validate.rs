@@ -1,13 +1,15 @@
 //! プロジェクトの検証と、検証済みのプロジェクトの反映。
 use super::*;
 
-/// ARM・レーザーの合図の割り当て(押すと ARM されたり、レーザーが出たりする)。id ごとに、中身を JSON で比べる
-fn safety_bindings(project:&Project)->anyhow::Result<std::collections::BTreeMap<u64,Value>> {
+/// ARM・レーザーの合図の割り当て(押すと ARM されたり、レーザーが出たりする)。並び順も比べる
+/// (同じ入力に割り当てたトグルとワンショットは、並び順で結果が変わる)
+fn safety_bindings(project:&Project)->anyhow::Result<Vec<(u64,Value)>> {
     project.bindings.iter().filter(|b|b.is_safety()).map(|b|Ok((b.id,serde_json::to_value(b)?))).collect()
 }
 
-/// ARM の割り当てごとに、実際に ARM される機材(ARM が要る機材)の ID。グループの中身を変えても、対象は変わる
-fn arm_targets(project:&Project,lib:&Library)->std::collections::BTreeMap<u64,Vec<u32>> {
+/// ARM の割り当てごとに、実際に ARM される機材(ARM が要る機材)の ID。グループの中身を変えても、対象は変わる。
+/// トグルが今の状態を見るのも、ARM が要る機材だけ(`Core` の `Action::Arm`)
+fn arm_targets(project:&Project,lib:&Library)->BTreeMap<u64,Vec<u32>> {
     project.bindings.iter().filter_map(|b|match &b.action {Action::Arm{sel,..}=>Some((b.id,sel)),_=>None}).map(|(id,sel)| {
         let ids=project.fixtures.iter().filter(|f|lib.get(&f.profile).is_some_and(|p|p.needs_arm)).filter(|f|match sel {
             Selector::All=>true,
@@ -31,30 +33,49 @@ fn has_safe_values(f:&FixtureInstance,lib:&Library)->bool {
     is_protected(f,lib) || lib.mode(&f.profile,f.mode).is_some_and(|m|m.channels.iter().any(|c|c.safe.is_some()))
 }
 
-/// 保護された機材・安全な値がある機材のチャンネルのうち、別の機材が重なっているもの
-/// (保護された機材のID, 重なる機材のID, ユニバース, アドレス, 重なる機材が後に書くか)。
-/// 出力は機材の並び順に書き、後の機材が上書きする。`emergency`: 異常時のフレーム(使わない機材も書く)。
-/// false なら通常の出力(使う機材だけが書く)
-fn protected_overlaps(project:&Project,lib:&Library,emergency:bool)->std::collections::BTreeSet<(u32,u32,usize,usize,bool)> {
-    let spans:Vec<_>=project.fixtures.iter().filter(|f|emergency || f.enabled).filter_map(|f| {
-        let len=lib.mode(&f.profile,f.mode)?.channels.len();
-        Some((f,f.address as usize,f.address as usize+len))
-    }).collect();
-    let mut slots=std::collections::BTreeSet::new();
-    for (i,(a,a_start,a_end)) in spans.iter().enumerate().filter(|(_,(f,..))|has_safe_values(f,lib)) {
-        for (j,(b,b_start,b_end)) in spans.iter().enumerate() {
-            if i==j || a.universe!=b.universe {continue;}
-            for slot in *a_start.max(b_start)..*a_end.min(b_end) {slots.insert((a.id,b.id,a.universe,slot,j>i));}
-        }
+/// 機材がフレームに書くスロット(0始まり)。書かないなら None。出力の処理と同じ条件にする。
+/// 通常の出力(`Core::render`): 使う機材で、値の数がチャンネル数と同じもの。512 を超える分は書かない。
+/// 異常時のフレーム(`Core::safe_frames`): 使わない機材も書く。512 を超える機材は丸ごと書かない
+fn written_slots(f:&FixtureInstance,lib:&Library,emergency:bool)->Option<std::ops::Range<usize>> {
+    let mode=lib.mode(&f.profile,f.mode)?;
+    let n=mode.channels.len();
+    let base=(f.address as usize).checked_sub(1)?;
+    if f.universe>=NUM_UNIVERSES {return None;}
+    if emergency {
+        lib.info(&f.profile,f.mode)?;
+        (base+n<=512).then_some(base..base+n)
+    } else {
+        (f.enabled && f.values.len()==n).then_some(base..(base+n).min(512))
     }
-    slots
 }
 
-/// 出力の送り先(届く機器)。sACN の優先度のように、送り先を変えない設定は含めない
+/// 安全な値がある機材のスロットのうち、最後に別の機材が書くもの(機材のID, ユニバース, スロット, 最後に書く機材のID)。
+/// 出力は機材の並び順に書き、後の機材が上書きする。スロットごとに最後に書く機材だけを見るので、機材の数に比例する
+fn overwritten_slots(project:&Project,lib:&Library,emergency:bool)->std::collections::BTreeSet<(u32,usize,usize,u32)> {
+    let writers:Vec<_>=project.fixtures.iter().filter_map(|f|Some((f,written_slots(f,lib,emergency)?))).collect();
+    let mut last:std::collections::HashMap<(usize,usize),u32>=std::collections::HashMap::new();
+    for (f,slots) in &writers {
+        for slot in slots.clone() {last.insert((f.universe,slot),f.id);}
+    }
+    let mut out=std::collections::BTreeSet::new();
+    for (f,slots) in writers.iter().filter(|(f,_)|has_safe_values(f,lib)) {
+        for slot in slots.clone() {
+            if let Some(&id)=last.get(&(f.universe,slot)).filter(|&&id|id!=f.id) {out.insert((f.id,f.universe,slot,id));}
+        }
+    }
+    out
+}
+
+/// 出力の送り先(届く機器)。送るときと同じ規則で決める。sACN の優先度のように、送り先を変えない設定は含めない
 fn destination(kind:&OutputKind)->(&'static str,String,u32) {
     match kind {
-        OutputKind::ArtNet{ip,art_universe}=>("artnet",ip.trim().to_string(),*art_universe as u32),
-        OutputKind::Sacn{ip,sacn_universe,..}=>("sacn",ip.trim().to_string(),*sacn_universe as u32),
+        // Art-Net のパケットには、ユニバースの下位15ビットだけが入る(`artdmx_packet`)
+        OutputKind::ArtNet{ip,art_universe}=>("artnet",ip.trim().to_string(),(*art_universe & 0x7FFF) as u32),
+        // sACN で IP を指定しないときは、ユニバースから決まるマルチキャストに送る(`Sacn::new`)
+        OutputKind::Sacn{ip,sacn_universe,..}=>{
+            let ip=if ip.trim().is_empty() {dmxctl_core::io::output::sacn_multicast(*sacn_universe).to_string()} else {ip.trim().to_string()};
+            ("sacn",ip,*sacn_universe as u32)
+        }
         OutputKind::OpenDmxSerial{port}=>("serial",port.trim().to_string(),0),
         OutputKind::OpenDmxD2xx{index}=>("d2xx",String::new(),*index),
     }
@@ -68,15 +89,38 @@ fn protected_outputs(old:&Project,new:&Project,universes:&HashSet<usize>)->anyho
     Ok((pick(old)?,pick(new)?))
 }
 
+/// 出力の設定が送れる値か(Art-Net のユニバース・sACN のユニバースと優先度・IP)。`validate` と、LAN の差分の反映で使う
+pub fn validate_outputs(project:&Project)->anyhow::Result<()> {
+    for output in &project.outputs {
+        ensure!(output.universe<NUM_UNIVERSES,"output universe is out of range");
+        match &output.kind {
+            OutputKind::ArtNet{ip,art_universe}=>{let _:std::net::Ipv4Addr=ip.trim().parse().context("invalid Art-Net IPv4 address")?;ensure!(*art_universe<32768,"invalid Art-Net universe");}
+            OutputKind::Sacn{ip,sacn_universe,priority}=>{
+                if !ip.trim().is_empty() {let _:std::net::Ipv4Addr=ip.trim().parse().context("invalid sACN IPv4 address")?;}
+                ensure!((1..=63999).contains(sacn_universe),"invalid sACN universe");
+                ensure!(*priority<=200,"invalid sACN priority");
+            }
+            OutputKind::OpenDmxSerial{port}=>ensure!(!port.trim().is_empty(),"empty serial port"),_=>{},
+        }
+    }
+    Ok(())
+}
+
 pub fn safety_unchanged(old:&Project,new:&Project,lib:&Library)->anyhow::Result<()> {
     ensure!(old.motion.pan_front==new.motion.pan_front && old.motion.tilt_up==new.motion.tilt_up,"motion calibration is read-only from CLI");
-    // ARM・レーザーの合図の割り当ては、作成・変更・削除のどれもできない。よく押すパッドを差し替えると、
+    // ARM・レーザーの合図の割り当ては、作成・変更・削除・並べ替えのどれもできない。よく押すパッドを差し替えると、
     // 人が押したときに意図せず ARM されたり、レーザーが出たりするため。画面の割り当ての編集で扱う
     ensure!(safety_bindings(old)?==safety_bindings(new)?,"ARM and laser cue bindings are read-only from CLI (edit them in the GUI)");
     ensure!(arm_targets(old,lib)==arm_targets(new,lib),"fixtures armed by ARM bindings are read-only from CLI (check group membership)");
     // 機材の ID が重なると、下の比べ方で同じ ID の別の機材を見てしまう
     let mut ids=HashSet::new();
     ensure!(new.fixtures.iter().all(|f|ids.insert(f.id)),"duplicate fixture id");
+    // 動いてよい範囲は、どの機材でも、付ける・外す・変えるのどれもできない(新しい機材に付けることも)。
+    // 範囲はブラックアウトより後に当たるので、付けるだけで暗転中の値が変わることがある
+    for f in &new.fixtures {
+        let before=old.fixtures.iter().find(|o|o.id==f.id).map(|o|&o.limits);
+        ensure!(before.map_or(f.limits.is_empty(),|l|*l==f.limits),"safety limits are read-only from CLI: {}",f.name);
+    }
     // 保護された機材・安全な値がある機材の値の数がチャンネル数と違うと、出力でその機材ごと飛ばされ、安全の値も範囲も当たらない
     for f in new.fixtures.iter().filter(|f|has_safe_values(f,lib)) {
         if let Some(mode)=lib.mode(&f.profile,f.mode) {
@@ -89,11 +133,11 @@ pub fn safety_unchanged(old:&Project,new:&Project,lib:&Library)->anyhow::Result<
             && replacement.address==f.address && replacement.enabled==f.enabled && replacement.limits==f.limits,
             "protected fixture patch, enable state and safety limits are read-only from CLI");
     }
-    // 保護された機材のアドレスに別の機材を重ねると、出力で後の機材の値に上書きされ、安全の値が保たれない。
-    // もともと重なっているチャンネル(画面で作ったもの)は、並び順も含めてそのままなら認める
-    // 通常の出力(使う機材)と、異常時のフレーム(使わない機材も)の両方で比べる。使わない機材を使い始めて重ねることも拒む
+    // 安全な値がある機材のスロットを、別の機材が最後に書くようにすると、安全の値が保たれない。
+    // もともとそうなっているスロット(画面で作ったもの)は、そのままなら認める。
+    // 通常の出力と異常時のフレームで、それぞれ実際に書く機材で比べる
     for emergency in [false,true] {
-        ensure!(protected_overlaps(new,lib,emergency).is_subset(&protected_overlaps(old,lib,emergency)),"fixtures cannot overlap the addresses of protected fixtures from CLI");
+        ensure!(overwritten_slots(new,lib,emergency).is_subset(&overwritten_slots(old,lib,emergency)),"fixtures cannot overlap the addresses of protected fixtures from CLI");
     }
     // 出力の送り先・送るユニバースを変えると、保護された機材に別のフレームが届く
     let universes:HashSet<usize>=old.fixtures.iter().chain(&new.fixtures).filter(|f|is_protected(f,lib)).map(|f|f.universe).collect();
@@ -208,18 +252,7 @@ pub fn validate(project:&Project,lib:&Library)->anyhow::Result<()> {
         ensure!(look.beats.is_finite() && look.beats>0.0 && look.color_beats.is_finite() && look.color_beats>0.0
             && (0.0..=1.0).contains(&look.brightness) && look.position.is_none_or(|p|p<4),"invalid phrase look");
     }}
-    for output in &project.outputs {
-        ensure!(output.universe<NUM_UNIVERSES,"output universe is out of range");
-        match &output.kind {
-            OutputKind::ArtNet{ip,art_universe}=>{let _:std::net::Ipv4Addr=ip.parse().context("invalid Art-Net IPv4 address")?;ensure!(*art_universe<32768,"invalid Art-Net universe");}
-            OutputKind::Sacn{ip,sacn_universe,priority}=>{
-                if !ip.trim().is_empty() {let _:std::net::Ipv4Addr=ip.trim().parse().context("invalid sACN IPv4 address")?;}
-                ensure!((1..=63999).contains(sacn_universe),"invalid sACN universe");
-                ensure!(*priority<=200,"invalid sACN priority");
-            }
-            OutputKind::OpenDmxSerial{port}=>ensure!(!port.trim().is_empty(),"empty serial port"),_=>{},
-        }
-    }
+    validate_outputs(project)?;
     let motion=&project.motion;
     ensure!(motion.beats.is_finite() && motion.beats>0.0 && (0.0..=1.0).contains(&motion.size)
         && (0.0..=1.0).contains(&motion.glide) && motion.position.is_none_or(|p|p<4)

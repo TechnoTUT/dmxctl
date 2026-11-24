@@ -30,15 +30,24 @@ pub enum Seg {
     Key(String),
 }
 
-/// 1か所の変更。`value` が無ければ、そのキーを消す(None のときに書き出さない項目など)
+/// 1か所の変更。`value` が無ければ、そのキーを消す(None のときに書き出さない項目など)。
+/// 知らないキー(`value` の打ち間違いなど)は、消す編集として通さずに拒む
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Change {
     pub path: Vec<Seg>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// `"value": null` は「null にする」。キーが無いときだけ「消す」
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
     pub value: Option<Value>,
-    /// 変える前の値(無いキーは null)。あれば、当てる先の今の値がこれと同じときだけ当てる
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// 変える前の値(無いキーは null)。あれば、当てる先の今の値がこれと同じときだけ当てる。
+    /// `"base": null`(前は無かった)も、比べる値として残す
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
     pub base: Option<Value>,
+}
+
+/// キーがあれば、値が null でも Some にする(serde の Option は null を None にしてしまう)
+fn present<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Value>, D::Error> {
+    Value::deserialize(d).map(Some)
 }
 
 /// 当てる先の今の値が、編集の前の値と違った(ほかから先に変えられた)
@@ -236,15 +245,21 @@ impl CoreProjectPatch for dmxctl_core::engine::Core {
             return Ok(Applied::default());
         }
         for c in changes {
-            if let Some(Seg::Key(k)) = c.path.first() {
-                anyhow::ensure!(!LOCAL_KEYS.contains(&k.as_str()), "{k} is local to each machine");
-            }
+            // 全体の置き換え(空のパス)は、各機の項目の確認とサービスの設定し直しの判定を飛ばしてしまうので受け付けない
+            let Some(Seg::Key(k)) = c.path.first() else {
+                return Err(Rejected("編集の場所(path)が正しくありません".into()).into());
+            };
+            anyhow::ensure!(!LOCAL_KEYS.contains(&k.as_str()), "{k} is local to each machine");
         }
         // 存在しない項目(打ち間違い・古い版の項目)は、書き込んでも設定に読み直すときに捨てられ、
         // 黙って何も変わらないので、ここで見つけて拒む
         let missing = |path: &[Seg]| Err(Rejected(format!("存在しない項目です: {}", path_text(path))).into());
         let mut value = serde_json::to_value(&self.project)?;
         for c in changes {
+            // 途中の場所が無いとき: 前の値(base)があれば、ほかの編集との行き違い。無ければ存在しない項目
+            if lookup(&value, &c.path[..c.path.len() - 1]).is_none() {
+                return if c.base.is_some() { Err(Conflict.into()) } else { missing(&c.path) };
+            }
             // 消す編集は、今その項目があること。消す前の値(base)があるときは、行き違い(Conflict)として返す
             if c.value.is_none() && c.base.as_ref().is_none_or(|b| b.is_null()) && lookup(&value, &c.path).is_none() {
                 return missing(&c.path);
@@ -270,6 +285,8 @@ impl CoreProjectPatch for dmxctl_core::engine::Core {
         project.next_binding_id = project.next_binding_id.max(self.project.next_binding_id);
         project.ensure_binding_ids();
         // 自動操作の窓口(ctl・MCP)と同じ安全の確認。レーザーの範囲・保護された機材・校正・ARM の割り当てを守る
+        // 送れない出力(範囲外の Art-Net のユニバースなど)は、送るときに番号が変わってしまうので先に拒む
+        crate::editing::validate_outputs(&project).map_err(|e| Rejected(format!("出力の設定が正しくありません: {e}")))?;
         if guard_safety {
             crate::editing::safety_unchanged(&self.project, &project, &self.lib).map_err(|e| Rejected(format!("{SAFETY_READ_ONLY}({e})")))?;
         }
@@ -604,6 +621,69 @@ mod tests {
         // 消す前の値があるのに、ほかのクライアントが先に消していたら、行き違い(Conflict)として返す
         let gone = [Change { path: vec![Seg::Key("fixtures".into()), Seg::Index(0), Seg::Key("limits".into())], value: None, base: Some(json!({"pan": [0, 10]})) }];
         assert!(c.apply_project_patch(&gone, true).unwrap_err().is::<Conflict>());
+    }
+
+    /// 5回目のレビュー: 送り先の規則・範囲の新設・実際に書く機材・ARM の並び順・差分の形式
+    #[test]
+    fn destinations_limits_writers_order_and_change_format() {
+        let k = |path: &[&str], i: Option<usize>| {
+            let mut p: Vec<Seg> = path.iter().map(|k| Seg::Key((*k).into())).collect();
+            if let Some(i) = i { p.insert(1, Seg::Index(i)); }
+            p
+        };
+        let set = |path: Vec<Seg>, value: serde_json::Value| vec![Change { path, value: Some(value), base: None }];
+        let mut c = core();
+        let lib = c.lib.clone();
+        let laser_u = c.project.fixtures.iter().find(|f| f.profile == "stage-evolution/laserscan300").unwrap().universe;
+        // sACN: マルチキャスト(IP なし)と、同じマルチキャストの IP を指定したものは同じ送り先
+        let mut outputs = serde_json::to_value(&c.project.outputs).unwrap();
+        outputs.as_array_mut().unwrap().push(json!({"enabled": true, "universe": laser_u, "kind": {"Sacn": {"ip": "", "sacn_universe": 1, "priority": 100}}}));
+        c.apply_project_patch(&set(k(&["outputs"], None), outputs), false).unwrap();
+        let mut outputs = serde_json::to_value(&c.project.outputs).unwrap();
+        outputs.as_array_mut().unwrap().push(json!({"enabled": true, "universe": 3, "kind": {"Sacn": {"ip": "239.255.0.1", "sacn_universe": 1, "priority": 100}}}));
+        let err = c.apply_project_patch(&set(k(&["outputs"], None), outputs), true).unwrap_err();
+        assert!(err.to_string().contains("outputs that reach protected fixtures"), "{err}");
+        // Art-Net: 範囲外のユニバースは、許可があっても拒む(送るときに番号が変わるため)
+        let mut outputs = serde_json::to_value(&c.project.outputs).unwrap();
+        outputs.as_array_mut().unwrap().push(json!({"enabled": true, "universe": 3, "kind": {"ArtNet": {"ip": "10.0.0.1", "art_universe": 40000}}}));
+        assert!(c.apply_project_patch(&set(k(&["outputs"], None), outputs), false).unwrap_err().to_string().contains("Art-Net"));
+
+        // 範囲が無い機材に、最初の範囲を付けることもできない
+        let spot = c.project.fixtures.iter().position(|f| f.profile == "stage-evolution/minispot30").unwrap();
+        let err = c.apply_project_patch(&set(k(&["fixtures", "limits"], Some(spot)), json!({"dimmer": [10, 255]})), true).unwrap_err();
+        assert!(err.to_string().contains("limits"), "{err}");
+
+        // もともと重なっていて、値の数が違うので書いていなかった機材を直すと、書き始めるので拒む
+        c.project.add_fixture(&lib, "glint/glp-185l").unwrap();
+        let bar = c.project.fixtures.len() - 1;
+        let (u, a) = (c.project.fixtures[spot].universe, c.project.fixtures[spot].address);
+        let good = c.project.fixtures[bar].values.clone();
+        c.apply_project_patch(&[set(k(&["fixtures", "universe"], Some(bar)), json!(u)), set(k(&["fixtures", "address"], Some(bar)), json!(a)),
+            set(k(&["fixtures", "values"], Some(bar)), json!([0]))].concat(), false).unwrap();
+        let err = c.apply_project_patch(&set(k(&["fixtures", "values"], Some(bar)), json!(good)), true).unwrap_err();
+        assert!(err.to_string().contains("overlap") || err.to_string().contains("values length"), "{err}");
+
+        // ARM の割り当ての並び替えも拒む
+        let mut c = core();
+        let mut bindings = serde_json::to_value(&c.project.bindings).unwrap();
+        for (name, mode) in [("ARM トグル", "Toggle"), ("ARM ワンショット", "Trigger")] {
+            bindings.as_array_mut().unwrap().push(json!({"id": 0, "name": name, "trigger": null, "osc": "/arm", "action": {"Arm": {"sel": "All", "mode": mode}}}));
+        }
+        c.apply_project_patch(&set(k(&["bindings"], None), bindings), false).unwrap();
+        let mut bindings = serde_json::to_value(&c.project.bindings).unwrap();
+        let n = bindings.as_array().unwrap().len();
+        bindings.as_array_mut().unwrap().swap(n - 1, n - 2);
+        assert!(c.apply_project_patch(&set(k(&["bindings"], None), bindings), true).is_err());
+
+        // 差分の形式: 知らないキー・空のパスを拒む。base: null は比べる値として残り、行き違いになる
+        assert!(serde_json::from_value::<Change>(json!({"path": ["bpm"], "valeu": 120})).is_err());
+        let whole = [Change { path: vec![], value: Some(serde_json::to_value(&c.project).unwrap()), base: None }];
+        assert!(c.apply_project_patch(&whole, true).unwrap_err().is::<Rejected>());
+        let change: Change = serde_json::from_value(json!({"path": ["bpm"], "value": 130.0, "base": null})).unwrap();
+        assert_eq!(change.base, Some(json!(null)));
+        assert!(c.apply_project_patch(&[change], true).unwrap_err().is::<Conflict>(), "bpm は前から有る");
+        let err = c.apply_project_patch(&set(k(&["nowhere", "x"], None), json!(1)), true).unwrap_err();
+        assert!(err.is::<Rejected>(), "{err}");
     }
 
     #[test]

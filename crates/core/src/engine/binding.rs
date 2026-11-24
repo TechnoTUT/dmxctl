@@ -334,7 +334,12 @@ impl Core {
             },
             Action::Arm { sel, mode } => {
                 let idx: Vec<usize> = self.resolve(&sel);
-                let all = !idx.is_empty() && idx.iter().all(|&i| self.project.fixtures[i].armed);
+                // トグルは、ARM が要る機材(レーザーなど)の状態だけを見る。ARM が要らない機材が対象に混ざっても、
+                // 押せば ARM が外れるように(グループに機材を足すと、外れなくなっていた)
+                let lib = self.lib.clone();
+                let needs: Vec<usize> = idx.iter().copied().filter(|&i| lib.get(&self.project.fixtures[i].profile).is_some_and(|p| p.needs_arm)).collect();
+                let watched = if needs.is_empty() { &idx } else { &needs };
+                let all = !watched.is_empty() && watched.iter().all(|&i| self.project.fixtures[i].armed);
                 if let Some(a) = edge.switch(mode, all) {
                     for i in idx {
                         self.project.fixtures[i].armed = a;

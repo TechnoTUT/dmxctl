@@ -86,6 +86,19 @@ fn guarded_learn_does_not_rewrite_safety_bindings() {
     assert_eq!(c.project.bindings[0].trigger.unwrap().number, 36);
 }
 
+/// ARM のトグルは、ARM が要る機材の状態だけを見る。ARM が要らない機材が対象に混ざっても、押せば外れる
+#[test]
+fn arm_toggle_ignores_fixtures_that_do_not_need_arm() {
+    let mut c = core();
+    c.project.bindings.clear();
+    c.project.bindings.push(Binding { id: 0, name: "ARM".into(), trigger: Some(MidiTrigger { kind: TriggerKind::Note, channel: None, number: 40 }), action: Action::Arm { sel: Selector::All, mode: PadMode::Toggle }, page: None, osc: None });
+    let laser = c.project.fixtures.iter().position(|f| c.lib.get(&f.profile).is_some_and(|p| p.needs_arm)).unwrap();
+    c.project.fixtures[laser].armed = true;
+    c.handle_midi(msg(TriggerKind::Note, 40, 100));
+    c.handle_midi(msg(TriggerKind::Note, 40, 0));
+    assert!(!c.project.fixtures[laser].armed, "押したら ARM が外れる");
+}
+
 #[test]
 fn midi_learn_then_toggle_pad() {
     let mut c = core();
