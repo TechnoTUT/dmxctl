@@ -285,8 +285,19 @@ impl CoreProjectPatch for dmxctl_core::engine::Core {
         project.next_binding_id = project.next_binding_id.max(self.project.next_binding_id);
         project.ensure_binding_ids();
         // 自動操作の窓口(ctl・MCP)と同じ安全の確認。レーザーの範囲・保護された機材・校正・ARM の割り当てを守る
-        // 送れない出力(範囲外の Art-Net のユニバースなど)は、送るときに番号が変わってしまうので先に拒む
-        crate::editing::validate_outputs(&project).map_err(|e| Rejected(format!("出力の設定が正しくありません: {e}")))?;
+        if project.outputs != self.project.outputs {
+            // 既存の出力と一件ずつ照合し、追加または変更された出力を検証する。
+            let mut existing: Vec<_> = self.project.outputs.iter().collect();
+            let changed = project.outputs.iter().filter(|&output| {
+                if let Some(index) = existing.iter().position(|&previous| previous == output) {
+                    existing.swap_remove(index);
+                    false
+                } else {
+                    true
+                }
+            });
+            crate::editing::validate_outputs(changed).map_err(|e| Rejected(format!("出力の設定が正しくありません: {e}")))?;
+        }
         if guard_safety {
             crate::editing::safety_unchanged(&self.project, &project, &self.lib).map_err(|e| Rejected(format!("{SAFETY_READ_ONLY}({e})")))?;
         }
@@ -310,6 +321,38 @@ mod tests {
         let (lib, _) = Library::load(std::path::Path::new("/nonexistent"));
         let project = Project::starter(&lib);
         Core::new(project, Arc::new(lib))
+    }
+
+    #[test]
+    fn existing_invalid_outputs_do_not_block_unrelated_patches() {
+        use dmxctl_core::project::{OutputCfg, OutputKind};
+
+        let mut server = core();
+        let invalid = OutputCfg {
+            enabled: false,
+            universe: 3,
+            kind: OutputKind::OpenDmxSerial { port: String::new() },
+        };
+        server.project.outputs.insert(0, invalid.clone());
+
+        let mut edited = server.project.clone();
+        edited.bpm = 128.0;
+        let patch = |before: &Project, after: &Project| {
+            diff_project(&serde_json::to_value(before).unwrap(), &serde_json::to_value(after).unwrap())
+        };
+        server.apply_project_patch(&patch(&server.project, &edited), true).unwrap();
+        assert_eq!(server.project.bpm, 128.0);
+        assert_eq!(server.project.outputs[0], invalid);
+
+        edited.outputs.push(invalid.clone());
+        let error = server.apply_project_patch(&patch(&server.project, &edited), true).unwrap_err();
+        assert!(error.is::<Rejected>() && error.to_string().contains("empty serial port"), "{error}");
+        assert_eq!(server.project.outputs[0], invalid);
+
+        edited.outputs.pop();
+        edited.outputs.remove(0);
+        server.apply_project_patch(&patch(&server.project, &edited), true).unwrap();
+        assert_eq!(server.project.outputs, edited.outputs);
     }
 
     #[test]

@@ -90,8 +90,8 @@ fn protected_outputs(old:&Project,new:&Project,universes:&HashSet<usize>)->anyho
 }
 
 /// 出力の設定が送れる値か(Art-Net のユニバース・sACN のユニバースと優先度・IP)。`validate` と、LAN の差分の反映で使う
-pub fn validate_outputs(project:&Project)->anyhow::Result<()> {
-    for output in &project.outputs {
+pub(crate) fn validate_outputs<'a>(outputs:impl IntoIterator<Item=&'a OutputCfg>)->anyhow::Result<()> {
+    for output in outputs {
         ensure!(output.universe<NUM_UNIVERSES,"output universe is out of range");
         match &output.kind {
             OutputKind::ArtNet{ip,art_universe}=>{let _:std::net::Ipv4Addr=ip.trim().parse().context("invalid Art-Net IPv4 address")?;ensure!(*art_universe<32768,"invalid Art-Net universe");}
@@ -252,7 +252,7 @@ pub fn validate(project:&Project,lib:&Library)->anyhow::Result<()> {
         ensure!(look.beats.is_finite() && look.beats>0.0 && look.color_beats.is_finite() && look.color_beats>0.0
             && (0.0..=1.0).contains(&look.brightness) && look.position.is_none_or(|p|p<4),"invalid phrase look");
     }}
-    validate_outputs(project)?;
+    validate_outputs(&project.outputs)?;
     let motion=&project.motion;
     ensure!(motion.beats.is_finite() && motion.beats>0.0 && (0.0..=1.0).contains(&motion.size)
         && (0.0..=1.0).contains(&motion.glide) && motion.position.is_none_or(|p|p<4)
