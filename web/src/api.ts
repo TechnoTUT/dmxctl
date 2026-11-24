@@ -80,3 +80,45 @@ async function call<T>(path: string, body?: Command): Promise<T> {
 
 export const fetchState = () => call<PanelState>('/api/state')
 export const sendCommand = (c: Command) => call<PanelState>('/api/cmd', c)
+
+/** /api/events が使えない。接続数の上限などで、1秒ごとの読み直しに切り替える */
+export class StreamUnavailable extends Error {}
+
+/** 様子の変化を受け取り続ける。切れたり止まったりすると投げる。
+ * 合言葉を X-Pin ヘッダーで送るため、EventSource ではなく fetch で読む */
+export async function streamState(onState: (s: PanelState) => void, signal: AbortSignal, silentMs: number): Promise<void> {
+  // サーバーは10秒ごとに合図を送る。それが途絶えたら、切れたものとして扱う
+  const watchdog = new AbortController()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const arm = () => {
+    clearTimeout(timer)
+    timer = setTimeout(() => watchdog.abort(), silentMs)
+  }
+  const stop = () => watchdog.abort()
+  signal.addEventListener('abort', stop)
+  try {
+    arm()
+    const r = await fetch('/api/events', { headers: { 'X-Pin': loadPin() }, signal: watchdog.signal })
+    if (r.status === 401) throw new PinError()
+    if (!r.ok || !r.body) throw new StreamUnavailable()
+    const reader = r.body.getReader()
+    const decoder = new TextDecoder()
+    let buf = ''
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) return
+      arm()
+      buf += decoder.decode(value, { stream: true })
+      let i
+      while ((i = buf.indexOf('\n\n')) >= 0) {
+        const block = buf.slice(0, i)
+        buf = buf.slice(i + 2)
+        const data = block.split('\n').filter((l) => l.startsWith('data:')).map((l) => l.slice(5).trim()).join('\n')
+        if (data) onState(JSON.parse(data) as PanelState)
+      }
+    }
+  } finally {
+    clearTimeout(timer)
+    signal.removeEventListener('abort', stop)
+  }
+}
