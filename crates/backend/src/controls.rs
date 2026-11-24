@@ -126,6 +126,7 @@ impl CoreControls for dmxctl_core::engine::Core {
                     if b.osc.as_deref()==Some(addr) {hits.push(i);}
                     if addr.starts_with("/dmx/phrase") && b.osc.as_deref().is_some_and(|a|a.starts_with("/dmx/phrase/")) {permitted(&b.action)?;}
                 }
+                check_osc(self,addr,&args,!hits.is_empty())?;
                 preflight(self,&hits)?;
                 let first=args.iter().find_map(Arg::num);
                 let duration=duration(value,1000)?;
@@ -161,6 +162,62 @@ fn track_input(core:&mut Core,hits:&[usize],pressed:bool,duration:Duration,feedb
         if !pressed {core.forget_remote_control(id);}
         else if !skip_sliders || !continuous(&action) {core.hold_remote_control(id,action,duration,feedback.clone());}
     }
+}
+
+/// `ctl input osc` の入力を確かめる。実機の OSC 受信は範囲外を丸め、知らないアドレスは無視するが、
+/// ctl・MCP では黙って丸めたり無視したりせず、理由を付けて拒む
+fn check_osc(core:&Core,addr:&str,args:&[Arg],bound:bool)->anyhow::Result<()> {
+    let Some(path)=addr.strip_prefix("/dmx/") else {
+        ensure!(bound,"unknown OSC address: {addr} (no binding uses it)");
+        return Ok(());
+    };
+    let num=|i:usize|->anyhow::Result<Option<f32>> {match args.get(i) {
+        None=>Ok(None),
+        Some(a)=>a.num().map(Some).with_context(||format!("{addr}: args[{i}] must be a number")),
+    }};
+    let range=|value:Option<f32>,lo:f32,hi:f32|->anyhow::Result<()> {
+        if let Some(v)=value {ensure!((lo..=hi).contains(&v),"{addr}: value must be in {lo}..{hi}");}
+        Ok(())
+    };
+    let required=|i:usize|->anyhow::Result<f32> {num(i)?.with_context(||format!("{addr}: args[{i}] (number) is required"))};
+    let text=|i:usize|->anyhow::Result<&str> {match args.get(i) {
+        Some(Arg::Str(t))=>Ok(t.as_str()),
+        _=>bail!("{addr}: args[{i}] must be a string"),
+    }};
+    let parts:Vec<&str>=path.split('/').collect();
+    match parts.as_slice() {
+        ["master"]|["hue"]|["main"|"sub","hue"]|["level","depth"] => range(Some(required(0)?),0.0,1.0)?,
+        ["bpm"] => range(Some(required(0)?),dmxctl_core::project::BPM_MIN,dmxctl_core::project::BPM_MAX)?,
+        ["blackout"]|["tap"]|["resync"]|["swap"]|["swap","auto"]|["flash"]|["flash","color"]|["level","off"]|["rgb","off"] => {num(0)?;}
+        ["fade"] => {num(0)?;range(num(1)?,0.0,120.0)?;}
+        ["fade","time"] => range(Some(required(0)?),0.0,60.0)?,
+        ["rgb","smooth"] => range(Some(required(0)?),0.0,30.0)?,
+        ["level"]|["level","at"] => {range(Some(required(0)?),0.0,1.0)?;range(num(1)?,0.0,60.0)?;}
+        ["main"|"sub","rgb"]|["main"|"sub","rgb","at"] => {
+            for i in 0..3 {range(Some(required(i)?),0.0,255.0)?;}
+            range(num(3)?,0.0,60.0)?;
+        }
+        ["page"] => range(Some(required(0)?),1.0,dmxctl_core::project::PAGES as f32)?,
+        ["scene"] => {let n=text(0)?;ensure!(core.project.scenes.iter().any(|s|s.name==n),"{addr}: unknown scene: {n}");}
+        ["position"] => {let n=text(0)?;ensure!(core.project.positions.iter().any(|s|s.name==n),"{addr}: unknown position: {n}");}
+        ["color"]|["main"]|["sub"] => {let n=text(0)?;ensure!(dmxctl_core::color::NamedColor::from_name(n).is_some(),"{addr}: unknown color: {n}");}
+        ["phrase"] => {text(0)?;}
+        ["phrase",_] => {}
+        ["effect"] => {
+            let n=text(0)?;num(1)?;
+            ensure!(core.project.effects.iter().any(|e|e.name==n) || core.project.pixel_fx.iter().any(|e|e.name==n),"{addr}: unknown effect: {n}");
+        }
+        ["chase"] => {let n=text(0)?;num(1)?;ensure!(core.project.chases.iter().any(|c|c.name==n),"{addr}: unknown chase: {n}");}
+        ["fixture",id,attr] => {
+            let id:u32=id.parse().with_context(||format!("{addr}: fixture id must be a number"))?;
+            let f=core.project.fixtures.iter().find(|f|f.id==id).with_context(||format!("{addr}: unknown fixture: {id}"))?;
+            ensure!(core.lib.info(&f.profile,f.mode).is_some_and(|i|!i.channels(attr).is_empty()),"{addr}: fixture {id} has no attribute {attr}");
+            range(Some(required(0)?),0.0,1.0)?;
+        }
+        ["all",_] => range(Some(required(0)?),0.0,1.0)?,
+        _ => ensure!(bound,"unknown OSC address: {addr} (no binding uses it)"),
+    }
+    Ok(())
 }
 
 fn byte(value:&Value,key:&str,max:u8) -> anyhow::Result<u8> {
@@ -266,5 +323,19 @@ mod tests {
         let r = c.remote_input(&serde_json::json!({"source": "osc", "address": "/dmx/laser", "args": [1.0]}));
         assert!(r.is_err());
         assert!(!c.rt.laser_hold);
+    }
+
+    /// #103: ctl input osc は、範囲外・数値でない引数・知らないアドレスを拒む
+    #[test]
+    fn osc_input_rejects_out_of_range_and_unknown_addresses() {
+        let mut c=core();
+        for bad in [json!({"address":"/dmx/bpm","args":[5000]}),json!({"address":"/dmx/master","args":[2]}),
+            json!({"address":"/dmx/master","args":["x"]}),json!({"address":"/dmx/nosuch","args":[1]}),json!({"address":"/nobody","args":[1]}),
+            json!({"address":"/dmx/scene","args":["存在しない"]})] {
+            let mut v=bad.clone();v["source"]=json!("osc");
+            assert!(c.remote_input(&v).is_err(),"{bad}");
+        }
+        c.remote_input(&json!({"source":"osc","address":"/dmx/bpm","args":[128]})).unwrap();
+        assert_eq!(c.project.bpm,128.0);
     }
 }

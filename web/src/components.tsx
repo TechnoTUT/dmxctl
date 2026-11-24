@@ -145,9 +145,18 @@ function MasterSlider({ value, send }: { value: number; send: Send }) {
   )
 }
 
+/** 押している間、FLASH を送り直す間隔。サーバーは最後に届いてから 1.5 秒で消す(crates/backend/src/web.rs の WEB_FLASH_HOLD) */
+const FLASH_RESEND_MS = 500
+
 /** 押している間だけ点灯する */
 function Flash({ send }: { send: Send }) {
   const [held, setHeld] = useState(false)
+  // 押している間は送り続ける。離した合図が届かなくても(電波切れ・タブを閉じた)、途絶えればサーバー側で消える
+  useEffect(() => {
+    if (!held) return
+    const t = setInterval(() => send({ cmd: 'flash', on: true }), FLASH_RESEND_MS)
+    return () => clearInterval(t)
+  }, [held, send])
   const down = (e: React.PointerEvent) => { e.preventDefault(); setHeld(true); send({ cmd: 'flash', on: true }) }
   const up = (e: React.PointerEvent) => { if (!held) return; e.preventDefault(); setHeld(false); send({ cmd: 'flash', on: false }) }
   return (

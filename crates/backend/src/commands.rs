@@ -56,8 +56,9 @@ fn apply_inner(core: &mut Core, value: &Value) -> anyhow::Result<()> {
                 data[key] = value.clone();
             }
             effect = serde_json::from_value(data)?;
-            ensure!(effect.beats >= 0.0 && effect.rate_hz >= 0.0
-                && (0.0..=255.0).contains(&effect.min) && (0.0..=255.0).contains(&effect.max), "invalid effect range/period/rate");
+            ensure!(effect.beats >= 0.0 && effect.rate_hz >= 0.0, "effect beats and rate_hz must be 0 or greater");
+            ensure!(effect.beats > 0.0 || effect.rate_hz > 0.0, "effect beats or rate_hz must be greater than 0");
+            ensure!((0.0..=255.0).contains(&effect.min) && (0.0..=255.0).contains(&effect.max), "effect min and max must be 0..255");
             *core.project.effects.iter_mut().find(|e|e.name == name).unwrap() = effect;
         }
         "motion" => {
@@ -68,9 +69,11 @@ fn apply_inner(core: &mut Core, value: &Value) -> anyhow::Result<()> {
                 data[key] = value.clone();
             }
             let motion: dmxctl_core::motion::Motion = serde_json::from_value(data)?;
-            ensure!(motion.beats.is_finite() && motion.beats > 0.0 && (0.0..=1.0).contains(&motion.size)
-                && (0.0..=1.0).contains(&motion.glide) && motion.position.is_none_or(|p|p < 4)
-                && motion.points.iter().flatten().all(|v|v.is_finite() && v.abs() <= 90.0), "invalid motion parameters");
+            ensure!(motion.beats.is_finite() && motion.beats > 0.0, "motion beats must be greater than 0");
+            ensure!((0.0..=1.0).contains(&motion.size), "motion size must be 0..1");
+            ensure!((0.0..=1.0).contains(&motion.glide), "motion glide must be 0..1");
+            ensure!(motion.position.is_none_or(|p|p < 4), "motion position must be 0..3");
+            ensure!(motion.points.iter().flatten().all(|v|v.is_finite() && v.abs() <= 90.0), "motion points must be -90..90");
             core.project.motion = motion;
         }
         "flash" => {
@@ -91,7 +94,9 @@ fn apply_inner(core: &mut Core, value: &Value) -> anyhow::Result<()> {
             if let Some(on) = value.get("on") { ensure!(on.is_boolean(), "on must be boolean"); }
             crate::web::command(core, value).map_err(anyhow::Error::msg)?;
         }
-        _ => bail!("unsupported command (safety configuration and ARM are read-only): {cmd}"),
+        // ARM・安全の設定を変える操作は、ctl・MCP には用意していない
+        "arm" | "laser" => bail!("{cmd} is not available here (safety configuration and ARM are read-only)"),
+        _ => bail!("unknown command: {cmd}"),
     }
     Ok(())
 }

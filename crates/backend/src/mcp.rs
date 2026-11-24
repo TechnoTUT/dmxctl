@@ -449,7 +449,7 @@ fn optional<'a, T>(args: &'a Value, key: &str, kind: &str, get: impl Fn(&'a Valu
 }
 
 fn call(request: Requester, name: &str, args: &Value) -> anyhow::Result<Value> {
-    let fixture = || arg(args, "fixture", "a non-negative integer (fixture_list の id)", Value::as_u64);
+    let fixture = || arg(args, "fixture", "a non-negative integer (the id from fixture_list)", Value::as_u64);
     let attr = || arg(args, "attr", "a string", Value::as_str);
     match name {
         "status" => send(request, json!({"op": "status"})),

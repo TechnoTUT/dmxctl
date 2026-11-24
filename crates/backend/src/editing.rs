@@ -24,7 +24,7 @@ pub(crate) fn get(core: &Core, entity: &str, selection: &Value) -> anyhow::Resul
     let field = collection(entity)?;
     let project = serde_json::to_value(&core.project)?;
     let items = array(&project, field)?;
-    let index = select(items, selection, entity == "binding")?;
+    let index = select(items, selection, entity)?;
     Ok(json!({"index": index, "data": redact(&items[index])}))
 }
 
@@ -37,20 +37,27 @@ fn array_mut<'a>(project:&'a mut Value,field:&str)->anyhow::Result<&'a mut Vec<V
     value.as_array_mut().context("collection is not an array")
 }
 
-pub(crate) fn select(items:&[Value],operation:&Value,binding_key:bool)->anyhow::Result<usize> {
+/// 一覧の中から、`index` か `key`(ID・名前)で1つ選ぶ。`entity` はエラーの文に使う
+pub(crate) fn select(items:&[Value],operation:&Value,entity:&str)->anyhow::Result<usize> {
     if let Some(index)=operation.get("index") {
         let index=usize::try_from(index.as_u64().context("index must be an integer")?)?;
         ensure!(index<items.len(),"index is out of range"); return Ok(index);
     }
     let key=operation.get("key").context("key or index is required")?;
-    let hits:Vec<_>=items.iter().enumerate().filter(|(_,item)| {
-        if let Some(id)=key.as_u64() {item["id"]==id}
-        else if let Some(key)=key.as_str() {
-            if binding_key && let Some(id)=key.strip_prefix("binding:").and_then(|s|s.parse::<u64>().ok()).filter(|_|item.get("id").is_some()) {item["id"]==id}
-            else {item["name"]==key}
-        } else {false}
-    }).map(|(i,_)|i).collect();
-    ensure!(hits.len()==1,"key must identify exactly one item (use index for grouped effects)");
+    let by=|matches:&dyn Fn(&Value)->bool|->Vec<usize> {items.iter().enumerate().filter(|(_,item)|matches(item)).map(|(i,_)|i).collect()};
+    let hits=if let Some(id)=key.as_u64() {by(&|item|item["id"]==id)}
+    else if let Some(text)=key.as_str() {
+        let binding_id=(entity=="binding").then(||text.strip_prefix("binding:").and_then(|s|s.parse::<u64>().ok())).flatten();
+        if let Some(id)=binding_id {by(&|item|item.get("id").is_some() && item["id"]==id)}
+        else {
+            // 数字だけの文字列は、ID を持つ一覧(機材など)では ID として探す。CLI の位置引数と同じ
+            let by_id=text.parse::<u64>().ok().map(|id|by(&|item|item.get("id").is_some() && item["id"]==id)).unwrap_or_default();
+            if by_id.is_empty() {by(&|item|item["name"]==text)} else {by_id}
+        }
+    } else {bail!("key must be a number or a string")};
+    let entity=if entity.is_empty() {"item"} else {entity};
+    ensure!(!hits.is_empty(),"unknown {entity}: {key}");
+    ensure!(hits.len()==1,"key matches more than one {entity}: {key} (use index)");
     Ok(hits[0])
 }
 

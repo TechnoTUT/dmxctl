@@ -342,8 +342,10 @@ pub struct Profile {
 
 #[derive(Default)]
 pub struct Report {
-    /// 保存できない問題
+    /// 保存できない問題(画面に出す日本語)
     pub errors: Vec<String>,
+    /// `errors` と同じ問題の英語の文(CLI・MCP の JSON に使う)
+    pub errors_en: Vec<String>,
     /// 保存はできるが、確認したほうがよい点
     pub warnings: Vec<String>,
 }
@@ -351,49 +353,55 @@ pub struct Report {
 impl Profile {
     pub fn validate(&self) -> Report {
         let mut r = Report::default();
+        fn error(r: &mut Report, ja: String, en: String) {
+            r.errors.push(ja);
+            r.errors_en.push(en);
+        }
         if self.name.trim().is_empty() {
-            r.errors.push("機材名が空です".into());
+            error(&mut r, "機材名が空です".into(), "profile name is empty".into());
         }
         if self.modes.is_empty() {
-            r.errors.push("モードが1つもありません".into());
+            error(&mut r, "モードが1つもありません".into(), "profile has no modes".into());
         }
         let mut mode_names = HashSet::new();
         for m in &self.modes {
             let mn = format!("モード「{}」", m.name);
+            let me = format!("mode \"{}\"", m.name);
             if m.name.trim().is_empty() {
-                r.errors.push("モード名が空です".into());
+                error(&mut r, "モード名が空です".into(), "mode name is empty".into());
             } else if !mode_names.insert(m.name.trim().to_string()) {
-                r.errors.push(format!("{mn}の名前が重複しています"));
+                error(&mut r, format!("{mn}の名前が重複しています"), format!("{me}: duplicate mode name"));
             }
             if m.channels.is_empty() {
-                r.errors.push(format!("{mn}にチャンネルがありません"));
+                error(&mut r, format!("{mn}にチャンネルがありません"), format!("{me}: no channels"));
             }
             if m.channels.len() > 512 {
-                r.errors.push(format!("{mn}のチャンネル数が512を超えています"));
+                error(&mut r, format!("{mn}のチャンネル数が512を超えています"), format!("{me}: more than 512 channels"));
             }
             let mut attrs = HashSet::new();
             let mut fine_targets = HashSet::new();
             for (i, c) in m.channels.iter().enumerate() {
                 let cn = format!("{mn} ch{} 「{}」", i + 1, c.name);
+                let ce = format!("{me} ch{} \"{}\"", i + 1, c.name);
                 if c.attr.trim().is_empty() {
-                    r.errors.push(format!("{cn}: 機能名が空です"));
+                    error(&mut r, format!("{cn}: 機能名が空です"), format!("{ce}: attribute is empty"));
                 } else if !attrs.insert(c.attr.trim().to_string()) {
-                    r.errors.push(format!("{cn}: 機能名「{}」がモード内で重複しています", c.attr));
+                    error(&mut r, format!("{cn}: 機能名「{}」がモード内で重複しています", c.attr), format!("{ce}: duplicate attribute {} in the mode", c.attr));
                 }
                 if let Some(n) = c.fine_of {
                     if n == 0 || n > m.channels.len() || n - 1 == i {
-                        r.errors.push(format!("{cn}: 16bitの上位チャンネルの指定が不正です"));
+                        error(&mut r, format!("{cn}: 16bitの上位チャンネルの指定が不正です"), format!("{ce}: invalid fine_of"));
                     } else if m.channels[n - 1].fine_of.is_some() {
-                        r.errors.push(format!("{cn}: 下位バイトのチャンネルを上位に指定できません"));
+                        error(&mut r, format!("{cn}: 下位バイトのチャンネルを上位に指定できません"), format!("{ce}: fine_of points to another fine channel"));
                     } else if !fine_targets.insert(n) {
-                        r.errors.push(format!("{cn}: ch{n}の下位バイトが複数指定されています"));
+                        error(&mut r, format!("{cn}: ch{n}の下位バイトが複数指定されています"), format!("{ce}: ch{n} has more than one fine channel"));
                     }
                 }
                 // レンジのないチャンネルは0〜255のスライダーになるので、レンジがあるものだけ調べる
                 if c.fine_of.is_none() && !c.ranges.is_empty() {
                     for issue in range_issues(&c.ranges) {
                         let msg = format!("{cn}: {issue}");
-                        if issue.contains("大きい") { r.errors.push(msg) } else { r.warnings.push(msg) }
+                        if issue.contains("大きい") { error(&mut r, msg, format!("{ce}: a range starts after it ends")) } else { r.warnings.push(msg) }
                     }
                 }
             }

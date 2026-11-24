@@ -236,3 +236,51 @@ fn arm_and_laser_cue_bindings_are_read_only_from_cli() {
     apply(&mut c,&json!([{"entity":"binding","op":"update","key":flash_id,"data":{"name":"白フラッシュ"}}]),false).unwrap();
     assert!(c.project.bindings.iter().any(|b|b.name=="白フラッシュ"));
 }
+
+/// #104・#111: 該当なしと複数一致を分けて知らせる。数字だけの文字列も機材 ID として選べる
+#[test]
+fn keys_report_missing_items_and_accept_numeric_strings() {
+    let mut c=core();
+    let err=get(&c,"fixture",&json!({"key":999})).unwrap_err().to_string();
+    assert!(err.contains("unknown fixture"),"{err}");
+    let err=apply(&mut c,&json!([{"entity":"effect","op":"update","key":"Nope","data":{}}]),false).unwrap_err().to_string();
+    assert!(err.contains("unknown effect"),"{err}");
+    apply(&mut c,&json!([{"entity":"fixture","op":"update","key":"1","data":{"name":"X"}}]),false).unwrap();
+    assert_eq!(c.project.fixtures[0].name,"X");
+}
+
+/// #106・#107・#117: 存在しない属性・動かない周期・重複・範囲外の色を拒む
+#[test]
+fn effects_groups_pixels_and_bindings_are_validated() {
+    let bad=[
+        json!({"entity":"effect","op":"create","data":{"name":"E","sel":{"Fixture":1},"attr":"zzz","beats":2,"enabled":true}}),
+        json!({"entity":"effect","op":"create","data":{"name":"E","sel":{"Fixture":1},"attr":"dimmer","beats":0,"rate_hz":0}}),
+        json!({"entity":"effect","op":"create","data":{"name":"E","sel":{"Fixture":1},"attr":"dimmer","beats":1e9}}),
+        json!({"entity":"group","op":"create","data":{"name":"G","fixtures":[1,1]}}),
+        json!({"entity":"fixture","op":"update","key":2,"data":{"name":"MINI SPOT 30 1"}}),
+        json!({"entity":"pixel","op":"create","data":{"name":"P","a":{"Custom":[2,-1,999]}}}),
+        json!({"entity":"pixel","op":"create","data":{"name":"P","width":1e30}}),
+        json!({"entity":"pixel","op":"create","data":{"name":"P","sel":{"Fixture":1},"enabled":true}}),
+        json!({"entity":"binding","op":"create","data":{"name":"s","action":{"SetValue":{"sel":{"Fixture":1},"attr":"nosuch","mode":"Toggle","on":1,"off":0}}}}),
+    ];
+    for op in bad {
+        let mut c=core();
+        // 名前の重複は、元の名前に合わせる
+        if op["entity"]=="fixture" {let name=c.project.fixtures[0].name.clone();let mut op=op.clone();op["data"]["name"]=json!(name);
+            assert!(apply(&mut c,&json!([op]),false).is_err(),"{op}");continue;}
+        assert!(apply(&mut c,&json!([op]),false).is_err(),"{op}");
+    }
+    let mut c=core();
+    let name=c.project.pixel_fx.first().map(|p|p.name.clone()).unwrap_or_else(||"P".into());
+    if c.project.pixel_fx.is_empty() {apply(&mut c,&json!([{"entity":"pixel","op":"create","data":{"name":name}}]),false).unwrap();}
+    assert!(apply(&mut c,&json!([{"entity":"pixel","op":"create","data":{"name":name}}]),false).is_err(),"ピクセル効果の名前は重ねられない");
+}
+
+/// #117: 機材定義の検証の失敗は英語で返す
+#[test]
+fn profile_errors_are_english() {
+    let mut c=core();
+    let profile:dmxctl_core::fixture::Profile=serde_json::from_value(json!({"id":"user/t","manufacturer":"T","name":"T","modes":[]})).unwrap();
+    let err=c.save_profile(&profile,true,true).unwrap_err().to_string();
+    assert!(err.contains("profile has no modes"),"{err}");
+}

@@ -93,8 +93,16 @@ impl Host {
         }
         let mut project = if options.project.is_some() {
             anyhow::ensure!(lib_errors.is_empty(), "fixture errors: {}", lib_errors.join("; "));
-            let text = std::fs::read_to_string(&path)?;
-            let project: Project = serde_json::from_str(text.trim_start_matches('\u{feff}'))?;
+            anyhow::ensure!(path.exists(), "project file not found: {}", path.display());
+            // --project でも、新しい版で保存したファイルは、読めない項目だけ既定値にして起動する(元のファイルは別名で残す)
+            let (project, skipped) = Project::load_lenient(&path)?;
+            if !skipped.is_empty() {
+                let saved = Project::backup_broken(&path);
+                notice = format!("この版では読めない項目を既定値にしました({})。{}", skipped.join(", "),
+                    saved.as_ref().map(|p| format!("元のファイルは {} に残しました。", p.display())).unwrap_or_default());
+                eprintln!("{}", serde_json::json!({"warning":"some project fields could not be read by this version and were reset to defaults",
+                    "fields":skipped,"original_saved_to":saved}));
+            }
             crate::commands::validate(&project, &lib)?;
             project
         } else { match Project::load_lenient(&path) {
@@ -118,10 +126,13 @@ impl Host {
             }
         }};
         // 全体光量を右端のフェーダーに初期割り当て(既存のプロジェクトにも、一度だけ)
-        if project.seed_master_binding() == Some(false) {
+        let seeded = project.seed_master_binding();
+        if seeded == Some(false) {
             notice = format!("{notice} 右端のフェーダーは別の用途で使われているため、全体光量は未割り当てです(MIDIタブで割り当てられます)");
         }
         let mut initial_core=Core::new(project,lib);
+        // 割り当てを足したら、保存していない変更として扱う(project diff の差分と dirty をそろえる)
+        initial_core.dirty |= seeded.is_some();
         initial_core.rt.project_path=Some(path.clone());
         let core: Shared = Arc::new(Mutex::new(initial_core));
         // 初回のoutput_gen(0)でエンジンが出力を組み立てる
