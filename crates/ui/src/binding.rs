@@ -27,6 +27,8 @@ impl<'a> EditCtx<'a> {
 pub struct Learn<'a> {
     pub midi: &'a mut Option<usize>,
     pub osc: &'a mut Option<usize>,
+    /// LAN のクライアントが始めたラーンか(`Runtime::learn_guarded`)。この画面で始め直したら、制限を外す
+    pub guarded: &'a mut bool,
 }
 
 #[derive(Default)]
@@ -140,6 +142,7 @@ pub fn binding_editor(ui: &mut egui::Ui, i: usize, b: &mut Binding, learn: Learn
             if ui.selectable_label(learning, text).clicked() {
                 *learn.midi = if learning { None } else { Some(i) };
                 *learn.osc = None;
+                *learn.guarded = false;
             }
             let trig = b.trigger.map(|t| t.label()).unwrap_or_else(|| "(未設定)".into());
             ui.label(RichText::new(trig).strong());
@@ -171,6 +174,7 @@ pub fn binding_editor(ui: &mut egui::Ui, i: usize, b: &mut Binding, learn: Learn
             if ui.selectable_label(learning, if learning { "待機中... OSCを送ってください" } else { "OSCラーン" }).clicked() {
                 *learn.osc = if learning { None } else { Some(i) };
                 *learn.midi = None;
+                *learn.guarded = false;
             }
         });
         ui.horizontal_wrapped(|ui| {

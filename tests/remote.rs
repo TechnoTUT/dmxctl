@@ -139,6 +139,18 @@ fn a_gui_client_opens_server_files_and_files_from_its_own_pc() {
     }
     assert_eq!(lock(&server.core).project.fixtures[0].name, "from client pc");
 
+    // 安全の設定(レーザーの動いてよい範囲)が変わるファイルは、--remote-allow-safety-edit が無ければ開けない
+    let mut wide = Project::starter(&lib);
+    wide.fixtures[0].name = "wide laser".into();
+    let laser = wide.fixtures.iter().position(|f| f.profile == "stage-evolution/laserscan300").unwrap();
+    wide.fixtures[laser].limits.insert("pan".into(), [0, 255]);
+    let local = std::env::temp_dir().join(format!("dmxctl-remote-wide-{}.json", std::process::id()));
+    wide.save(&local).unwrap();
+    app.host.open_local_file(&local);
+    run(&mut app, &mut server, &mut |_, server| server.notice.contains("--remote-allow-safety-edit"));
+    assert_eq!(lock(&server.core).project.fixtures[0].name, "from client pc", "読み込まれていない");
+    std::fs::remove_file(&local).unwrap();
+
     app.shutdown();
     drop(app);
     server.shutdown();

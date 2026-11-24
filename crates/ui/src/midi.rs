@@ -40,7 +40,7 @@ impl App {
 
         egui::ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
             for (i, b) in core.project.bindings.iter_mut().enumerate() {
-                let out = binding_editor(ui, i, b, Learn { midi: &mut core.rt.learn, osc: &mut core.rt.osc_learn }, &cx);
+                let out = binding_editor(ui, i, b, Learn { midi: &mut core.rt.learn, osc: &mut core.rt.osc_learn, guarded: &mut core.rt.learn_guarded }, &cx);
                 changed |= out.changed;
                 if out.remove {
                     remove = Some(i);

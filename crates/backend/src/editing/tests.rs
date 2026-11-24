@@ -26,7 +26,7 @@ fn all_project_entities_can_be_created_in_one_checked_batch() {
         {"entity":"chase","op":"create","data":{"name":"Chase","steps":["Intro"]}},
         {"entity":"pair","op":"create","data":{"name":"Pair","leader":1,"follower":3}},
         {"entity":"binding","op":"create","data":{"name":"Intro button","action":{"Scene":{"name":"Intro"}}}},
-        {"entity":"output","op":"create","data":{"universe":0}},
+        {"entity":"output","op":"create","data":{"universe":3}},
         {"entity":"auto_preset","op":"create","data":{"name":"Custom"}},
         {"entity":"settings","op":"update","data":{"bpm":128,"auto":{"preset":2}}}
     ]),false).unwrap();

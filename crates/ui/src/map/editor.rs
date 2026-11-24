@@ -45,7 +45,7 @@ pub(super) fn control_editor(ui: &mut egui::Ui, core: &mut Core, ctl: Ctl, page:
         ui.label(RichText::new("まだ割り当てがありません。").color(theme::TEXT_DIM));
     }
     for i in idxs {
-        let learn = Learn { midi: &mut core.rt.learn, osc: &mut core.rt.osc_learn };
+        let learn = Learn { midi: &mut core.rt.learn, osc: &mut core.rt.osc_learn, guarded: &mut core.rt.learn_guarded };
         let r = binding_editor(ui, i, &mut core.project.bindings[i], learn, cx);
         out.changed |= r.changed;
         if r.remove {
